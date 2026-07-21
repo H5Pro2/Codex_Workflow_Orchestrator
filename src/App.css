@@ -43,7 +43,7 @@
 .codexPicker {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(210px, 300px) minmax(280px, 420px) auto;
+  grid-template-columns: minmax(210px, 300px) 320px auto;
 }
 
 .projectStatusButton {
