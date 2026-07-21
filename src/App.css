@@ -1208,7 +1208,7 @@ label {
 }
 
 .statusFilterInfo {
-  background: #151d23;
+  background: transparent;
   border-left: 2px solid #3d6f74;
   color: #aebdca;
   margin-top: 12px;
@@ -1216,7 +1216,7 @@ label {
 }
 
 .statusFilterSummary {
-  background: #141a1f;
+  background: transparent;
   border: 1px solid #34414b;
   border-radius: 5px;
   display: grid;
@@ -1227,7 +1227,7 @@ label {
 .statusFilterSummary > label {
   color: #b6c2cc;
   display: grid;
-  font-size: 11px;
+  font-size: 12px;
   gap: 6px;
 }
 
@@ -1241,7 +1241,7 @@ label {
 
 .statusFilterDescription > span {
   color: #9eafb9;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
