@@ -566,6 +566,28 @@ h2 {
   overflow: hidden;
 }
 
+.emptyWorkspace {
+  overflow: hidden;
+}
+
+.emptyAgentChat {
+  color: var(--muted);
+}
+
+.emptyChatBody {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  min-height: 0;
+  padding: 24px;
+  text-align: center;
+}
+
+.emptyChatBody p {
+  margin: 0;
+}
+
 .chatHeader {
   align-items: center;
   border-bottom: 1px solid var(--line);

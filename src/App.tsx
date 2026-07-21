@@ -3721,7 +3721,7 @@ function App() {
           )}
         </aside>
 
-        {selectedAgent && (
+        {selectedAgent ? (
           <section className="workspace">
             <div className="panelHeader">
               <div>
@@ -3968,6 +3968,27 @@ function App() {
                 </form>
               </section>
             )}
+          </section>
+        ) : (
+          <section className="workspace emptyWorkspace" aria-label={tx('Leerer Agenten-Chat', 'Empty agent chat')}>
+            <div className="panelHeader">
+              <div>
+                <p className="eyebrow">{tx('Agenten-Chat', 'Agent chat')}</p>
+                <h2>{selectedProject?.label ?? tx('Kein Projekt', 'No project')}</h2>
+              </div>
+            </div>
+            <section className="agentChat emptyAgentChat">
+              <div className="chatHeader">
+                <div>
+                  <strong>Codex-Chat</strong>
+                  <small>{selectedProject?.label ?? tx('Kein Projekt', 'No project')}</small>
+                </div>
+                <span className="liveIndicator">{tx('Bereit', 'Ready')}</span>
+              </div>
+              <div className="emptyChatBody">
+                <p>{tx('Noch kein Agent vorhanden.', 'No agent available yet.')}</p>
+              </div>
+            </section>
           </section>
         )}
 

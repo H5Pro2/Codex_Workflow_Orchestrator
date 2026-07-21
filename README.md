@@ -21,7 +21,7 @@ Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der Codex-Ch
 
 ### Agenten-Chat
 
-Die Hauptansicht kombiniert Projektauswahl, Agentenliste, laufenden Codex-Chat und Ablaufprotokoll. Eingaben können direkt an den ausgewählten Agenten gesendet werden. Aktivität, Laufzeit und letzter Zustand bleiben dabei sichtbar.
+Die Hauptansicht kombiniert Projektauswahl, Agentenliste, laufenden Codex-Chat und Ablaufprotokoll. Eingaben können direkt an den ausgewählten Agenten gesendet werden. Aktivität, Laufzeit und letzter Zustand bleiben dabei sichtbar. Bei neuen Projekten ohne Agenten bleibt die Aufteilung mit einem neutralen leeren Chat-Bereich stabil.
 
 ### Agenten-Setup
 
