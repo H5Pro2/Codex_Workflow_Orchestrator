@@ -1208,11 +1208,8 @@ label {
 }
 
 .statusFilterReadout {
-  background: #111820;
-  border: 1px solid #2c425b;
   display: grid;
-  gap: 5px;
-  padding: 12px;
+  gap: 3px;
 }
 
 .statusFilterReadout > span {
@@ -1222,11 +1219,11 @@ label {
 }
 
 .statusFilterReadout > strong {
-  color: #e6f5ff;
+  color: inherit;
 }
 
 .statusFilterReadout > small {
-  color: #b3c2d4;
+  color: var(--muted);
   line-height: 1.45;
 }
 
