@@ -160,6 +160,7 @@ type WorkflowTimer = {
   startAt: string
   intervalValue: number
   intervalUnit: 'minutes' | 'hours' | 'days' | 'weeks' | 'time'
+  recurring?: boolean
   enabled: boolean
   nextRunAt: string
   lastRunAt: string
@@ -2868,6 +2869,7 @@ function App() {
       startAt,
       intervalValue: 30,
       intervalUnit: 'minutes',
+      recurring: true,
       enabled: false,
       nextRunAt: new Date(Date.now() + 30 * 60_000).toISOString(),
       lastRunAt: '',
@@ -3185,7 +3187,7 @@ function App() {
             if (!success) {
               return { ...item, nextRunAt: new Date(Date.now() + 60_000).toISOString() }
             }
-            if (item.schedule === 'once') {
+            if (item.schedule === 'once' || item.recurring === false) {
               return { ...item, enabled: false, lastRunAt: firedAt, nextRunAt: '' }
             }
             return { ...item, lastRunAt: firedAt, nextRunAt: nextTimerRun(item) }
@@ -4635,6 +4637,18 @@ function App() {
                 </label>
               ) : (
                 <div className="timerIntervalField">
+                  <label>
+                    Ausführung
+                    <select
+                      value={selectedTimer.recurring === false ? 'once' : 'recurring'}
+                      onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
+                        recurring: event.target.value === 'recurring',
+                      })}
+                    >
+                      <option value="recurring">Wiederkehrend</option>
+                      <option value="once">Einmalig</option>
+                    </select>
+                  </label>
                   {selectedTimer.intervalUnit === 'time' ? (
                     <label>
                       Startzeit
