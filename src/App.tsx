@@ -907,6 +907,7 @@ function App() {
   const [sharedStateReady, setSharedStateReady] = useState(false)
   const sharedStateVersion = useRef('')
   const sharedStateDirty = useRef(false)
+  const autoRunRef = useRef(autoRun)
   const pollingTurnIds = useRef(new Set<string>())
   const terminalResultObservations = useRef(new Map<string, number>())
   const chatStreamRef = useRef<HTMLDivElement>(null)
@@ -927,6 +928,10 @@ function App() {
     window.addEventListener('pointerdown', closeMenusOnOutsideClick)
     return () => window.removeEventListener('pointerdown', closeMenusOnOutsideClick)
   }, [])
+
+  useEffect(() => {
+    autoRunRef.current = autoRun
+  }, [autoRun])
 
   useEffect(() => {
     setAgents((current) => {
@@ -2223,6 +2228,10 @@ function App() {
   }
 
   const handoff = useCallback(async (agent: Agent) => {
+    if (!autoRunRef.current) {
+      addEvent('Weitergabe blockiert', `${agent.name}: Die Automatik ist ausgeschaltet.`)
+      return
+    }
     const activeRoutes = routes.filter(
       (route) =>
         route.sourceId === agent.id &&
@@ -2991,12 +3000,14 @@ function App() {
   const toggleAutomation = () => {
     if (autoRun) {
       sharedStateDirty.current = true
+      autoRunRef.current = false
       setAutoRun(false)
       setTransmittingAgentIds([])
       addEvent('Automatik gestoppt', 'Weitere fertige Ergebnisse werden nicht automatisch weitergegeben.')
       return
     }
     sharedStateDirty.current = true
+    autoRunRef.current = true
     setAutoRun(true)
     addEvent('Automatik gestartet', 'Initial-Anfragen und automatische Weitergaben sind aktiviert.')
     void startInitialWorkflows()
