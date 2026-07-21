@@ -1,216 +1,169 @@
 # Codex Workflow Orchestrator
 
-![Codex Workflow Orchestrator Oberfläche](bilder/Gui_Overlay.PNG)
+![Hauptansicht des Codex Workflow Orchestrators](bilder/Gui_Overlay.PNG)
 
-Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der sich Codex-Chats als Agenten zu einem kontrollierten Workflow verbinden lassen.
+Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der Codex-Chats als spezialisierte Agenten organisiert, verbunden und automatisiert ausgeführt werden können. Projekte, Chats, Rollen, Arbeitsanweisungen, Statusregeln und Workflow-Verbindungen werden an einer Stelle verwaltet.
 
-Ein Agent entspricht einem Codex-Chat innerhalb eines Projekts. Für jeden Agenten können Rolle, Modell, Prompt-Dateien, Statusregeln und Verbindungen getrennt verwaltet werden. Ergebnisse werden über den lokalen Codex-Connector gelesen und abhängig vom Workflow an den nächsten Agenten übergeben.
+## Funktionsumfang
 
-Die Oberfläche kann oben rechts vollständig zwischen Deutsch (`DE`) und Englisch (`EN`) umgeschaltet werden. Navigation, Schaltflächen, Statusanzeigen, Dialoge, Formulare, Dashboard-Werkzeuge und Systemmeldungen wechseln unmittelbar die Sprache. Gespeicherte Projektinhalte wie Agentennamen, Prompt-Texte, eigene Workflow-Status und Chatverläufe werden dabei nicht verändert.
+- Codex-Projekte und zugehörige Chats über den lokalen Connector einlesen
+- Chats als Agenten übernehmen, erstellen, umbenennen, ausblenden und archivieren
+- Rollen, Modelle und Statusfreigaben pro Agent konfigurieren
+- mehrere Prompt-Dateien pro Agent verwalten
+- direkte Nachrichten an einzelne Codex-Chats senden
+- individuelle Workflows visuell aus Agenten und Werkzeugen aufbauen
+- Ergebnisse anhand frei definierbarer Workflow-Status weiterleiten
+- zeitgesteuerte Aufgaben einmalig oder wiederkehrend auslösen
+- Laufstatus, Dauer, Chatverlauf und Ereignisprotokoll verfolgen
+- die Bedienoberfläche zwischen Deutsch und Englisch umschalten
 
-## Was das Programm kann
+## Oberfläche
 
-### Projekte und Codex-Chats
+### Agenten-Chat
 
-- Liest lokale Codex-Projekte und deren Chats über den Codex-App-Server ein.
-- Zeigt in der Agentenübersicht nur die Chats des aktuell ausgewählten Projekts.
-- Übernimmt Umbenennungen von Codex-Chats in die Agentenübersicht.
-- Erstellt neue Agenten beziehungsweise Codex-Chats über den lokalen Connector.
-- Archiviert gelöschte Agenten und hält die Orchestrator-Daten mit dem Codex-Projekt synchron.
-- Speichert das zuletzt ausgewählte Projekt.
+Die Hauptansicht kombiniert Projektauswahl, Agentenliste, laufenden Codex-Chat und Ablaufprotokoll. Eingaben können direkt an den ausgewählten Agenten gesendet werden. Aktivität, Laufzeit und letzter Zustand bleiben dabei sichtbar.
 
-### Agenten
+### Agenten-Setup
 
-Für jeden Agenten gibt es:
+Im Setup werden Name, Rolle, Modell und die für den Agenten erlaubten Workflow-Status festgelegt. Die automatische Weitergabe kann pro Agent aktiviert oder deaktiviert werden.
 
-- einen eigenen Codex-Chat für direkte Nachrichten,
-- ein separates Setup für Name, Rolle und Modell,
-- eine eigene Workflow-Verdrahtung,
-- einen eigenen Status- und Prompt-Kontext,
-- Laufstatus, Dauer und Aktivitätsanzeige.
-
-Die Verdrahtung eines Agenten ist nicht global. Jeder Agent besitzt sein eigenes Dashboard und seine eigenen gespeicherten Positionen und Verbindungen.
+![Agenten-Setup](bilder/Agenten_Setup.PNG)
 
 ### Prompt-Dateien
 
-Ein Agent kann mehrere Prompt-Dateien verwalten. Jede Datei besitzt einen Namen, einen Inhalt und einen Pfad im Projekt, zum Beispiel:
+Jeder Agent kann mehrere Arbeitsanweisungen als Markdown-Dateien besitzen. Dateien lassen sich erstellen, auswählen, umbenennen und bearbeiten. `Speichern und übergeben` schreibt die Datei und sendet geänderte Inhalte nach Bestätigung an den zugeordneten Codex-Chat.
+
+![Editor für Prompt-Dateien](bilder/Prompt_Overlay.PNG)
+
+Die Dateien liegen projektbezogen unter:
 
 ```text
-.codex-orchestrator/prompts/<agent-id>/Anweisung.md
-.codex-orchestrator/prompts/<agent-id>/Projektliste.md
+.codex-orchestrator/prompts/<agent-id>/<dateiname>.md
 ```
 
-Über `P` wird das Prompt-Fenster geöffnet. Dort kann eine Datei ausgewählt, bearbeitet, erstellt und umbenannt werden. Beim Speichern wird die Datei nur dann an den Codex-Chat übergeben, wenn sich ihr Inhalt tatsächlich geändert hat. Vor der Übergabe erscheint eine Bestätigung.
+Unveränderte Inhalte werden nicht erneut versendet.
 
 ### Workflow-Dashboard
 
-Über `D` wird das Workflow-Dashboard als separates Fenster geöffnet. Dort können Agenten und Workflow-Bausteine miteinander verbunden werden:
+Jeder Agent besitzt eine eigene gespeicherte Verdrahtung. Verbindungen verlaufen immer vom Ausgang `Out` zum Eingang `In`. Agenten können aus der Seitenleiste in das Dashboard gezogen und dort mit Werkzeugen verbunden werden.
 
-```text
-Initial -> CEO -> Statusfilter -> Entwickler
-```
+![Workflow-Dashboard mit mehreren Statusrouten](bilder/Workflow_Dashboard.PNG)
 
-Die Anschlüsse sind eindeutig:
+Die kompakten Aktionen im Dashboard sind:
 
-- `In` ist der Eingang eines Bausteins.
-- `Out` ist der Ausgang eines Bausteins.
-- Eine Verbindung verläuft immer von `Out` zu `In`.
+- `A`: Bausteine automatisch anordnen
+- `S`: Statusfreigaben des Agenten bearbeiten
+- `T`: Werkzeugpalette öffnen
 
-Das Dashboard unterstützt:
+### Statusauswahl
 
-- Agenten per Drag-and-drop hinzufügen,
-- Agenten individuell verdrahten,
-- Initial-Bausteine für den Workflow-Start,
-- Statusfilter für bedingte Weiterleitungen,
-- Stopp-Bausteine zum kontrollierten Beenden eines Pfades,
-- Zeitplan-Bausteine für einmalige Kalendertermine und wiederkehrende Aufgaben,
-- automatische Anordnung der Bausteine,
-- Auswahl, Verschieben und Löschen von Verbindungen.
+Über `S` werden die Status festgelegt, die der jeweilige Agent verwenden darf. Name und Bedeutung stammen aus dem projektweiten Status-Setup.
 
-Bausteine werden per Doppelklick konfiguriert. Ein einfacher Klick wählt einen Baustein oder eine Verbindung aus. Agenten in der linken Übersicht werden dagegen nur per einfachem Klick ausgewählt.
+![Statusauswahl eines Agenten](bilder/Statusliste.PNG)
 
-### Initial-Baustein
+### Workflow-Werkzeuge
 
-Der Initial-Baustein startet einen Ablauf. Er wird mit seinem `Out`-Anschluss an den `In`-Anschluss des ersten Agenten verbunden. Beim Start der Automatik wird die hinterlegte Startanweisung an diesen Agenten gesendet.
+![Werkzeugpalette des Workflow-Dashboards](bilder/Tools.PNG)
+
+| Werkzeug | Aufgabe |
+| --- | --- |
+| Initial | Sendet beim Start eine Anfangsanweisung an den verbundenen Agenten. |
+| Status | Lässt nur Ergebnisse mit dem ausgewählten Workflow-Status passieren. |
+| Stopp | Beendet den Workflow-Pfad an dieser Stelle. |
+| Zeitplan | Sendet eine Aufgabe einmalig, in einem Intervall oder zu einer festen Uhrzeit. |
+
+Bausteine werden per Doppelklick konfiguriert. Ein einfacher Klick wählt einen Baustein oder eine Verbindung aus. Konfigurationsdialoge enthalten auch die jeweilige Löschfunktion.
+
+## Workflow-Status
+
+Status werden projektweit im `Status-Setup` angelegt. Jeder Eintrag besteht aus einem Namen und einer eindeutigen Bedeutung. Im Agenten-Setup wird ausgewählt, welche Status der Agent verwenden darf. Dadurch erhält der Agent die erlaubten Status samt Beschreibung automatisch als Arbeitskontext.
 
 Beispiel:
-
-```text
-Initial -> CEO
-```
-
-Der CEO erhält dann die Startanweisung, verarbeitet sie in seinem Codex-Chat und gibt sein Ergebnis gemäß der weiteren Verdrahtung weiter.
-
-### Zeitplan-Baustein
-
-Der Zeitplan-Baustein sendet eine hinterlegte Aufgabe zeitgesteuert an direkt verbundene Agenten. In der Konfiguration stehen zwei getrennte Arten zur Auswahl:
-
-- **Timer:** führt die Aufgabe wahlweise einmalig oder wiederkehrend aus. Wiederkehrende Läufe verwenden Minuten-, Stunden-, Tages- oder Wochenintervalle beziehungsweise eine feste tägliche Uhrzeit.
-- **Kalender:** führt die Aufgabe einmalig zu einem festgelegten Datum mit Uhrzeit aus.
-
-```text
-Zeitplan -> Agent
-```
-
-Ein Zeitplan wird nur ausgeführt, wenn er aktiviert ist und die Workflow-Automatik läuft. Ist ein Zielagent noch beschäftigt, wartet der Baustein, bis der Agent wieder verfügbar ist. Termine und nächste Ausführung werden im gemeinsamen Orchestrator-Zustand gespeichert.
-
-### Workflow-Status
-
-Statussignale steuern die Weiterleitung. Die projektweite Statusliste enthält einen Statusnamen und seine Bedeutung, zum Beispiel:
 
 | Status | Bedeutung |
 | --- | --- |
 | `Weiterleitung` | Das Ergebnis soll an den nächsten Agenten übergeben werden. |
 | `Überarbeiten` | Das Ergebnis muss erneut geprüft oder korrigiert werden. |
 
-Eigene Status werden projektweit über den Button `Status-Setup` im Projektbereich ergänzt, bearbeitet und gelöscht. Die Bedeutung wird den Agenten als Kontext erklärt. Im Agenten-Setup wird ausgewählt, welche dieser Status der jeweilige Agent verwenden darf. Dieselbe Auswahl ist kompakt über den Button `S` im Workflow-Dashboard erreichbar. Sie gilt für alle Prompt-Dateien des Agenten; die vollständige Beschreibung muss dort nicht erneut geschrieben werden.
-
-Ein Statusfilter prüft ein Ergebnis auf einen ausgewählten Status. Nur passende Ergebnisse passieren diesen Baustein:
+Der Agent gibt am Ende seiner Antwort einen passenden `workflow_status` aus. Ein Statusfilter vergleicht dieses Signal mit seiner Konfiguration und aktiviert nur den passenden Ausgangspfad.
 
 ```text
-Programmierer -> Statusfilter „Weiterleitung“ -> Entwickler
-Programmierer -> Statusfilter „Überarbeiten“ -> Entwickler
+Agent -> Statusfilter "Weiterleitung" -> nächster Agent
+      -> Statusfilter "Überarbeiten"  -> Prüfung oder Rückgabe
 ```
 
-Beide Wege können zum selben Agenten führen, obwohl sie unterschiedliche Arbeitsschritte auslösen.
+Statussignale beschreiben die Route des Ergebnisses. Der technische Abschluss eines einzelnen Codex-Laufs wird davon getrennt behandelt.
 
-### Abschlussformat und Weitergabe
+## Automatik
 
-Damit die Automatik zuverlässig arbeiten kann, muss der Agent am Ende seiner Antwort ein maschinenlesbares Ergebnis liefern. Das Signal steht am Ende der Antwort, nicht am Anfang. Ein Beispiel:
+`Auto Start` aktiviert die Ausführung des verbundenen Workflows. Initial-Bausteine senden ihre Startanweisung, der Connector überwacht laufende Agenten und passende Ergebnisse werden entlang der Verdrahtung weitergegeben.
 
-```json
-{
-  "status": "fertig",
-  "kurzfassung": "Die Aufgabe wurde abgeschlossen.",
-  "naechste_aufgabe": "Das Ergebnis prüfen.",
-  "weitergabe_an": "Entwickler",
-  "workflow_status": ["Weiterleitung"]
-}
+`Auto Stop` blockiert neue automatische Aktionen:
+
+- keine neuen Initial-Anfragen
+- keine neue Kommunikation zwischen Agenten
+- keine Ausführung fälliger Zeitpläne
+- keine neue automatische Weitergabe
+- ruhende Verbindungsanimationen
+
+Ein Agent, der beim Stoppen bereits arbeitet, darf seinen laufenden Codex-Turn noch abschließen. Danach wird keine weitere Route gestartet. Direkte Chat-Nachrichten und manuelle Prompt-Übergaben bleiben auch bei ausgeschalteter Automatik verfügbar.
+
+## Zeitpläne
+
+Ein Zeitplan enthält eine Aufgabe und wird mit dem Zielagenten verbunden.
+
+```text
+Zeitplan -> Agent
 ```
 
-Wichtig:
+Unterstützt werden:
 
-- `status` beschreibt den Abschluss des aktuellen Codex-Laufs.
-- `workflow_status` beschreibt die gewünschte Workflow-Route.
-- Ein Statusfilter verwendet den Wert aus `workflow_status`.
-- Die Weitergabe erfolgt nur, wenn Automatik aktiv ist, ein passender Statusfilter verbunden ist und ein gültiges Signal erkannt wurde.
-- Ohne passenden Status bleibt das Ergebnis im aktuellen Agenten.
+- einmalige Ausführung
+- wiederkehrende Intervalle in Minuten, Stunden, Tagen oder Wochen
+- wiederkehrende Ausführung zu einer festen Uhrzeit
+- einmalige Kalendertermine mit Datum und Uhrzeit
 
-Die Oberfläche trennt deshalb die Rückmeldung `Fertig` von der Workflow-Entscheidung `Weiterleitung` oder `Überarbeiten`. Ein Agent kann fertig mit seiner aktuellen Aufgabe sein und trotzdem über einen Workflow-Status den nächsten Schritt auslösen.
+Zeitpläne werden nur ausgeführt, wenn der Baustein aktiviert ist und die Automatik läuft. Ist der Zielagent beschäftigt, wartet die Ausführung auf einen freien Zustand.
 
-## Automatik und Offline-Modus
+## Typischer Ablauf
 
-`Auto Start` aktiviert Initial-Anfragen, Ergebnisüberwachung und automatische Weitergaben. Während die Automatik läuft, werden aktive Agenten und laufende Verbindungen visuell angezeigt.
+1. Ein Codex-Projekt auswählen.
+2. Vorhandene Chats in der Agenten-Übersicht aktivieren oder einen Agenten erstellen.
+3. Rolle, Modell und erlaubte Workflow-Status im Agenten-Setup festlegen.
+4. Über `P` eine oder mehrere Prompt-Dateien einrichten und übergeben.
+5. Über `D` das Dashboard öffnen.
+6. Agenten und Werkzeuge von `Out` nach `In` verbinden.
+7. Bausteine konfigurieren und den Ablauf mit `Auto Start` auslösen.
+8. Ergebnisse im Agenten-Chat und im einklappbaren Ereignisprotokoll verfolgen.
 
-Nach `Auto Stop` gilt:
+## Installation und Start
 
-- keine Initial-Anfragen,
-- keine automatische Weitergabe,
-- keine Ausführung fälliger Zeitpläne,
-- keine weitere Workflow-Kommunikation zwischen Agenten,
-- keine animierten Verbindungen,
-- direkte Chat-Nachrichten und manuelle Prompt-Übergaben bleiben möglich.
-
-Die Automatik wird im lokalen Zustand gespeichert und bleibt beim Neuladen erhalten.
-
-## Bedienung
-
-1. Oben ein Codex-Projekt auswählen.
-2. Einen vorhandenen Agenten auswählen oder über `+ Agent` einen neuen Codex-Chat anlegen.
-3. Mit `P` die Prompt-Dateien verwalten.
-4. Mit dem Zahnrad das Agenten-Setup öffnen.
-5. Mit `D` das individuelle Workflow-Dashboard öffnen.
-6. Agenten und Bausteine verbinden: immer `Out` zu `In`.
-7. Einen Initial-Baustein mit dem ersten Agenten verbinden.
-8. Statusfilter für die gewünschten Weiterleitungswege konfigurieren.
-9. `Auto Start` drücken und den Ablauf im Chat und Ereignisprotokoll verfolgen.
-
-Das Ereignisprotokoll zeigt unter anderem Chat-Nachrichten, Übergaben, empfangene Ergebnisse, Statusfilter, Fehler und gestoppte Pfade. Der Bereich kann eingeklappt werden, damit der Chat mehr Platz erhält.
-
-## Voraussetzungen
+### Voraussetzungen
 
 - Windows
 - Node.js mit `npm`
-- eine lokal angemeldete Codex-Installation
-- Zugriff des lokalen Connectors auf den Codex-App-Server
+- lokal angemeldete Codex-Installation
+- Zugriff des Connectors auf den lokalen Codex-App-Server
 
-Der Connector verwendet das mitgelieferte Paket `@openai/codex`. Es ist keine zusätzliche OpenAI-API-Abrechnung für die lokale Connector-Kommunikation erforderlich; die Nutzung richtet sich nach der vorhandenen Codex-Installation und deren Konto.
-
-## Start
-
-Am einfachsten ist ein Doppelklick auf:
+Am einfachsten startet die Anwendung per Doppelklick auf:
 
 ```text
 start.bat
 ```
 
-Das Startskript:
-
-1. installiert fehlende Abhängigkeiten,
-2. startet den lokalen Connector auf Port `4317`,
-3. startet die Weboberfläche auf Port `5173`,
-4. öffnet anschließend:
+Das Skript installiert fehlende Abhängigkeiten, startet den Connector auf Port `4317`, startet die Weboberfläche auf Port `5173` und öffnet anschließend:
 
 ```text
 http://127.0.0.1:5173/
 ```
 
-Alternativ kann die Anwendung manuell gestartet werden:
+Alternativ:
 
 ```powershell
 npm install
 npm run bridge
 npm run dev -- --host 127.0.0.1
 ```
-
-## Entwicklung und Prüfung
-
-```powershell
-npm run lint
-npm run build
-```
-
-Die Produktionsausgabe liegt in `dist/`. Lokale Zustände, Token und Chatdaten werden nicht versioniert.
 
 ## Architektur
 
@@ -235,22 +188,19 @@ server/bridge.mjs    Lokaler Connector zum Codex-App-Server
 start.bat            Windows-Startskript
 ```
 
-Die Konfiguration wird lokal im Orchestrator-Zustand gespeichert. Prompt-Dateien werden projektbezogen unter `.codex-orchestrator/prompts/` geführt.
+Der Orchestrator-Zustand wird lokal gespeichert. Prompt-Dateien werden im jeweiligen Projekt unter `.codex-orchestrator/prompts/` verwaltet. Lokale Zustände, Zugangsdaten und Chatdaten werden nicht versioniert.
 
-## Grenzen
+## Entwicklung und Prüfung
 
-- Der Orchestrator arbeitet über den lokalen Codex-App-Server und ist keine Cloud-Synchronisation zwischen mehreren Rechnern.
-- Bereits geöffnete Codex-Ansichten können ihre eigene Aktualisierung benötigen, obwohl der Connector die Änderung bereits übernommen hat.
-- Automatische Weitergabe funktioniert nur mit einem gültigen Abschlussformat, einem passenden Workflow-Status und einer verbundenen Zielroute.
-- Der Orchestrator entscheidet nicht selbst über den fachlichen Inhalt. Die Agenten müssen weiterhin mit sinnvollen Rollen und Arbeitsanweisungen eingerichtet werden.
-
-## Nächster Schwerpunkt
-
-Als nächster reproduzierbarer Test sollte ein vollständiger Workflow mit einem eigenen Testprojekt eingerichtet werden:
-
-```text
-Initial -> Analyse -> Entwicklung -> Stopp
-                    \-> Überarbeiten -> Analyse
+```powershell
+npm run lint
+npm run build
 ```
 
-Dabei sollte geprüft werden, ob jedes Ergebnis den richtigen Workflow-Status am Ende ausgibt und ob die Rückroute nachvollziehbar dokumentiert wird.
+Die Produktionsausgabe wird unter `dist/` erzeugt.
+
+## Bekannte Grenzen
+
+- Bereits geöffnete Codex-Ansichten können eine eigene Aktualisierung benötigen, obwohl der Connector eine Änderung bereits verarbeitet hat.
+- Automatische Routen benötigen ein auswertbares Ergebnis, einen passenden Workflow-Status und eine gültige Verbindung.
+- Rollen, Arbeitsanweisungen und Statusbedeutungen müssen für den jeweiligen Ablauf eindeutig formuliert sein.
