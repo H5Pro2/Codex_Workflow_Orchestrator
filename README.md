@@ -101,7 +101,7 @@ Statussignale steuern die Weiterleitung. Die projektweite Statusliste enthält e
 | `Weiterleitung` | Das Ergebnis soll an den nächsten Agenten übergeben werden. |
 | `Überarbeiten` | Das Ergebnis muss erneut geprüft oder korrigiert werden. |
 
-Eigene Status können im Setup ergänzt, bearbeitet und gelöscht werden. Die Bedeutung wird den Agenten als Kontext erklärt. Im Prompt muss daher nicht jedes Mal die vollständige Beschreibung wiederholt werden.
+Eigene Status werden projektweit über den Button `Status` im Projektbereich ergänzt, bearbeitet und gelöscht. Die Bedeutung wird den Agenten als Kontext erklärt. Im Prompt-Fenster wird nur ausgewählt, welche dieser Status der jeweilige Agent verwenden darf; die vollständige Beschreibung muss dort nicht erneut geschrieben werden.
 
 Ein Statusfilter prüft ein Ergebnis auf einen ausgewählten Status. Nur passende Ergebnisse passieren diesen Baustein:
 

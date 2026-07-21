@@ -1013,6 +1013,7 @@ function App() {
   const [selectedTimerId, setSelectedTimerId] = useState('')
   const [newWorkflowStatusName, setNewWorkflowStatusName] = useState('')
   const [newWorkflowStatusDescription, setNewWorkflowStatusDescription] = useState('')
+  const [statusLibraryOpen, setStatusLibraryOpen] = useState(false)
   const [editingWorkflowStatusId, setEditingWorkflowStatusId] = useState('')
   const [editingWorkflowStatusName, setEditingWorkflowStatusName] = useState('')
   const [editingWorkflowStatusDescription, setEditingWorkflowStatusDescription] = useState('')
@@ -3470,6 +3471,14 @@ function App() {
                 })}
               </div>
             </details>
+            <button
+              className="projectStatusButton"
+              onClick={() => setStatusLibraryOpen(true)}
+              title="Projektweite Status konfigurieren"
+              type="button"
+            >
+              Status
+            </button>
           </div>
         </div>
         <div className={`connectorState ${connectorOnline ? 'online' : 'offline'}`}>
@@ -3711,61 +3720,6 @@ function App() {
               </label>
             </div>
 
-            <section className="workflowStatusLibrary" aria-label="Workflow-Status">
-              <div className="workflowStatusHeader">
-                <div>
-                  <p className="eyebrow">Workflow-Status</p>
-                  <strong>Projektweite Statusliste</strong>
-                </div>
-                <small>{projectWorkflowStatuses.length} Status</small>
-              </div>
-              <div className="workflowStatusCreate">
-                <input
-                  aria-label="Name des Workflow-Status"
-                  onChange={(event) => setNewWorkflowStatusName(event.target.value)}
-                  placeholder="Statusname"
-                  value={newWorkflowStatusName}
-                />
-                <input
-                  aria-label="Beschreibung des Workflow-Status"
-                  onChange={(event) => setNewWorkflowStatusDescription(event.target.value)}
-                  placeholder="Bedeutung"
-                  value={newWorkflowStatusDescription}
-                />
-                <button onClick={addWorkflowStatus} type="button">Hinzufügen</button>
-              </div>
-              {projectWorkflowStatuses.length > 0 && (
-                <div className="workflowStatusList">
-                  {projectWorkflowStatuses.map((status) => (
-                    <div className="workflowStatusItem" key={status.id}>
-                      <strong>{status.name}</strong>
-                      <span>{status.description || 'Keine Beschreibung'}</span>
-                      <div className="workflowStatusActions">
-                        <button
-                          aria-label={`Status ${status.name} bearbeiten`}
-                          className="editStatus"
-                          onClick={() => openWorkflowStatusEditor(status)}
-                          title="Status bearbeiten"
-                          type="button"
-                        >
-                          ✎
-                        </button>
-                        <button
-                          aria-label={`Status ${status.name} löschen`}
-                          className="deleteStatus"
-                          onClick={() => deleteWorkflowStatus(status.id)}
-                          title="Status löschen"
-                          type="button"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
             <section className="autoForwardControl" aria-label="Automatische Weitergabe">
               <div>
                 <p className="eyebrow">Workflow-Funktion</p>
@@ -3920,6 +3874,93 @@ function App() {
           </div>
         </aside>
       </section>
+
+      {statusLibraryOpen && (
+        <div
+          className="modalBackdrop"
+          role="presentation"
+          onMouseDown={() => setStatusLibraryOpen(false)}
+        >
+          <section
+            aria-label="Projektweite Status konfigurieren"
+            aria-modal="true"
+            className="promptModal statusLibraryModal"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">Workflow-Status</p>
+                <h2>Projektweite Status</h2>
+              </div>
+              <button
+                aria-label="Status-Fenster schließen"
+                onClick={() => setStatusLibraryOpen(false)}
+                title="Status-Fenster schließen"
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+            <section className="workflowStatusLibrary" aria-label="Workflow-Status">
+              <div className="workflowStatusHeader">
+                <div>
+                  <strong>Statusliste</strong>
+                  <small>Namen und Bedeutungen gelten für das ausgewählte Projekt.</small>
+                </div>
+                <small>{projectWorkflowStatuses.length} Status</small>
+              </div>
+              <div className="workflowStatusCreate">
+                <input
+                  aria-label="Name des Workflow-Status"
+                  onChange={(event) => setNewWorkflowStatusName(event.target.value)}
+                  placeholder="Statusname"
+                  value={newWorkflowStatusName}
+                />
+                <input
+                  aria-label="Beschreibung des Workflow-Status"
+                  onChange={(event) => setNewWorkflowStatusDescription(event.target.value)}
+                  placeholder="Bedeutung"
+                  value={newWorkflowStatusDescription}
+                />
+                <button onClick={addWorkflowStatus} type="button">Hinzufügen</button>
+              </div>
+              {projectWorkflowStatuses.length === 0 ? (
+                <p className="empty">Für dieses Projekt wurden noch keine Status angelegt.</p>
+              ) : (
+                <div className="workflowStatusList">
+                  {projectWorkflowStatuses.map((status) => (
+                    <div className="workflowStatusItem" key={status.id}>
+                      <strong>{status.name}</strong>
+                      <span>{status.description || 'Keine Beschreibung'}</span>
+                      <div className="workflowStatusActions">
+                        <button
+                          aria-label={`Status ${status.name} bearbeiten`}
+                          className="editStatus"
+                          onClick={() => openWorkflowStatusEditor(status)}
+                          title="Status bearbeiten"
+                          type="button"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          aria-label={`Status ${status.name} löschen`}
+                          className="deleteStatus"
+                          onClick={() => deleteWorkflowStatus(status.id)}
+                          title="Status löschen"
+                          type="button"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </section>
+        </div>
+      )}
 
       {editingWorkflowStatus && (
         <div

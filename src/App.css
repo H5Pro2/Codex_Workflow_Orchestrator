@@ -43,7 +43,13 @@
 .codexPicker {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(210px, 300px) minmax(280px, 420px);
+  grid-template-columns: minmax(210px, 300px) minmax(280px, 420px) auto;
+}
+
+.projectStatusButton {
+  align-self: end;
+  min-height: 40px;
+  padding-inline: 14px;
 }
 
 .threadManager {
@@ -850,6 +856,23 @@ label {
   border-radius: 6px;
   margin-top: 14px;
   padding: 11px 12px;
+}
+
+.statusLibraryModal {
+  max-width: 820px;
+}
+
+.statusLibraryModal .workflowStatusLibrary {
+  margin-top: 0;
+}
+
+.statusLibraryModal .workflowStatusHeader > div {
+  display: grid;
+  gap: 3px;
+}
+
+.statusLibraryModal .workflowStatusHeader small {
+  display: block;
 }
 
 .workflowStatusHeader {
