@@ -83,7 +83,7 @@ Der CEO erhält dann die Startanweisung, verarbeitet sie in seinem Codex-Chat un
 
 Der Zeitplan-Baustein sendet eine hinterlegte Aufgabe zeitgesteuert an direkt verbundene Agenten. In der Konfiguration stehen zwei getrennte Arten zur Auswahl:
 
-- **Timer:** wiederholt die Aufgabe ab einer wählbaren Startzeit nach einem Intervall in Minuten, Stunden, Tagen oder Wochen.
+- **Timer:** wiederholt die Aufgabe in Minuten-, Stunden-, Tages- oder Wochenintervallen oder führt sie täglich zu einer festgelegten Uhrzeit aus.
 - **Kalender:** führt die Aufgabe einmalig zu einem festgelegten Datum mit Uhrzeit aus.
 
 ```text

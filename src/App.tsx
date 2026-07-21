@@ -159,7 +159,7 @@ type WorkflowTimer = {
   schedule: 'once' | 'interval'
   startAt: string
   intervalValue: number
-  intervalUnit: 'minutes' | 'hours' | 'days' | 'weeks'
+  intervalUnit: 'minutes' | 'hours' | 'days' | 'weeks' | 'time'
   enabled: boolean
   nextRunAt: string
   lastRunAt: string
@@ -534,12 +534,21 @@ function timerIntervalMs(timer: WorkflowTimer) {
     hours: 3_600_000,
     days: 86_400_000,
     weeks: 604_800_000,
+    time: 86_400_000,
   }
   return Math.max(1, timer.intervalValue || 1) * factors[timer.intervalUnit]
 }
 
 function nextTimerRun(timer: WorkflowTimer, after = Date.now()) {
   if (timer.schedule === 'once') return ''
+  if (timer.intervalUnit === 'time') {
+    const configuredStart = new Date(timer.startAt)
+    const next = new Date(after)
+    if (!Number.isFinite(configuredStart.getTime())) return ''
+    next.setHours(configuredStart.getHours(), configuredStart.getMinutes(), 0, 0)
+    if (next.getTime() <= after) next.setDate(next.getDate() + 1)
+    return next.toISOString()
+  }
   const step = timerIntervalMs(timer)
   const configuredStart = new Date(timer.startAt).getTime()
   if (!Number.isFinite(configuredStart)) return new Date(after + step).toISOString()
@@ -4626,27 +4635,30 @@ function App() {
                 </label>
               ) : (
                 <div className="timerIntervalField">
-                  <label>
-                    Startzeit
-                    <input
-                      type="time"
-                      value={toTimeInput(selectedTimer.startAt)}
-                      onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
-                        startAt: fromTimeInput(event.target.value),
-                      })}
-                    />
-                  </label>
-                  <label>
-                    Intervall
-                    <input
-                      min="1"
-                      type="number"
-                      value={selectedTimer.intervalValue}
-                      onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
-                        intervalValue: Math.max(1, Number(event.target.value) || 1),
-                      })}
-                    />
-                  </label>
+                  {selectedTimer.intervalUnit === 'time' ? (
+                    <label>
+                      Startzeit
+                      <input
+                        type="time"
+                        value={toTimeInput(selectedTimer.startAt)}
+                        onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
+                          startAt: fromTimeInput(event.target.value),
+                        })}
+                      />
+                    </label>
+                  ) : (
+                    <label>
+                      Intervall
+                      <input
+                        min="1"
+                        type="number"
+                        value={selectedTimer.intervalValue}
+                        onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
+                          intervalValue: Math.max(1, Number(event.target.value) || 1),
+                        })}
+                      />
+                    </label>
+                  )}
                   <label>
                     Einheit
                     <select
@@ -4659,6 +4671,7 @@ function App() {
                       <option value="hours">Stunden</option>
                       <option value="days">Tage</option>
                       <option value="weeks">Wochen</option>
+                      <option value="time">Uhrzeit</option>
                     </select>
                   </label>
                 </div>
