@@ -69,7 +69,7 @@ Die kompakten Aktionen im Dashboard sind:
 | --- | --- |
 | Initial | Sendet beim Start eine Anfangsanweisung an den verbundenen Agenten. |
 | Status | Lässt nur Ergebnisse mit dem ausgewählten Workflow-Status passieren. |
-| Stopp | Beendet den Workflow-Pfad an dieser Stelle. |
+| Stop | Beendet den Workflow-Pfad an dieser Stelle. |
 | Zeitplan | Sendet eine Aufgabe einmalig, in einem Intervall oder zu einer festen Uhrzeit. |
 
 Bausteine werden per Doppelklick konfiguriert. Ein einfacher Klick wählt einen Baustein oder eine Verbindung aus. Konfigurationsdialoge enthalten auch die jeweilige Löschfunktion.

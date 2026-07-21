@@ -1134,8 +1134,8 @@ function App() {
       })
     }
 
-    window.addEventListener('pointerdown', closeMenusOnOutsideClick)
-    return () => window.removeEventListener('pointerdown', closeMenusOnOutsideClick)
+    document.addEventListener('pointerdown', closeMenusOnOutsideClick, true)
+    return () => document.removeEventListener('pointerdown', closeMenusOnOutsideClick, true)
   }, [])
 
   useEffect(() => {
@@ -2902,7 +2902,7 @@ function App() {
       id: crypto.randomUUID(),
       ownerAgentId: activeDashboardOwnerId,
       projectPath: selectedProject.path,
-      name: 'Stopp',
+      name: 'Stop',
     }
     setWorkflowStops((current) => [...current, stop])
     setSelectedStopId(stop.id)
@@ -4293,7 +4293,7 @@ function App() {
                     >
                       <span className="toolSymbol">■</span>
                       <span>
-                        <strong>{tx('Stopp', 'Stop')}</strong>
+                        <strong>Stop</strong>
                         <small>{tx('Workflow-Pfad beenden', 'End workflow path')}</small>
                       </span>
                     </button>
