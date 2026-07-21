@@ -833,6 +833,7 @@ function App() {
     storedState.workflowBoardAgentIds,
   )
   const [setupOpen, setSetupOpen] = useState(false)
+  const [promptEditorOpen, setPromptEditorOpen] = useState(false)
   const [promptCreationOpen, setPromptCreationOpen] = useState(false)
   const [newPromptName, setNewPromptName] = useState('')
   const [promptRenameOpen, setPromptRenameOpen] = useState(false)
@@ -2967,6 +2968,12 @@ function App() {
                 onClick={() => {
                   setSelectedId(agent.id)
                   setSetupOpen(false)
+                  setPromptEditorOpen(false)
+                }}
+                onDoubleClick={() => {
+                  setSelectedId(agent.id)
+                  setSetupOpen(false)
+                  setPromptEditorOpen(true)
                 }}
                 onDragStart={(event) => {
                   event.dataTransfer.effectAllowed = 'move'
@@ -3033,10 +3040,20 @@ function App() {
                 <span className={`status ${selectedAgent.status}`}>{statusLabels[selectedAgent.status]}</span>
                 <span className="setupControl">
                   <button
+                    aria-label="Prompt-Dateien öffnen"
+                    className={`setupToggle promptToggle ${promptEditorOpen ? 'active' : ''}`}
+                    onClick={() => setPromptEditorOpen(true)}
+                    title="Prompt-Dateien öffnen"
+                    type="button"
+                  >
+                    P
+                  </button>
+                  <button
                     aria-label={setupOpen ? 'Setup schließen' : 'Setup öffnen'}
                     className={`setupToggle ${setupOpen ? 'active' : ''}`}
                     onClick={() => setSetupOpen((current) => !current)}
                     title={setupOpen ? 'Setup schließen' : 'Setup öffnen'}
+                    type="button"
                   >
                     ⚙
                   </button>
@@ -3247,81 +3264,6 @@ function App() {
               />
             </section>
 
-            <section className="promptLibrary" aria-label="Prompt-Dateien">
-              <div className="promptLibraryHeader">
-                <div>
-                  <p className="eyebrow">Prompt-Dateien</p>
-                  <strong>Aktive Arbeitsanweisung</strong>
-                </div>
-                <button
-                  aria-label="Prompt-Datei erstellen"
-                  className="iconButton"
-                  onClick={() => {
-                    setNewPromptName('')
-                    setPromptCreationOpen(true)
-                  }}
-                  title="Prompt-Datei erstellen"
-                >
-                  +
-                </button>
-              </div>
-              <div className="promptPicker">
-                <label>
-                  Datei auswählen
-                  <select
-                    value={selectedAgent.activePromptDocumentId}
-                    onChange={(event) => selectPromptDocument(selectedAgent, event.target.value)}
-                  >
-                    {selectedAgent.promptDocuments.map((document) => (
-                      <option key={document.id} value={document.id}>
-                        {document.fileName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  aria-label="Aktive Prompt-Datei umbenennen"
-                  className="iconButton promptRenameButton"
-                  onClick={() => {
-                    const document = activePromptDocument(selectedAgent)
-                    setRenamedPromptName(document?.name || '')
-                    setPromptRenameOpen(true)
-                  }}
-                  title="Aktive Prompt-Datei umbenennen"
-                >
-                  ✎
-                </button>
-              </div>
-              {activePromptDocument(selectedAgent) && (
-                <p className="promptFilePath">
-                  Datei: <code>{activePromptDocument(selectedAgent).filePath || `.codex-orchestrator/prompts/${selectedAgent.id}/${activePromptDocument(selectedAgent).fileName}`}</code>
-                </p>
-              )}
-            </section>
-
-            <label className="wide">
-              {activePromptDocument(selectedAgent)?.name || 'Prompt-Anweisung'}
-              <textarea
-                rows={8}
-                value={activePromptDocument(selectedAgent)?.content ?? ''}
-                onChange={(event) =>
-                  updatePromptDocument(
-                    selectedAgent,
-                    selectedAgent.activePromptDocumentId,
-                    event.target.value,
-                  )
-                }
-              />
-            </label>
-
-            <div className="actions">
-              <div className="workflowActions">
-                <button onClick={() => setPendingPromptDeliveryAgentId(selectedAgent.id)}>
-                  Speichern und übergeben
-                </button>
-              </div>
-            </div>
-
             <div className="adapter">
               <strong>Codex-Adapter</strong>
               <p>
@@ -3493,6 +3435,116 @@ function App() {
                 Prompt-Knoten löschen
               </button>
               <button className="primary" onClick={() => setSelectedPromptId('')}>Übernehmen</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {promptEditorOpen && selectedAgent && (
+        <div
+          className="modalBackdrop"
+          role="presentation"
+          onMouseDown={() => setPromptEditorOpen(false)}
+        >
+          <section
+            className="promptModal promptEditorModal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Prompt-Dateien von ${selectedAgent.name}`}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">Prompt-Dateien</p>
+                <h2>{selectedAgent.name}</h2>
+              </div>
+              <button
+                aria-label="Prompt-Fenster schließen"
+                title="Prompt-Fenster schließen"
+                onClick={() => setPromptEditorOpen(false)}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+
+            <section className="promptLibrary" aria-label="Aktive Prompt-Datei">
+              <div className="promptLibraryHeader">
+                <div>
+                  <p className="eyebrow">Aktive Arbeitsanweisung</p>
+                  <strong>Prompt-Datei</strong>
+                </div>
+                <button
+                  aria-label="Prompt-Datei erstellen"
+                  className="iconButton"
+                  onClick={() => {
+                    setNewPromptName('')
+                    setPromptCreationOpen(true)
+                  }}
+                  title="Prompt-Datei erstellen"
+                  type="button"
+                >
+                  +
+                </button>
+              </div>
+              <div className="promptPicker">
+                <label>
+                  Datei auswählen
+                  <select
+                    value={selectedAgent.activePromptDocumentId}
+                    onChange={(event) => selectPromptDocument(selectedAgent, event.target.value)}
+                  >
+                    {selectedAgent.promptDocuments.map((document) => (
+                      <option key={document.id} value={document.id}>
+                        {document.fileName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  aria-label="Aktive Prompt-Datei umbenennen"
+                  className="iconButton promptRenameButton"
+                  onClick={() => {
+                    const document = activePromptDocument(selectedAgent)
+                    setRenamedPromptName(document?.name || '')
+                    setPromptRenameOpen(true)
+                  }}
+                  title="Aktive Prompt-Datei umbenennen"
+                  type="button"
+                >
+                  ✎
+                </button>
+              </div>
+              {activePromptDocument(selectedAgent) && (
+                <p className="promptFilePath">
+                  Datei: <code>{activePromptDocument(selectedAgent).filePath || `.codex-orchestrator/prompts/${selectedAgent.id}/${activePromptDocument(selectedAgent).fileName}`}</code>
+                </p>
+              )}
+            </section>
+
+            <label className="wide promptEditorText">
+              {activePromptDocument(selectedAgent)?.name || 'Prompt-Anweisung'}
+              <textarea
+                rows={14}
+                value={activePromptDocument(selectedAgent)?.content ?? ''}
+                onChange={(event) =>
+                  updatePromptDocument(
+                    selectedAgent,
+                    selectedAgent.activePromptDocumentId,
+                    event.target.value,
+                  )
+                }
+              />
+            </label>
+
+            <div className="modalActions">
+              <button onClick={() => setPromptEditorOpen(false)} type="button">Schließen</button>
+              <button
+                className="primary"
+                onClick={() => setPendingPromptDeliveryAgentId(selectedAgent.id)}
+                type="button"
+              >
+                Speichern und übergeben
+              </button>
             </div>
           </section>
         </div>
