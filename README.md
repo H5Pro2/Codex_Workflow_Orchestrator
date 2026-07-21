@@ -140,9 +140,9 @@ Die Oberfläche trennt deshalb die Rückmeldung `Fertig` von der Workflow-Entsch
 
 ## Automatik und Offline-Modus
 
-`Automatik starten` aktiviert Initial-Anfragen, Ergebnisüberwachung und automatische Weitergaben. Während die Automatik läuft, werden aktive Agenten und laufende Verbindungen visuell angezeigt.
+`Auto Start` aktiviert Initial-Anfragen, Ergebnisüberwachung und automatische Weitergaben. Während die Automatik läuft, werden aktive Agenten und laufende Verbindungen visuell angezeigt.
 
-Nach `Automatik stoppen` gilt:
+Nach `Auto Stop` gilt:
 
 - keine Initial-Anfragen,
 - keine automatische Weitergabe,
@@ -163,7 +163,7 @@ Die Automatik wird im lokalen Zustand gespeichert und bleibt beim Neuladen erhal
 6. Agenten und Bausteine verbinden: immer `Out` zu `In`.
 7. Einen Initial-Baustein mit dem ersten Agenten verbinden.
 8. Statusfilter für die gewünschten Weiterleitungswege konfigurieren.
-9. `Automatik starten` drücken und den Ablauf im Chat und Ereignisprotokoll verfolgen.
+9. `Auto Start` drücken und den Ablauf im Chat und Ereignisprotokoll verfolgen.
 
 Das Ereignisprotokoll zeigt unter anderem Chat-Nachrichten, Übergaben, empfangene Ergebnisse, Statusfilter, Fehler und gestoppte Pfade. Der Bereich kann eingeklappt werden, damit der Chat mehr Platz erhält.
 
