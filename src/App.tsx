@@ -502,20 +502,24 @@ function workflowStatusIdsFromResult(
       }
     }
   }
-  if (!parsed) {
-    return []
-  }
-  const names = [
-    parsed.workflow_status,
-    parsed.workflow_statuses,
-    parsed.signale,
-  ].flatMap((value) =>
-    Array.isArray(value)
-      ? value.filter((item): item is string => typeof item === 'string')
-      : typeof value === 'string'
-        ? [value]
-        : [],
+  const legacyNames = parsed
+    ? [
+        parsed.workflow_status,
+        parsed.workflow_statuses,
+        parsed.signale,
+      ].flatMap((value) =>
+        Array.isArray(value)
+          ? value.filter((item): item is string => typeof item === 'string')
+          : typeof value === 'string'
+            ? [value]
+            : [],
+      )
+    : []
+  const statusMarkers = Array.from(
+    result.matchAll(/\[Workflow-Status:\s*([^\]\r\n]+)\]/gi),
+    (match) => match[1].trim(),
   )
+  const names = statusMarkers.length > 0 ? statusMarkers : legacyNames
   return definitions
     .filter((definition) =>
       names.some((name) => name.trim().toLocaleLowerCase('de-DE') === definition.name.trim().toLocaleLowerCase('de-DE')),
@@ -526,15 +530,16 @@ function workflowStatusIdsFromResult(
 function workflowStatusInstruction(statuses: WorkflowStatusDefinition[]) {
   return [
     'Workflow-Abschlussformat (verbindlich):',
-    '{"kurzfassung":"...","naechste_aufgabe":"...","weitergabe_an":"...","workflow_status":["STATUS_NAME"]}',
+    'Antworte zuerst normal und verständlich mit Zusammenfassung und nächstem Schritt. Verwende kein JSON.',
     '',
-    'workflow_status ist das einzige Signal für die Workflow-Weiterleitung. Die Oberfläche zeigt den Abschluss eines Codex-Turns separat als „Fertig“ an.',
-    'Gib im Feld "workflow_status" ausschließlich exakte Statusnamen aus dieser Projektliste an:',
+    'Setze als allerletzte Zeile genau einen Workflow-Status im Format [Workflow-Status: STATUSNAME].',
+    'Der Status ist das einzige Signal für die Workflow-Weiterleitung. Die Oberfläche zeigt den Abschluss eines Codex-Turns separat als „Fertig“ an.',
+    'Verwende ausschließlich exakte Statusnamen aus dieser Projektliste:',
     ...(statuses.length > 0
       ? statuses.map((status) => `- ${status.name}: ${status.description || 'Keine Beschreibung'}`)
-      : ['- Keine Status definiert: verwende "workflow_status": [].']),
+      : ['- Keine Status definiert: verwende [Workflow-Status: Kein Status].']),
     '',
-    'Wenn kein Status zutrifft, gib "workflow_status": [] aus. Erfinde keine Statusnamen.',
+    'Wenn kein Status zutrifft, verwende [Workflow-Status: Kein Status]. Erfinde keine Statusnamen.',
   ].join('\n')
 }
 
