@@ -1,5 +1,7 @@
 # Codex Workflow Orchestrator
 
+![Codex Workflow Orchestrator Oberfläche](bilder/Gui_Overlay.PNG)
+
 Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der sich Codex-Chats als Agenten zu einem kontrollierten Workflow verbinden lassen.
 
 Ein Agent entspricht einem Codex-Chat innerhalb eines Projekts. Für jeden Agenten können Rolle, Modell, Prompt-Dateien, Statusregeln und Verbindungen getrennt verwaltet werden. Ergebnisse werden über den lokalen Codex-Connector gelesen und abhängig vom Workflow an den nächsten Agenten übergeben.
