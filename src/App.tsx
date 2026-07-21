@@ -245,7 +245,6 @@ const statusLabels: Record<AgentStatus, string> = {
 }
 
 const defaultWorkflowStatuses = [
-  { name: 'Fertig', description: 'Der Lauf ist abgeschlossen.' },
   { name: 'Weiterleitung', description: 'Das Ergebnis soll an den nächsten Agenten weitergegeben werden.' },
 ] as const
 
@@ -1079,8 +1078,28 @@ function App() {
     }
 
     setWorkflowStatuses((current) => {
+      const removedStatusIds = current
+        .filter((status) =>
+          samePath(status.projectPath, selectedProjectPath) &&
+          status.name.trim().toLocaleLowerCase('de-DE') === 'fertig',
+        )
+        .map((status) => status.id)
+      if (removedStatusIds.length > 0) {
+        setWorkflowStatusFilters((filters) =>
+          filters.filter((filter) => !removedStatusIds.includes(filter.statusId)),
+        )
+        setRoutes((currentRoutes) =>
+          currentRoutes.filter(
+            (route) => !removedStatusIds.includes(route.sourceId) && !removedStatusIds.includes(route.targetId),
+          ),
+        )
+      }
+
+      const withoutCompletionStatus = current.filter(
+        (status) => !removedStatusIds.includes(status.id),
+      )
       const existingNames = new Set(
-        current
+        withoutCompletionStatus
           .filter((status) => samePath(status.projectPath, selectedProjectPath))
           .map((status) => status.name.trim().toLocaleLowerCase('de-DE')),
       )
@@ -1089,11 +1108,11 @@ function App() {
       )
 
       if (missingDefaults.length === 0) {
-        return current
+        return withoutCompletionStatus
       }
 
       return [
-        ...current,
+        ...withoutCompletionStatus,
         ...missingDefaults.map((status) => ({
           id: crypto.randomUUID(),
           projectPath: selectedProjectPath,

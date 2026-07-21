@@ -84,7 +84,6 @@ Statussignale steuern die Weiterleitung. Die projektweite Statusliste enthält e
 
 | Status | Bedeutung |
 | --- | --- |
-| `Fertig` | Der aktuelle Lauf ist abgeschlossen. |
 | `Weiterleitung` | Das Ergebnis soll an den nächsten Agenten übergeben werden. |
 | `Überarbeiten` | Das Ergebnis muss erneut geprüft oder korrigiert werden. |
 
@@ -233,7 +232,7 @@ Die Konfiguration wird lokal im Orchestrator-Zustand gespeichert. Prompt-Dateien
 Als nächster reproduzierbarer Test sollte ein vollständiger Mini_DIO-Forschungsworkflow eingerichtet werden:
 
 ```text
-Initial -> Analyse -> Entwicklung -> Fertig
+Initial -> Analyse -> Entwicklung -> Stopp
                     \-> Überarbeiten -> Analyse
 ```
 
