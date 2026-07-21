@@ -1127,7 +1127,7 @@ function App() {
       if (!(target instanceof Element)) {
         return
       }
-      document.querySelectorAll<HTMLElement>('details.threadManager[open], details.dashboardTools[open], details.promptStatusMenu[open]').forEach((menu) => {
+      document.querySelectorAll<HTMLElement>('details.threadManager[open], details.dashboardTools[open], details.dashboardStatusMenu[open], details.promptStatusMenu[open]').forEach((menu) => {
         if (!menu.contains(target)) {
           menu.removeAttribute('open')
         }
@@ -4205,6 +4205,43 @@ function App() {
                 <div className="dashboardActionGroup">
                   <button className="compactAction" onClick={autoArrangeWorkflow} type="button">{tx('Anordnen', 'Arrange')}</button>
                 </div>
+                <details className="dashboardStatusMenu">
+                  <summary
+                    aria-label={tx('Statuseinstellung öffnen', 'Open status settings')}
+                    title={tx('Statuseinstellung', 'Status settings')}
+                  >
+                    S
+                  </summary>
+                  <div className="promptStatusOptions dashboardStatusOptions">
+                    <p>{tx(
+                      'Workflow-Status für diesen Agenten',
+                      'Workflow statuses for this agent',
+                    )}</p>
+                    {projectWorkflowStatuses.length === 0 ? (
+                      <span className="empty">{tx('Im Projekt sind noch keine Status angelegt.', 'No statuses have been created in this project.')}</span>
+                    ) : (
+                      projectWorkflowStatuses.map((status) => {
+                        const enabled = selectedAgent.workflowStatusIds === null ||
+                          selectedAgent.workflowStatusIds.includes(status.id)
+                        return (
+                          <label className="promptStatusOption" key={status.id}>
+                            <input
+                              checked={enabled}
+                              onChange={(event) =>
+                                setAgentWorkflowStatusEnabled(selectedAgent, status.id, event.target.checked)
+                              }
+                              type="checkbox"
+                            />
+                            <span>
+                              <strong>{status.name}</strong>
+                              <small>{status.description || tx('Keine Bedeutung hinterlegt.', 'No meaning provided.')}</small>
+                            </span>
+                          </label>
+                        )
+                      })
+                    )}
+                  </div>
+                </details>
                 <details className="dashboardTools">
                   <summary>Tools</summary>
                   <div className="dashboardToolMenu">

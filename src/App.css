@@ -1039,13 +1039,15 @@ label {
   padding: 7px 10px;
 }
 
-.dashboardTools {
+.dashboardTools,
+.dashboardStatusMenu {
   border-left: 1px solid var(--line-strong);
   padding-left: 10px;
   position: relative;
 }
 
 .dashboardActions .compactAction,
+.dashboardStatusMenu > summary,
 .dashboardTools > summary {
   background: #242428;
   border: 1px solid #404046;
@@ -1062,11 +1064,20 @@ label {
   user-select: none;
 }
 
+.dashboardStatusMenu > summary {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  padding: 7px;
+  width: 34px;
+}
+
 .dashboardActions .compactAction {
   min-width: 0;
   white-space: nowrap;
 }
 
+.dashboardStatusMenu > summary::-webkit-details-marker,
 .dashboardTools > summary::-webkit-details-marker {
   display: none;
 }
@@ -1092,16 +1103,27 @@ label {
 }
 
 .dashboardActions .compactAction:hover,
+.dashboardStatusMenu > summary:hover,
 .dashboardTools > summary:hover {
   background: #2d2d33;
   border-color: #5a5a63;
 }
 
+.dashboardStatusMenu[open] > summary,
 .dashboardTools[open] > summary {
   background: #173b39;
   border-color: #63cbbf;
   box-shadow: 0 0 0 1px rgb(114 214 201 / 20%);
   color: #d9fffa;
+}
+
+.dashboardStatusOptions {
+  box-sizing: border-box;
+  min-width: 330px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
 }
 
 .dashboardToolMenu {
