@@ -1207,26 +1207,6 @@ label {
   margin-bottom: 4px;
 }
 
-.statusFilterReadout {
-  display: grid;
-  gap: 3px;
-}
-
-.statusFilterReadout > span {
-  color: #8c9aae;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.statusFilterReadout > strong {
-  color: inherit;
-}
-
-.statusFilterReadout > small {
-  color: var(--muted);
-  line-height: 1.45;
-}
-
 .statusFilterEditor label {
   display: grid;
   font-size: 11px;

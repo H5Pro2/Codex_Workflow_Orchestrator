@@ -2587,6 +2587,20 @@ function App() {
     addEvent('Status-Filter erstellt', status.name)
   }
 
+  const selectWorkflowStatusFilterStatus = (filterId: string, statusId: string) => {
+    const status = workflowStatuses.find((item) => item.id === statusId)
+    if (!status) {
+      return
+    }
+    setWorkflowStatusFilters((current) =>
+      current.map((filter) =>
+        filter.id === filterId
+          ? { ...filter, statusId: status.id, name: `Status: ${status.name}` }
+          : filter,
+      ),
+    )
+  }
+
   const deleteWorkflowStatusFilter = (filterId: string) => {
     setWorkflowStatusFilters((current) => current.filter((filter) => filter.id !== filterId))
     setRoutes((current) => current.filter((route) => route.sourceId !== filterId && route.targetId !== filterId))
@@ -4279,17 +4293,24 @@ function App() {
                 ×
               </button>
             </div>
+            <label>
+              Status
+              <select
+                value={selectedStatusFilter.statusId}
+                onChange={(event) =>
+                  selectWorkflowStatusFilterStatus(selectedStatusFilter.id, event.target.value)
+                }
+              >
+                {projectWorkflowStatuses.map((status) => (
+                  <option key={status.id} value={status.id}>{status.name}</option>
+                ))}
+              </select>
+            </label>
             {(() => {
               const status = projectWorkflowStatuses.find(
                 (item) => item.id === selectedStatusFilter.statusId,
               )
-              return (
-                <div className="statusFilterReadout">
-                  <span>Status</span>
-                  <strong>{status?.name ?? 'Nicht verfügbar'}</strong>
-                  <small>{status?.description || 'Keine Bedeutung hinterlegt.'}</small>
-                </div>
-              )
+              return status?.description ? <p className="modalHint">{status.description}</p> : null
             })()}
             <p className="modalHint">
               Der Status wird in der projektweiten Statusliste verwaltet. Dieser Baustein leitet nur passende Ergebnisse weiter.
