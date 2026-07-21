@@ -47,6 +47,24 @@ Initial -> CEO -> Statusfilter "Weiterleitung" -> Entwicklung
 
 Der Statusname muss exakt einem Eintrag der projektweiten Statusliste entsprechen. Bei keinem passenden Status antwortet ein Agent mit `"workflow_status": []`.
 
+## Status und Weiterleitung
+
+Ein Status ist kein zusätzlicher Chat und keine eigene Aufgabe. Er beschreibt, **wie** der nächste Schritt behandelt werden soll. Die Bedeutung wird einmal projektweit hinterlegt und kann im Agenten-Setup gezielt für jeden Agenten ein- oder ausgeschaltet werden.
+
+Beispiel für zwei unterschiedliche Wege vom Programmierer zum Entwickler:
+
+```text
+Programmierer -> Statusfilter "Weiterleitung" -> Entwickler
+Programmierer -> Statusfilter "Überarbeiten" -> Entwickler
+```
+
+- **Weiterleitung:** Das Ergebnis ist regulär und der Entwickler übernimmt die nächste fachliche Aufgabe.
+- **Überarbeiten:** Das Ergebnis braucht eine gezielte Prüfung oder Korrektur. Der Entwickler erhält dieselbe Übergabe, aber zusätzlich die Bedeutung des Status `Überarbeiten` und arbeitet deshalb als Nachbearbeitung weiter.
+
+Beide Pfade dürfen zum selben Agenten führen. Entscheidend ist der `workflow_status` am **Ende** der Antwort. Der Agent gibt genau den Status aus, der zu seinem Ergebnis passt, zum Beispiel `Weiterleitung` für einen normalen Abschluss oder `Überarbeiten`, wenn etwas erneut geprüft werden muss.
+
+Statusfilter routen ausschließlich passende Ergebnisse. Ein Ergebnis mit `Weiterleitung` läuft nicht über einen Filter für `Überarbeiten` und umgekehrt. Dadurch können auch später mehrere Spezialwege ergänzt werden, etwa zur Analyse, Qualitätssicherung oder zurück zu einem Entscheidungsagenten.
+
 ## Bedienung
 
 - **Projekt wählen:** Oben ein Codex-Projekt auswählen. Die Agentenübersicht zeigt nur dessen Chats.
