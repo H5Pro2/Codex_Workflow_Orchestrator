@@ -2833,19 +2833,19 @@ function App() {
 
   const addWorkflowTimer = () => {
     if (!activeDashboardOwnerId || !selectedProject) return
-    const startAt = defaultTimerStart()
+    const startAt = new Date().toISOString()
     const timer: WorkflowTimer = {
       id: crypto.randomUUID(),
       ownerAgentId: activeDashboardOwnerId,
       projectPath: selectedProject.path,
       name: 'Zeitplan',
       task: 'Prüfe den aktuellen Stand und melde die nächsten erforderlichen Schritte.',
-      schedule: 'once',
+      schedule: 'interval',
       startAt,
       intervalValue: 30,
       intervalUnit: 'minutes',
       enabled: false,
-      nextRunAt: startAt,
+      nextRunAt: new Date(Date.now() + 30 * 60_000).toISOString(),
       lastRunAt: '',
     }
     setWorkflowTimers((current) => [...current, timer])
@@ -2857,7 +2857,17 @@ function App() {
       current.map((timer) => {
         if (timer.id !== timerId) return timer
         const next = { ...timer, ...patch }
-        if ('startAt' in patch || 'schedule' in patch || 'intervalValue' in patch || 'intervalUnit' in patch) {
+        if ('schedule' in patch) {
+          if (next.schedule === 'interval') {
+            next.startAt = new Date().toISOString()
+            next.nextRunAt = new Date(Date.now() + timerIntervalMs(next)).toISOString()
+          } else {
+            next.startAt = defaultTimerStart()
+            next.nextRunAt = next.startAt
+          }
+        } else if (next.schedule === 'interval' && ('intervalValue' in patch || 'intervalUnit' in patch)) {
+          next.nextRunAt = new Date(Date.now() + timerIntervalMs(next)).toISOString()
+        } else if (next.schedule === 'once' && 'startAt' in patch) {
           next.nextRunAt = next.startAt
         }
         return next
@@ -4579,31 +4589,32 @@ function App() {
                 />
               </label>
               <label>
-                Ausführung
+                Art
                 <select
                   value={selectedTimer.schedule}
                   onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
                     schedule: event.target.value as WorkflowTimer['schedule'],
                   })}
                 >
-                  <option value="once">Einmaliger Kalendertermin</option>
-                  <option value="interval">Wiederkehrend</option>
+                  <option value="interval">Timer</option>
+                  <option value="once">Kalender</option>
                 </select>
               </label>
-              <label className="timerStartField">
-                {selectedTimer.schedule === 'once' ? 'Termin' : 'Erste Ausführung'}
-                <input
-                  type="datetime-local"
-                  value={toDateTimeLocal(selectedTimer.startAt)}
-                  onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
-                    startAt: fromDateTimeLocal(event.target.value),
-                  })}
-                />
-              </label>
-              {selectedTimer.schedule === 'interval' && (
+              {selectedTimer.schedule === 'once' ? (
+                <label className="timerStartField">
+                  Datum und Uhrzeit
+                  <input
+                    type="datetime-local"
+                    value={toDateTimeLocal(selectedTimer.startAt)}
+                    onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
+                      startAt: fromDateTimeLocal(event.target.value),
+                    })}
+                  />
+                </label>
+              ) : (
                 <div className="timerIntervalField">
                   <label>
-                    Alle
+                    Intervall
                     <input
                       min="1"
                       type="number"
@@ -4645,7 +4656,11 @@ function App() {
                 checked={selectedTimer.enabled}
                 onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
                   enabled: event.target.checked,
-                  nextRunAt: event.target.checked ? selectedTimer.startAt : selectedTimer.nextRunAt,
+                  nextRunAt: event.target.checked
+                    ? selectedTimer.schedule === 'interval'
+                      ? new Date(Date.now() + timerIntervalMs(selectedTimer)).toISOString()
+                      : selectedTimer.startAt
+                    : selectedTimer.nextRunAt,
                 })}
               />
               <span>

@@ -1319,7 +1319,12 @@ label {
 .timerIntervalField {
   display: grid;
   gap: 10px;
-  grid-template-columns: 0.7fr 1fr;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(120px, 0.45fr) minmax(160px, 1fr);
+}
+
+.timerStartField {
+  grid-column: 1 / -1;
 }
 
 .timerEnabled {
