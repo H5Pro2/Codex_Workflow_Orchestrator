@@ -1383,8 +1383,10 @@ function App() {
   }, [])
 
   const isAgentBusy = (agent: Agent) =>
-    (agent.status === 'laeuft' && Boolean(agent.pendingTurnId)) ||
-    transmittingAgentIds.includes(agent.id)
+    autoRun && (
+      (agent.status === 'laeuft' && Boolean(agent.pendingTurnId)) ||
+      transmittingAgentIds.includes(agent.id)
+    )
 
   const activePromptDocument = (agent: Agent) =>
     agent.promptDocuments.find((document) => document.id === agent.activePromptDocumentId) ??
@@ -2739,6 +2741,7 @@ function App() {
     if (autoRun) {
       sharedStateDirty.current = true
       setAutoRun(false)
+      setTransmittingAgentIds([])
       addEvent('Automatik gestoppt', 'Weitere fertige Ergebnisse werden nicht automatisch weitergegeben.')
       return
     }
