@@ -1179,6 +1179,20 @@ label {
   background: #60a5fa;
 }
 
+.workflowCanvas .react-flow__node.stop {
+  background: #29191d;
+  border-color: #fb7185;
+  box-shadow: inset 3px 0 0 #fb7185;
+}
+
+.workflowNodeContent.stop .portLabel {
+  color: #fb7185;
+}
+
+.workflowCanvas .react-flow__node.stop .react-flow__handle {
+  background: #fb7185;
+}
+
 .statusFilterEditor {
   align-items: end;
   background: #121820;

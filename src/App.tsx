@@ -142,9 +142,22 @@ type WorkflowStatusFilter = {
   statusId: string
 }
 
+type WorkflowStop = {
+  id: string
+  ownerAgentId: string
+  projectPath: string
+  name: string
+}
+
+type WorkflowDelivery = {
+  route: WorkflowRoute
+  target?: Agent
+  stop?: WorkflowStop
+}
+
 type WorkflowNodeData = {
   label: string
-  kind: 'agent' | 'prompt' | 'initial' | 'status'
+  kind: 'agent' | 'prompt' | 'initial' | 'status' | 'stop'
   status?: AgentStatus
 }
 
@@ -177,6 +190,7 @@ function chatMessageIdentity(message: ChatMessage, agentName: string) {
 
 function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
   const isInitial = data.kind === 'initial'
+  const isStop = data.kind === 'stop'
   return (
     <div className={`workflowNodeContent ${data.kind}`}>
       {!isInitial && <Handle id="input" type="target" position={Position.Left} />}
@@ -189,10 +203,12 @@ function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
             ? 'Start'
             : data.kind === 'status'
               ? 'Status-Filter'
-              : 'Prompt / Bedingung'}
+              : data.kind === 'stop'
+                ? 'Pfad beenden'
+                : 'Prompt / Bedingung'}
       </span>
-      <span className="portLabel output">Out</span>
-      <Handle id="output" type="source" position={Position.Right} />
+      {!isStop && <span className="portLabel output">Out</span>}
+      {!isStop && <Handle id="output" type="source" position={Position.Right} />}
     </div>
   )
 }
@@ -351,6 +367,7 @@ function loadStoredState() {
       workflowInitials: [] as WorkflowInitial[],
       workflowStatuses: [] as WorkflowStatusDefinition[],
       workflowStatusFilters: [] as WorkflowStatusFilter[],
+      workflowStops: [] as WorkflowStop[],
       workflowPositions: {} as Record<string, { x: number; y: number }>,
       hiddenWorkflowAgentIds: [] as string[],
       workflowBoardAgentIds: {} as Record<string, string[]>,
@@ -380,6 +397,7 @@ function loadStoredState() {
       workflowInitials: Array.isArray(parsed.workflowInitials) ? parsed.workflowInitials : [],
       workflowStatuses: Array.isArray(parsed.workflowStatuses) ? parsed.workflowStatuses : [],
       workflowStatusFilters: Array.isArray(parsed.workflowStatusFilters) ? parsed.workflowStatusFilters : [],
+      workflowStops: Array.isArray(parsed.workflowStops) ? parsed.workflowStops : [],
       workflowPositions:
         parsed.workflowPositions && typeof parsed.workflowPositions === 'object'
           ? parsed.workflowPositions
@@ -405,6 +423,7 @@ function loadStoredState() {
       workflowInitials: [] as WorkflowInitial[],
       workflowStatuses: [] as WorkflowStatusDefinition[],
       workflowStatusFilters: [] as WorkflowStatusFilter[],
+      workflowStops: [] as WorkflowStop[],
       workflowPositions: {} as Record<string, { x: number; y: number }>,
       hiddenWorkflowAgentIds: [] as string[],
       workflowBoardAgentIds: {} as Record<string, string[]>,
@@ -608,6 +627,7 @@ function WorkflowDashboard({
   prompts,
   initials,
   statusFilters,
+  stops,
   statuses,
   positions,
   dashboardId,
@@ -620,6 +640,7 @@ function WorkflowDashboard({
   onSelectAgent,
   onSelectInitial,
   onSelectStatusFilter,
+  onSelectStop,
   onNodePositionChange,
   onAgentDrop,
   draggedAgentId,
@@ -629,6 +650,7 @@ function WorkflowDashboard({
   prompts: WorkflowPrompt[]
   initials: WorkflowInitial[]
   statusFilters: WorkflowStatusFilter[]
+  stops: WorkflowStop[]
   statuses: WorkflowStatusDefinition[]
   positions: Record<string, { x: number; y: number }>
   dashboardId: string
@@ -641,6 +663,7 @@ function WorkflowDashboard({
   onSelectAgent: (agentId: string) => void
   onSelectInitial: (initialId: string) => void
   onSelectStatusFilter: (filterId: string) => void
+  onSelectStop: (stopId: string) => void
   onNodePositionChange: (nodeId: string, position: { x: number; y: number }) => void
   onAgentDrop: (agentId: string, position: { x: number; y: number }) => void
   draggedAgentId: string
@@ -680,8 +703,15 @@ function WorkflowDashboard({
             className: 'workflowNode statusFilter',
           }
         }),
+        ...stops.map((stop, index) => ({
+          id: stop.id,
+          type: 'workflow',
+          position: positions[stop.id] ?? { x: 700, y: 120 + index * 130 },
+          data: { label: stop.name, kind: 'stop' as const },
+          className: 'workflowNode stop',
+        })),
       ],
-    [agents, initials, positions, prompts, selectedAgentNodeId, statusFilters, statuses],
+    [agents, initials, positions, prompts, selectedAgentNodeId, statusFilters, statuses, stops],
   )
   const initialEdges = useMemo<Edge[]>(
     () =>
@@ -786,6 +816,8 @@ function WorkflowDashboard({
             onSelectInitial(node.id)
           } else if (statusFilters.some((filter) => filter.id === node.id)) {
             onSelectStatusFilter(node.id)
+          } else if (stops.some((stop) => stop.id === node.id)) {
+            onSelectStop(node.id)
           } else if (agents.some((agent) => agent.id === node.id)) {
             onSelectAgent(node.id)
           }
@@ -832,6 +864,7 @@ function App() {
   const [workflowStatusFilters, setWorkflowStatusFilters] = useState<WorkflowStatusFilter[]>(
     storedState.workflowStatusFilters,
   )
+  const [workflowStops, setWorkflowStops] = useState<WorkflowStop[]>(storedState.workflowStops)
   const [workflowPositions, setWorkflowPositions] = useState<Record<string, { x: number; y: number }>>(
     storedState.workflowPositions,
   )
@@ -839,6 +872,7 @@ function App() {
   const [selectedPromptId, setSelectedPromptId] = useState('')
   const [selectedInitialId, setSelectedInitialId] = useState('')
   const [selectedStatusFilterId, setSelectedStatusFilterId] = useState('')
+  const [selectedStopId, setSelectedStopId] = useState('')
   const [newWorkflowStatusName, setNewWorkflowStatusName] = useState('')
   const [newWorkflowStatusDescription, setNewWorkflowStatusDescription] = useState('')
   const [editingWorkflowStatusId, setEditingWorkflowStatusId] = useState('')
@@ -923,6 +957,7 @@ function App() {
       workflowInitials,
       workflowStatuses,
       workflowStatusFilters,
+      workflowStops,
       workflowPositions,
       workflowBoardAgentIds,
       selectedProjectId: projectFilter,
@@ -953,7 +988,7 @@ function App() {
       }
     }, 450)
     return () => window.clearTimeout(timer)
-  }, [agents, autoRun, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowPrompts, workflowStatusFilters, workflowStatuses])
+  }, [agents, autoRun, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   const applySharedState = useCallback((state: ReturnType<typeof loadStoredState>) => {
     const incomingAgents = Array.isArray(state.agents)
@@ -983,6 +1018,7 @@ function App() {
     setWorkflowInitials(Array.isArray(state.workflowInitials) ? state.workflowInitials : [])
     setWorkflowStatuses(Array.isArray(state.workflowStatuses) ? state.workflowStatuses : [])
     setWorkflowStatusFilters(Array.isArray(state.workflowStatusFilters) ? state.workflowStatusFilters : [])
+    setWorkflowStops(Array.isArray(state.workflowStops) ? state.workflowStops : [])
     setWorkflowPositions(state.workflowPositions ?? {})
     setWorkflowBoardAgentIds(state.workflowBoardAgentIds ?? {})
     setAutoRun(state.autoRun === true)
@@ -1144,16 +1180,21 @@ function App() {
       filter.ownerAgentId === activeDashboardOwnerId &&
       samePath(filter.projectPath, selectedProject?.path ?? ''),
   )
+  const projectStops = workflowStops.filter(
+    (stop) =>
+      stop.ownerAgentId === activeDashboardOwnerId &&
+      samePath(stop.projectPath, selectedProject?.path ?? ''),
+  )
   const projectRoutes = useMemo(
     () =>
       routes.filter(
         (route) =>
           (route.ownerAgentId || route.sourceId) === activeDashboardOwnerId &&
           samePath(route.projectPath, selectedProject?.path ?? '') &&
-          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters].some((node) => node.id === route.sourceId) &&
-          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters].some((node) => node.id === route.targetId),
+          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops].some((node) => node.id === route.sourceId) &&
+          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops].some((node) => node.id === route.targetId),
       ),
-    [activeDashboardOwnerId, projectAgents, projectStatusFilters, routes, selectedProject?.path, workflowInitials, workflowPrompts],
+    [activeDashboardOwnerId, projectAgents, projectStatusFilters, projectStops, routes, selectedProject?.path, workflowInitials, workflowPrompts],
   )
   const projectPrompts = workflowPrompts.filter(
     (prompt) =>
@@ -1176,12 +1217,13 @@ function App() {
     ...dashboardPrompts.map((prompt) => prompt.id),
     ...projectInitials.map((initial) => initial.id),
     ...projectStatusFilters.map((filter) => filter.id),
+    ...projectStops.map((stop) => stop.id),
   ])
   const dashboardRoutes = projectRoutes.filter(
     (route) => dashboardNodeIds.has(route.sourceId) && dashboardNodeIds.has(route.targetId),
   )
   const dashboardPositions = Object.fromEntries(
-    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters].map((node) => [
+    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters, ...projectStops].map((node) => [
       node.id,
       workflowPositions[`${activeDashboardOwnerId}:${node.id}`],
     ]).filter((entry) => Boolean(entry[1])),
@@ -1190,9 +1232,10 @@ function App() {
   const selectedPrompt = projectPrompts.find((prompt) => prompt.id === selectedPromptId)
   const selectedInitial = projectInitials.find((initial) => initial.id === selectedInitialId)
   const selectedStatusFilter = projectStatusFilters.find((filter) => filter.id === selectedStatusFilterId)
+  const selectedStop = projectStops.find((stop) => stop.id === selectedStopId)
   const selectedWorkflowAgent = projectAgents.find((agent) => agent.id === selectedWorkflowAgentId)
   const dashboardNodeLabel = (nodeId: string) =>
-    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters].find(
+    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters, ...projectStops].find(
       (node) => node.id === nodeId,
     )?.name ?? 'Unbekannter Baustein'
 
@@ -1920,6 +1963,9 @@ function App() {
     setWorkflowInitials((current) =>
       current.filter((initial) => initial.ownerAgentId !== agent.id),
     )
+    setWorkflowStops((current) =>
+      current.filter((stop) => stop.ownerAgentId !== agent.id),
+    )
     setWorkflowPositions((current) => {
       return Object.fromEntries(
         Object.entries(current).filter(([key]) => !key.endsWith(`:${agent.id}`)),
@@ -2189,10 +2235,14 @@ function App() {
     const currentTaskSignature = taskSignature(agent.lastResult)
     const projectStatuses = workflowStatusesForAgent(agent, workflowStatuses)
     const resultStatusIds = workflowStatusIdsFromResult(agent.lastResult, projectStatuses)
-    const deliveries = activeRoutes.flatMap((route) => {
+    const deliveries = activeRoutes.flatMap<WorkflowDelivery>((route) => {
       const directTarget = agents.find((item) => item.id === route.targetId)
       if (directTarget) {
         return [{ target: directTarget, route }]
+      }
+      const directStop = workflowStops.find((stop) => stop.id === route.targetId)
+      if (directStop) {
+        return [{ stop: directStop, route }]
       }
       const statusFilter = workflowStatusFilters.find((filter) => filter.id === route.targetId)
       if (statusFilter) {
@@ -2201,9 +2251,13 @@ function App() {
         }
         return routes
           .filter((outgoing) => outgoing.sourceId === statusFilter.id)
-          .flatMap((outgoing) => {
+          .flatMap<WorkflowDelivery>((outgoing) => {
             const target = agents.find((item) => item.id === outgoing.targetId)
-            return target ? [{ target, route: outgoing }] : []
+            if (target) {
+              return [{ target, route: outgoing }]
+            }
+            const stop = workflowStops.find((item) => item.id === outgoing.targetId)
+            return stop ? [{ stop, route: outgoing }] : []
           })
       }
       const promptNode = workflowPrompts.find((prompt) => prompt.id === route.targetId)
@@ -2216,11 +2270,22 @@ function App() {
             outgoing.sourceId === promptNode.id &&
             routeConditionMatches(outgoing.condition, agent.lastResult),
         )
-        .flatMap((outgoing) => {
+        .flatMap<WorkflowDelivery>((outgoing) => {
           const target = agents.find((item) => item.id === outgoing.targetId)
-          return target
-            ? [{
+          if (target) {
+            return [{
                 target,
+                route: {
+                  ...outgoing,
+                  condition: promptNode.condition,
+                  prompt: promptNode.prompt,
+                },
+              }]
+          }
+          const stop = workflowStops.find((item) => item.id === outgoing.targetId)
+          return stop
+            ? [{
+                stop,
                 route: {
                   ...outgoing,
                   condition: promptNode.condition,
@@ -2237,22 +2302,50 @@ function App() {
       addEvent('Keine Status-Weitergabe', `${agent.name}: ${availableStatuses}`)
       return
     }
-    const newDeliveries = deliveries.filter(({ route, target }) => {
+    const newDeliveries = deliveries.filter(({ route, target, stop }) => {
       if (!currentTaskSignature || route.lastForwardedTask !== currentTaskSignature) {
         return true
       }
       addEvent(
         'Identische Aufgabe nicht weitergegeben',
-        `${agent.name} → ${target.name}: Die nächste Aufgabe wurde über diese Verbindung bereits übergeben.`,
+        `${agent.name} → ${target?.name ?? stop?.name ?? 'Stopp'}: Die nächste Aufgabe wurde über diese Verbindung bereits übergeben.`,
       )
       return false
     })
     if (newDeliveries.length === 0) {
       return
     }
+
+    const stopDeliveries = newDeliveries.filter(
+      (delivery): delivery is WorkflowDelivery & { stop: WorkflowStop } => Boolean(delivery.stop),
+    )
+    const agentDeliveries = newDeliveries.filter(
+      (delivery): delivery is WorkflowDelivery & { target: Agent } => Boolean(delivery.target),
+    )
+
+    stopDeliveries.forEach(({ route, stop }) => {
+      if (currentTaskSignature) {
+        setRoutes((current) =>
+          current.map((item) =>
+            item.id === route.id ? { ...item, lastForwardedTask: currentTaskSignature } : item,
+          ),
+        )
+      }
+      addEvent('Workflow-Pfad beendet', `${agent.name} → ${stop?.name ?? 'Stopp'}`)
+    })
+
+    if (agentDeliveries.length === 0) {
+      updateAgent(agent.id, {
+        status: 'fertig',
+        pendingTurnId: '',
+        runStartedAt: '',
+      })
+      return
+    }
+
     updateAgent(agent.id, { status: 'weitergegeben' })
     const deliveredTargets: string[] = []
-    await Promise.all(newDeliveries.map(async ({ target, route }) => {
+    await Promise.all(agentDeliveries.map(async ({ target, route }) => {
       deliveredTargets.push(target.name)
       const message = buildHandoffMessage(
         agent,
@@ -2313,7 +2406,7 @@ function App() {
       'Aufgabe weitergegeben',
       `${agent.name} -> ${deliveredTargets.join(', ')}`,
     )
-  }, [addEvent, agents, applyThreadReplacement, routes, updateAgent, workflowPrompts, workflowStatusFilters, workflowStatuses])
+  }, [addEvent, agents, applyThreadReplacement, routes, updateAgent, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   const connectAgents = useCallback((connection: Connection) => {
     if (
@@ -2340,12 +2433,13 @@ function App() {
       workflowPrompts.find((prompt) => prompt.id === nodeId)?.name ??
       workflowInitials.find((initial) => initial.id === nodeId)?.name ??
       workflowStatusFilters.find((filter) => filter.id === nodeId)?.name ??
+      workflowStops.find((stop) => stop.id === nodeId)?.name ??
       'Knoten'
     addEvent(
       'Workflow-Verbindung erstellt',
       `${nodeName(route.sourceId)} → ${nodeName(route.targetId)}`,
     )
-  }, [activeDashboardOwnerId, addEvent, agents, selectedProject?.path, workflowInitials, workflowPrompts, workflowStatusFilters])
+  }, [activeDashboardOwnerId, addEvent, agents, selectedProject?.path, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStops])
 
   const addWorkflowPrompt = () => {
     const prompt: WorkflowPrompt = {
@@ -2532,6 +2626,40 @@ function App() {
     setSelectedInitialId('')
   }
 
+  const addWorkflowStop = () => {
+    if (!activeDashboardOwnerId || !selectedProject) {
+      return
+    }
+    const stop: WorkflowStop = {
+      id: crypto.randomUUID(),
+      ownerAgentId: activeDashboardOwnerId,
+      projectPath: selectedProject.path,
+      name: 'Stopp',
+    }
+    setWorkflowStops((current) => [...current, stop])
+    setSelectedStopId(stop.id)
+    addEvent('Stopp-Baustein erstellt', `${selectedAgent?.name ?? 'Workflow'} beendet an diesem Punkt.`)
+  }
+
+  const updateWorkflowStop = (stopId: string, patch: Partial<WorkflowStop>) => {
+    setWorkflowStops((current) =>
+      current.map((stop) => (stop.id === stopId ? { ...stop, ...patch } : stop)),
+    )
+  }
+
+  const deleteWorkflowStop = (stopId: string) => {
+    setWorkflowStops((current) => current.filter((stop) => stop.id !== stopId))
+    setRoutes((current) =>
+      current.filter((route) => route.sourceId !== stopId && route.targetId !== stopId),
+    )
+    setWorkflowPositions((current) => {
+      const next = { ...current }
+      delete next[`${activeDashboardOwnerId}:${stopId}`]
+      return next
+    })
+    setSelectedStopId('')
+  }
+
   const removeAgentFromDashboard = (agentId: string) => {
     setWorkflowBoardAgentIds((current) => ({
       ...current,
@@ -2576,6 +2704,7 @@ function App() {
       ...dashboardAgents.map((agent) => agent.id),
       ...dashboardPrompts.map((prompt) => prompt.id),
       ...projectStatusFilters.map((filter) => filter.id),
+      ...projectStops.map((stop) => stop.id),
     ]
     const incoming = new Map(nodeIds.map((id) => [id, 0]))
     dashboardRoutes.forEach((route) => {
@@ -3329,6 +3458,18 @@ function App() {
                           <small>Bei Status weiterleiten</small>
                         </span>
                       </button>
+                      <button
+                        onClick={(event) => {
+                          addWorkflowStop()
+                          event.currentTarget.closest('details')?.removeAttribute('open')
+                        }}
+                      >
+                        <span className="toolSymbol">■</span>
+                        <span>
+                          <strong>Stopp</strong>
+                          <small>Workflow-Pfad beenden</small>
+                        </span>
+                      </button>
                       {PROMPT_NODES_ENABLED && (
                         <button
                           onClick={(event) => {
@@ -3352,6 +3493,7 @@ function App() {
                 prompts={dashboardPrompts}
                 initials={projectInitials}
                 statusFilters={projectStatusFilters}
+                stops={projectStops}
                 statuses={projectWorkflowStatuses}
                 positions={dashboardPositions}
                 dashboardId={activeDashboardOwnerId}
@@ -3364,30 +3506,42 @@ function App() {
                   setSelectedWorkflowAgentId('')
                   setSelectedInitialId('')
                   setSelectedStatusFilterId('')
+                  setSelectedStopId('')
                 }}
                 onSelectPrompt={(promptId) => {
                   setSelectedPromptId(promptId)
                   setSelectedWorkflowAgentId('')
                   setSelectedInitialId('')
                   setSelectedStatusFilterId('')
+                  setSelectedStopId('')
                 }}
                 onSelectAgent={(agentId) => {
                   setSelectedWorkflowAgentId(agentId)
                   setSelectedRouteId('')
                   setSelectedInitialId('')
                   setSelectedStatusFilterId('')
+                  setSelectedStopId('')
                 }}
                 onSelectInitial={(initialId) => {
                   setSelectedInitialId(initialId)
                   setSelectedWorkflowAgentId('')
                   setSelectedRouteId('')
                   setSelectedStatusFilterId('')
+                  setSelectedStopId('')
                 }}
                 onSelectStatusFilter={(filterId) => {
                   setSelectedStatusFilterId(filterId)
                   setSelectedWorkflowAgentId('')
                   setSelectedRouteId('')
                   setSelectedInitialId('')
+                  setSelectedStopId('')
+                }}
+                onSelectStop={(stopId) => {
+                  setSelectedStopId(stopId)
+                  setSelectedWorkflowAgentId('')
+                  setSelectedRouteId('')
+                  setSelectedInitialId('')
+                  setSelectedStatusFilterId('')
                 }}
                 onNodePositionChange={(nodeId, position) =>
                   setWorkflowPositions((current) => ({
@@ -3981,6 +4135,41 @@ function App() {
                 Löschen
               </button>
               <button className="primary" onClick={() => setSelectedInitialId('')}>Übernehmen</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {selectedStop && (
+        <div className="modalBackdrop" role="presentation" onMouseDown={() => setSelectedStopId('')}>
+          <section
+            className="promptModal initialModal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Stopp-Baustein bearbeiten"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">Workflow-Ende</p>
+                <h2>{selectedStop.name}</h2>
+              </div>
+              <button title="Fenster schließen" onClick={() => setSelectedStopId('')}>×</button>
+            </div>
+            <label>
+              Name
+              <input
+                value={selectedStop.name}
+                onChange={(event) => updateWorkflowStop(selectedStop.id, { name: event.target.value })}
+              />
+            </label>
+            <p className="modalHint">
+              Sobald ein Ergebnis diesen Baustein erreicht, endet dieser Workflow-Pfad. Es wird keine weitere Chat-Nachricht gesendet.
+            </p>
+            <div className="modalActions">
+              <button className="deleteButton" onClick={() => deleteWorkflowStop(selectedStop.id)}>
+                Löschen
+              </button>
+              <button className="primary" onClick={() => setSelectedStopId('')}>Übernehmen</button>
             </div>
           </section>
         </div>
