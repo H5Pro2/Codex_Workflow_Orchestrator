@@ -1211,26 +1211,38 @@ label {
   background: #151d23;
   border-left: 2px solid #3d6f74;
   color: #aebdca;
-  margin-top: 10px;
+  margin-top: 12px;
   padding: 9px 10px;
 }
 
-.statusFilterDescription {
-  background: #141c21;
-  border: 1px solid #2d4d50;
-  border-left: 3px solid #66d7cc;
+.statusFilterSummary {
+  background: #141a1f;
+  border: 1px solid #34414b;
   border-radius: 5px;
   display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.statusFilterSummary > label {
+  color: #b6c2cc;
+  display: grid;
+  font-size: 11px;
+  gap: 6px;
+}
+
+.statusFilterDescription {
+  border-top: 1px solid #2e3942;
+  display: grid;
   gap: 5px;
-  margin: 10px 0;
-  padding: 10px 12px;
+  margin: 0;
+  padding: 10px 0 0;
 }
 
 .statusFilterDescription > span {
-  color: #78ddd5;
+  color: #9eafb9;
   font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-weight: 700;
 }
 
 .statusFilterDescription > p {

@@ -4293,32 +4293,34 @@ function App() {
                 ×
               </button>
             </div>
-            <label>
-              Status
-              <select
-                value={selectedStatusFilter.statusId}
-                onChange={(event) =>
-                  selectWorkflowStatusFilterStatus(selectedStatusFilter.id, event.target.value)
-                }
-              >
-                {projectWorkflowStatuses.map((status) => (
-                  <option key={status.id} value={status.id}>{status.name}</option>
-                ))}
-              </select>
-            </label>
-            {(() => {
-              const status = projectWorkflowStatuses.find(
-                (item) => item.id === selectedStatusFilter.statusId,
-              )
-              return status?.description
-                ? (
-                    <section className="statusFilterDescription" aria-label="Bedeutung des Status">
-                      <span>Bedeutung des Status</span>
-                      <p>{status.description}</p>
-                    </section>
-                  )
-                : null
-            })()}
+            <section className="statusFilterSummary" aria-label="Ausgewählter Workflow-Status">
+              <label>
+                Status
+                <select
+                  value={selectedStatusFilter.statusId}
+                  onChange={(event) =>
+                    selectWorkflowStatusFilterStatus(selectedStatusFilter.id, event.target.value)
+                  }
+                >
+                  {projectWorkflowStatuses.map((status) => (
+                    <option key={status.id} value={status.id}>{status.name}</option>
+                  ))}
+                </select>
+              </label>
+              {(() => {
+                const status = projectWorkflowStatuses.find(
+                  (item) => item.id === selectedStatusFilter.statusId,
+                )
+                return status?.description
+                  ? (
+                      <div className="statusFilterDescription">
+                        <span>Bedeutung</span>
+                        <p>{status.description}</p>
+                      </div>
+                    )
+                  : null
+              })()}
+            </section>
             <p className="modalHint statusFilterInfo">
               Der Status wird in der projektweiten Statusliste verwaltet. Dieser Baustein leitet nur passende Ergebnisse weiter.
             </p>
