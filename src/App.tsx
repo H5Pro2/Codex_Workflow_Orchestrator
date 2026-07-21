@@ -219,12 +219,12 @@ const STORAGE_KEY = 'codex-workflow-orchestrator'
 const PROMPT_NODES_ENABLED = false
 
 const initialCodexProjects: CodexProject[] = [
-  { id: '8fe383a0-9e86-4a98-bf94-c790d6ae0233', label: 'codex_orchestrator', path: 'C:\\Users\\TV\\Documents\\claw_codex' },
+  { id: '8fe383a0-9e86-4a98-bf94-c790d6ae0233', label: 'codex_orchestrator', path: 'C:\\Users\\TV\\Documents\\Codex_Workflow_Orchestrator' },
 ]
 
 const initialCodexThreads: CodexThread[] = [
-  { id: '019f7d26-adcb-7722-a3cc-4bf7e7776bd3', title: 'CEO', cwd: 'C:\\Users\\TV\\Documents\\claw_codex', status: 'idle' },
-  { id: '019f7d07-6747-7cc1-a665-aea5a79905a1', title: 'Programmierer', cwd: 'C:\\Users\\TV\\Documents\\claw_codex', status: 'active' },
+  { id: '019f7d26-adcb-7722-a3cc-4bf7e7776bd3', title: 'CEO', cwd: 'C:\\Users\\TV\\Documents\\Codex_Workflow_Orchestrator', status: 'idle' },
+  { id: '019f7d07-6747-7cc1-a665-aea5a79905a1', title: 'Programmierer', cwd: 'C:\\Users\\TV\\Documents\\Codex_Workflow_Orchestrator', status: 'active' },
 ]
 
 const statusLabels: Record<AgentStatus, string> = {
