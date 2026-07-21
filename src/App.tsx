@@ -840,6 +840,7 @@ function App() {
   const [newWorkflowStatusName, setNewWorkflowStatusName] = useState('')
   const [newWorkflowStatusDescription, setNewWorkflowStatusDescription] = useState('')
   const [editingWorkflowStatusId, setEditingWorkflowStatusId] = useState('')
+  const [editingWorkflowStatusName, setEditingWorkflowStatusName] = useState('')
   const [editingWorkflowStatusDescription, setEditingWorkflowStatusDescription] = useState('')
   const [layoutRevision, setLayoutRevision] = useState(0)
   const [selectedWorkflowAgentId, setSelectedWorkflowAgentId] = useState('')
@@ -2373,22 +2374,57 @@ function App() {
 
   const openWorkflowStatusEditor = (status: WorkflowStatusDefinition) => {
     setEditingWorkflowStatusId(status.id)
+    setEditingWorkflowStatusName(status.name)
     setEditingWorkflowStatusDescription(status.description)
   }
 
-  const saveWorkflowStatusDescription = () => {
+  const closeWorkflowStatusEditor = () => {
+    setEditingWorkflowStatusId('')
+    setEditingWorkflowStatusName('')
+    setEditingWorkflowStatusDescription('')
+  }
+
+  const saveWorkflowStatus = () => {
     if (!editingWorkflowStatus) {
       return
     }
+    const name = editingWorkflowStatusName.trim()
     const description = editingWorkflowStatusDescription.trim()
+    if (!name) {
+      addEvent('Workflow-Status nicht geändert', 'Der Statusname darf nicht leer sein.')
+      return
+    }
+    const duplicateName = workflowStatuses.some(
+      (status) =>
+        status.id !== editingWorkflowStatus.id &&
+        samePath(status.projectPath, editingWorkflowStatus.projectPath) &&
+        status.name.trim().toLocaleLowerCase('de-DE') === name.toLocaleLowerCase('de-DE'),
+    )
+    if (duplicateName) {
+      addEvent('Workflow-Status nicht geändert', `Der Status „${name}“ existiert bereits.`)
+      return
+    }
+
+    const previousName = editingWorkflowStatus.name
     setWorkflowStatuses((current) =>
       current.map((status) =>
-        status.id === editingWorkflowStatus.id ? { ...status, description } : status,
+        status.id === editingWorkflowStatus.id ? { ...status, name, description } : status,
       ),
     )
-    addEvent('Workflow-Status geändert', editingWorkflowStatus.name)
-    setEditingWorkflowStatusId('')
-    setEditingWorkflowStatusDescription('')
+    if (previousName !== name) {
+      setWorkflowStatusFilters((current) =>
+        current.map((filter) =>
+          filter.statusId === editingWorkflowStatus.id && filter.name === `Status: ${previousName}`
+            ? { ...filter, name: `Status: ${name}` }
+            : filter,
+        ),
+      )
+    }
+    addEvent(
+      'Workflow-Status geändert',
+      previousName === name ? name : `${previousName} → ${name}`,
+    )
+    closeWorkflowStatusEditor()
   }
 
   const deleteWorkflowStatus = (statusId: string) => {
@@ -3184,10 +3220,10 @@ function App() {
                       <span>{status.description || 'Keine Beschreibung'}</span>
                       <div className="workflowStatusActions">
                         <button
-                          aria-label={`Bedeutung von ${status.name} bearbeiten`}
+                          aria-label={`Status ${status.name} bearbeiten`}
                           className="editStatus"
                           onClick={() => openWorkflowStatusEditor(status)}
-                          title="Bedeutung bearbeiten"
+                          title="Status bearbeiten"
                           type="button"
                         >
                           ✎
@@ -3480,23 +3516,23 @@ function App() {
         <div
           className="modalBackdrop"
           role="presentation"
-          onMouseDown={() => setEditingWorkflowStatusId('')}
+          onMouseDown={closeWorkflowStatusEditor}
         >
           <section
             className="promptModal statusDescriptionModal"
             role="dialog"
             aria-modal="true"
-            aria-label={`Bedeutung von ${editingWorkflowStatus.name} bearbeiten`}
+            aria-label={`Status ${editingWorkflowStatus.name} bearbeiten`}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
                 <p className="eyebrow">Workflow-Status</p>
-                <h2>{editingWorkflowStatus.name}</h2>
+                <h2>Status bearbeiten</h2>
               </div>
               <button
                 aria-label="Fenster schließen"
-                onClick={() => setEditingWorkflowStatusId('')}
+                onClick={closeWorkflowStatusEditor}
                 title="Fenster schließen"
                 type="button"
               >
@@ -3504,17 +3540,24 @@ function App() {
               </button>
             </div>
             <label>
+              Statusname
+              <input
+                autoFocus
+                onChange={(event) => setEditingWorkflowStatusName(event.target.value)}
+                value={editingWorkflowStatusName}
+              />
+            </label>
+            <label>
               Bedeutung
               <textarea
-                autoFocus
                 onChange={(event) => setEditingWorkflowStatusDescription(event.target.value)}
                 rows={5}
                 value={editingWorkflowStatusDescription}
               />
             </label>
             <div className="modalActions">
-              <button onClick={() => setEditingWorkflowStatusId('')} type="button">Abbrechen</button>
-              <button className="primary" onClick={saveWorkflowStatusDescription} type="button">
+              <button onClick={closeWorkflowStatusEditor} type="button">Abbrechen</button>
+              <button className="primary" onClick={saveWorkflowStatus} type="button">
                 Speichern
               </button>
             </div>
