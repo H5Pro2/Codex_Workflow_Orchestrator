@@ -4311,7 +4311,12 @@ function App() {
                 (item) => item.id === selectedStatusFilter.statusId,
               )
               return status?.description
-                ? <p className="modalHint statusFilterDescription">{status.description}</p>
+                ? (
+                    <section className="statusFilterDescription" aria-label="Bedeutung des Status">
+                      <span>Bedeutung des Status</span>
+                      <p>{status.description}</p>
+                    </section>
+                  )
                 : null
             })()}
             <p className="modalHint statusFilterInfo">

@@ -1216,9 +1216,28 @@ label {
 }
 
 .statusFilterDescription {
-  color: #d5dee9;
+  background: #141c21;
+  border: 1px solid #2d4d50;
+  border-left: 3px solid #66d7cc;
+  border-radius: 5px;
+  display: grid;
+  gap: 5px;
+  margin: 10px 0;
+  padding: 10px 12px;
+}
+
+.statusFilterDescription > span {
+  color: #78ddd5;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.statusFilterDescription > p {
+  color: #e1eaf2;
   font-size: 14px;
   line-height: 1.5;
+  margin: 0;
 }
 
 .statusFilterEditor label {
