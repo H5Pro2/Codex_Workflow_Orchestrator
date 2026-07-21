@@ -3702,7 +3702,7 @@ function App() {
             <div className="dashboardHeader">
               <div>
                 <p className="eyebrow">Workflow-Dashboard</p>
-                <strong>{selectedAgent.name} · Eigene Verdrahtung</strong>
+                <strong>{selectedAgent.name}</strong>
               </div>
               <div className="dashboardActions">
                 <div className="dashboardMetric">
