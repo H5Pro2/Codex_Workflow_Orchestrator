@@ -44,6 +44,7 @@ type Agent = {
   talkTo: string[]
   autoForward: boolean
   workflowStatusIds: string[] | null
+  workflowStatusUpdatedAt: string
   finishSignal: string
   lastResult: string
   instructionVersion: number
@@ -300,6 +301,7 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
     workflowStatusIds: Array.isArray(agent.workflowStatusIds)
       ? Array.from(new Set(agent.workflowStatusIds.filter((id): id is string => typeof id === 'string')))
       : null,
+    workflowStatusUpdatedAt: agent.workflowStatusUpdatedAt ?? '',
     finishSignal: agent.finishSignal ?? '"status":"fertig"',
     lastResult: agent.lastResult ?? '',
     instructionVersion: agent.instructionVersion ?? 1,
@@ -954,7 +956,26 @@ function App() {
   }, [agents, autoRun, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowPrompts, workflowStatusFilters, workflowStatuses])
 
   const applySharedState = useCallback((state: ReturnType<typeof loadStoredState>) => {
-    setAgents(Array.isArray(state.agents) ? deduplicateAgents(state.agents.map(normalizeAgent)) : [])
+    const incomingAgents = Array.isArray(state.agents)
+      ? deduplicateAgents(state.agents.map(normalizeAgent))
+      : []
+    setAgents((current) => {
+      const localAgents = new Map(current.map((agent) => [agent.id, agent]))
+      return incomingAgents.map((incoming) => {
+        const local = localAgents.get(incoming.id)
+        if (
+          local &&
+          local.workflowStatusUpdatedAt > incoming.workflowStatusUpdatedAt
+        ) {
+          return {
+            ...incoming,
+            workflowStatusIds: local.workflowStatusIds,
+            workflowStatusUpdatedAt: local.workflowStatusUpdatedAt,
+          }
+        }
+        return incoming
+      })
+    })
     setEvents(Array.isArray(state.events) ? state.events : [])
     setHiddenThreadIds(Array.isArray(state.hiddenThreadIds) ? state.hiddenThreadIds : [])
     setRoutes(Array.isArray(state.routes) ? state.routes : [])
@@ -1339,6 +1360,7 @@ function App() {
            talkTo: [],
            autoForward: true,
            workflowStatusIds: null,
+           workflowStatusUpdatedAt: '',
            finishSignal: '"status":"fertig"',
           lastResult: '',
           instructionVersion: 1,
@@ -1387,6 +1409,8 @@ function App() {
   }, [])
 
   const updateAgent = useCallback((id: string, patch: Partial<Agent>) => {
+    // Block incoming shared-state snapshots until this local change is persisted.
+    sharedStateDirty.current = true
     setAgents((current) =>
       current.map((agent) =>
         agent.id === id ? { ...agent, ...patch, updatedAt: new Date().toISOString() } : agent,
@@ -1433,7 +1457,10 @@ function App() {
       : currentIds.filter((id) => id !== statusId)
     const allSelected = availableStatuses.length > 0 && availableStatuses.every((status) => nextIds.includes(status.id))
 
-    updateAgent(agent.id, { workflowStatusIds: allSelected ? null : nextIds })
+    updateAgent(agent.id, {
+      workflowStatusIds: allSelected ? null : nextIds,
+      workflowStatusUpdatedAt: new Date().toISOString(),
+    })
   }
 
   const updatePromptDocument = (agent: Agent, documentId: string, content: string) => {
@@ -1696,6 +1723,7 @@ function App() {
       talkTo: [],
       autoForward: true,
       workflowStatusIds: null,
+      workflowStatusUpdatedAt: '',
       finishSignal: '"status":"fertig"',
       lastResult: '',
       instructionVersion: 1,
@@ -1766,6 +1794,7 @@ function App() {
         talkTo: [],
         autoForward: true,
         workflowStatusIds: null,
+        workflowStatusUpdatedAt: '',
         finishSignal: '"status":"fertig"',
         lastResult: '',
         instructionVersion: 1,
