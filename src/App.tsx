@@ -3551,7 +3551,7 @@ function App() {
               title={tx('Projektweite Status konfigurieren', 'Configure project statuses')}
               type="button"
             >
-              {tx('Statusliste', 'Status list')}
+              {tx('Status-Setup', 'Status setup')}
             </button>
           </div>
         </div>
