@@ -61,6 +61,7 @@ Das Dashboard unterstützt:
 - Initial-Bausteine für den Workflow-Start,
 - Statusfilter für bedingte Weiterleitungen,
 - Stopp-Bausteine zum kontrollierten Beenden eines Pfades,
+- Zeitplan-Bausteine für einmalige Kalendertermine und wiederkehrende Aufgaben,
 - automatische Anordnung der Bausteine,
 - Auswahl, Verschieben und Löschen von Verbindungen.
 
@@ -77,6 +78,16 @@ Initial -> CEO
 ```
 
 Der CEO erhält dann die Startanweisung, verarbeitet sie in seinem Codex-Chat und gibt sein Ergebnis gemäß der weiteren Verdrahtung weiter.
+
+### Zeitplan-Baustein
+
+Der Zeitplan-Baustein sendet eine hinterlegte Aufgabe zum festgelegten Termin an direkt verbundene Agenten. Er unterstützt einmalige Kalendertermine sowie wiederkehrende Intervalle in Minuten, Stunden, Tagen oder Wochen.
+
+```text
+Zeitplan -> Agent
+```
+
+Ein Zeitplan wird nur ausgeführt, wenn er aktiviert ist und die Workflow-Automatik läuft. Ist ein Zielagent noch beschäftigt, wartet der Baustein, bis der Agent wieder verfügbar ist. Termine und nächste Ausführung werden im gemeinsamen Orchestrator-Zustand gespeichert.
 
 ### Workflow-Status
 
@@ -130,6 +141,7 @@ Nach `Automatik stoppen` gilt:
 
 - keine Initial-Anfragen,
 - keine automatische Weitergabe,
+- keine Ausführung fälliger Zeitpläne,
 - keine weitere Workflow-Kommunikation zwischen Agenten,
 - keine animierten Verbindungen,
 - direkte Chat-Nachrichten und manuelle Prompt-Übergaben bleiben möglich.

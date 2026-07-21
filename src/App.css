@@ -1276,6 +1276,91 @@ label {
   background: #fb7185;
 }
 
+.workflowCanvas .react-flow__node.timer {
+  background: #202016;
+  border-color: #d6a94d;
+  box-shadow: inset 3px 0 0 #d6a94d;
+}
+
+.workflowCanvas .react-flow__node.timer.disabled {
+  filter: saturate(0.45);
+  opacity: 0.68;
+}
+
+.workflowNodeContent.timer {
+  padding-left: 18px;
+}
+
+.workflowNodeContent.timer .portLabel {
+  color: #f4c96b;
+}
+
+.workflowCanvas .react-flow__node.timer .react-flow__handle {
+  background: #f4c96b;
+}
+
+.timerModal {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.timerFormGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.timerIntervalField {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 0.7fr 1fr;
+}
+
+.timerEnabled {
+  align-items: center;
+  background: #151719;
+  border: 1px solid #34363a;
+  border-radius: 5px;
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  justify-content: flex-start;
+  margin-top: 12px;
+  padding: 11px 12px;
+}
+
+.timerEnabled input {
+  flex: 0 0 auto;
+  padding: 0;
+  width: auto;
+}
+
+.timerEnabled span {
+  display: grid;
+  gap: 2px;
+}
+
+.timerEnabled small {
+  color: var(--muted);
+}
+
+.timerMeta {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  padding: 11px 2px;
+}
+
+.timerMeta span {
+  color: var(--muted);
+}
+
+@media (max-width: 680px) {
+  .timerFormGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .statusFilterEditor {
   align-items: end;
   background: #121820;

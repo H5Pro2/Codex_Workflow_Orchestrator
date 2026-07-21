@@ -150,6 +150,21 @@ type WorkflowStop = {
   name: string
 }
 
+type WorkflowTimer = {
+  id: string
+  ownerAgentId: string
+  projectPath: string
+  name: string
+  task: string
+  schedule: 'once' | 'interval'
+  startAt: string
+  intervalValue: number
+  intervalUnit: 'minutes' | 'hours' | 'days' | 'weeks'
+  enabled: boolean
+  nextRunAt: string
+  lastRunAt: string
+}
+
 type WorkflowDelivery = {
   route: WorkflowRoute
   target?: Agent
@@ -158,7 +173,7 @@ type WorkflowDelivery = {
 
 type WorkflowNodeData = {
   label: string
-  kind: 'agent' | 'prompt' | 'initial' | 'status' | 'stop'
+  kind: 'agent' | 'prompt' | 'initial' | 'status' | 'stop' | 'timer'
   status?: AgentStatus
 }
 
@@ -192,10 +207,11 @@ function chatMessageIdentity(message: ChatMessage, agentName: string) {
 function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
   const isInitial = data.kind === 'initial'
   const isStop = data.kind === 'stop'
+  const isTimer = data.kind === 'timer'
   return (
     <div className={`workflowNodeContent ${data.kind}`}>
-      {!isInitial && <Handle id="input" type="target" position={Position.Left} />}
-      {!isInitial && <span className="portLabel input">In</span>}
+      {!isInitial && !isTimer && <Handle id="input" type="target" position={Position.Left} />}
+      {!isInitial && !isTimer && <span className="portLabel input">In</span>}
       <strong>{data.label}</strong>
       <span className="nodeKind">
         {data.kind === 'agent'
@@ -206,6 +222,8 @@ function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
               ? 'Status-Filter'
               : data.kind === 'stop'
                 ? 'Pfad beenden'
+                : data.kind === 'timer'
+                  ? 'Zeitsteuerung'
                 : 'Prompt / Bedingung'}
       </span>
       {!isStop && <span className="portLabel output">Out</span>}
@@ -407,6 +425,7 @@ function loadStoredState() {
       workflowStatuses: [] as WorkflowStatusDefinition[],
       workflowStatusFilters: [] as WorkflowStatusFilter[],
       workflowStops: [] as WorkflowStop[],
+      workflowTimers: [] as WorkflowTimer[],
       workflowPositions: {} as Record<string, { x: number; y: number }>,
       hiddenWorkflowAgentIds: [] as string[],
       workflowBoardAgentIds: {} as Record<string, string[]>,
@@ -429,6 +448,7 @@ function loadStoredState() {
       workflowStatuses: Array.isArray(parsed.workflowStatuses) ? parsed.workflowStatuses : [],
       workflowStatusFilters: Array.isArray(parsed.workflowStatusFilters) ? parsed.workflowStatusFilters : [],
       workflowStops: Array.isArray(parsed.workflowStops) ? parsed.workflowStops : [],
+      workflowTimers: Array.isArray(parsed.workflowTimers) ? parsed.workflowTimers : [],
       workflowPositions:
         parsed.workflowPositions && typeof parsed.workflowPositions === 'object'
           ? parsed.workflowPositions
@@ -455,6 +475,7 @@ function loadStoredState() {
       workflowStatuses: [] as WorkflowStatusDefinition[],
       workflowStatusFilters: [] as WorkflowStatusFilter[],
       workflowStops: [] as WorkflowStop[],
+      workflowTimers: [] as WorkflowTimer[],
       workflowPositions: {} as Record<string, { x: number; y: number }>,
       hiddenWorkflowAgentIds: [] as string[],
       workflowBoardAgentIds: {} as Record<string, string[]>,
@@ -470,6 +491,46 @@ function nowLabel() {
     minute: '2-digit',
     second: '2-digit',
   }).format(new Date())
+}
+
+function defaultTimerStart() {
+  const date = new Date(Date.now() + 5 * 60_000)
+  date.setSeconds(0, 0)
+  return date.toISOString()
+}
+
+function toDateTimeLocal(value: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
+function fromDateTimeLocal(value: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString()
+}
+
+function timerIntervalMs(timer: WorkflowTimer) {
+  const factors = {
+    minutes: 60_000,
+    hours: 3_600_000,
+    days: 86_400_000,
+    weeks: 604_800_000,
+  }
+  return Math.max(1, timer.intervalValue || 1) * factors[timer.intervalUnit]
+}
+
+function nextTimerRun(timer: WorkflowTimer, after = Date.now()) {
+  if (timer.schedule === 'once') return ''
+  const step = timerIntervalMs(timer)
+  const configuredStart = new Date(timer.startAt).getTime()
+  if (!Number.isFinite(configuredStart)) return new Date(after + step).toISOString()
+  if (configuredStart > after) return new Date(configuredStart).toISOString()
+  const elapsedSteps = Math.floor((after - configuredStart) / step) + 1
+  return new Date(configuredStart + elapsedSteps * step).toISOString()
 }
 
 function projectLabelFromPath(path: string) {
@@ -659,6 +720,7 @@ function WorkflowDashboard({
   initials,
   statusFilters,
   stops,
+  timers,
   statuses,
   positions,
   dashboardId,
@@ -673,6 +735,7 @@ function WorkflowDashboard({
   onSelectInitial,
   onSelectStatusFilter,
   onSelectStop,
+  onSelectTimer,
   onNodePositionChange,
   onAgentDrop,
   draggedAgentId,
@@ -683,6 +746,7 @@ function WorkflowDashboard({
   initials: WorkflowInitial[]
   statusFilters: WorkflowStatusFilter[]
   stops: WorkflowStop[]
+  timers: WorkflowTimer[]
   statuses: WorkflowStatusDefinition[]
   positions: Record<string, { x: number; y: number }>
   dashboardId: string
@@ -697,6 +761,7 @@ function WorkflowDashboard({
   onSelectInitial: (initialId: string) => void
   onSelectStatusFilter: (filterId: string) => void
   onSelectStop: (stopId: string) => void
+  onSelectTimer: (timerId: string) => void
   onNodePositionChange: (nodeId: string, position: { x: number; y: number }) => void
   onAgentDrop: (agentId: string, position: { x: number; y: number }) => void
   draggedAgentId: string
@@ -743,8 +808,15 @@ function WorkflowDashboard({
           data: { label: stop.name, kind: 'stop' as const },
           className: 'workflowNode stop',
         })),
+        ...timers.map((timer, index) => ({
+          id: timer.id,
+          type: 'workflow',
+          position: positions[timer.id] ?? { x: 40, y: 240 + index * 130 },
+          data: { label: timer.name, kind: 'timer' as const },
+          className: `workflowNode timer ${timer.enabled ? 'enabled' : 'disabled'}`,
+        })),
       ],
-    [agents, initials, positions, prompts, selectedAgentNodeId, statusFilters, statuses, stops],
+    [agents, initials, positions, prompts, selectedAgentNodeId, statusFilters, statuses, stops, timers],
   )
   const initialEdges = useMemo<Edge[]>(
     () =>
@@ -851,6 +923,8 @@ function WorkflowDashboard({
             onSelectStatusFilter(node.id)
           } else if (stops.some((stop) => stop.id === node.id)) {
             onSelectStop(node.id)
+          } else if (timers.some((timer) => timer.id === node.id)) {
+            onSelectTimer(node.id)
           } else if (agents.some((agent) => agent.id === node.id)) {
             onSelectAgent(node.id)
           }
@@ -902,6 +976,7 @@ function App() {
     storedState.workflowStatusFilters,
   )
   const [workflowStops, setWorkflowStops] = useState<WorkflowStop[]>(storedState.workflowStops)
+  const [workflowTimers, setWorkflowTimers] = useState<WorkflowTimer[]>(storedState.workflowTimers)
   const [workflowPositions, setWorkflowPositions] = useState<Record<string, { x: number; y: number }>>(
     storedState.workflowPositions,
   )
@@ -910,6 +985,7 @@ function App() {
   const [selectedInitialId, setSelectedInitialId] = useState('')
   const [selectedStatusFilterId, setSelectedStatusFilterId] = useState('')
   const [selectedStopId, setSelectedStopId] = useState('')
+  const [selectedTimerId, setSelectedTimerId] = useState('')
   const [newWorkflowStatusName, setNewWorkflowStatusName] = useState('')
   const [newWorkflowStatusDescription, setNewWorkflowStatusDescription] = useState('')
   const [editingWorkflowStatusId, setEditingWorkflowStatusId] = useState('')
@@ -954,6 +1030,7 @@ function App() {
   const autoRunRef = useRef(autoRun)
   const pollingTurnIds = useRef(new Set<string>())
   const terminalResultObservations = useRef(new Map<string, number>())
+  const timerDispatchIds = useRef(new Set<string>())
   const chatStreamRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -1007,6 +1084,7 @@ function App() {
       workflowStatuses,
       workflowStatusFilters,
       workflowStops,
+      workflowTimers,
       workflowPositions,
       workflowBoardAgentIds,
       selectedProjectId: projectFilter,
@@ -1037,7 +1115,7 @@ function App() {
       }
     }, 450)
     return () => window.clearTimeout(timer)
-  }, [agents, autoRun, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [agents, autoRun, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops, workflowTimers])
 
   const applySharedState = useCallback((state: ReturnType<typeof loadStoredState>) => {
     const incomingAgents = Array.isArray(state.agents)
@@ -1068,6 +1146,7 @@ function App() {
     setWorkflowStatuses(Array.isArray(state.workflowStatuses) ? state.workflowStatuses : [])
     setWorkflowStatusFilters(Array.isArray(state.workflowStatusFilters) ? state.workflowStatusFilters : [])
     setWorkflowStops(Array.isArray(state.workflowStops) ? state.workflowStops : [])
+    setWorkflowTimers(Array.isArray(state.workflowTimers) ? state.workflowTimers : [])
     setWorkflowPositions(state.workflowPositions ?? {})
     setWorkflowBoardAgentIds(state.workflowBoardAgentIds ?? {})
     setAutoRun(state.autoRun === true)
@@ -1254,16 +1333,21 @@ function App() {
       stop.ownerAgentId === activeDashboardOwnerId &&
       samePath(stop.projectPath, selectedProject?.path ?? ''),
   )
+  const projectTimers = workflowTimers.filter(
+    (timer) =>
+      timer.ownerAgentId === activeDashboardOwnerId &&
+      samePath(timer.projectPath, selectedProject?.path ?? ''),
+  )
   const projectRoutes = useMemo(
     () =>
       routes.filter(
         (route) =>
           (route.ownerAgentId || route.sourceId) === activeDashboardOwnerId &&
           samePath(route.projectPath, selectedProject?.path ?? '') &&
-          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops].some((node) => node.id === route.sourceId) &&
-          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops].some((node) => node.id === route.targetId),
+          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops, ...projectTimers].some((node) => node.id === route.sourceId) &&
+          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops, ...projectTimers].some((node) => node.id === route.targetId),
       ),
-    [activeDashboardOwnerId, projectAgents, projectStatusFilters, projectStops, routes, selectedProject?.path, workflowInitials, workflowPrompts],
+    [activeDashboardOwnerId, projectAgents, projectStatusFilters, projectStops, projectTimers, routes, selectedProject?.path, workflowInitials, workflowPrompts],
   )
   const projectPrompts = workflowPrompts.filter(
     (prompt) =>
@@ -1287,12 +1371,13 @@ function App() {
     ...projectInitials.map((initial) => initial.id),
     ...projectStatusFilters.map((filter) => filter.id),
     ...projectStops.map((stop) => stop.id),
+    ...projectTimers.map((timer) => timer.id),
   ])
   const dashboardRoutes = projectRoutes.filter(
     (route) => dashboardNodeIds.has(route.sourceId) && dashboardNodeIds.has(route.targetId),
   )
   const dashboardPositions = Object.fromEntries(
-    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters, ...projectStops].map((node) => [
+    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters, ...projectStops, ...projectTimers].map((node) => [
       node.id,
       workflowPositions[`${activeDashboardOwnerId}:${node.id}`],
     ]).filter((entry) => Boolean(entry[1])),
@@ -1302,9 +1387,10 @@ function App() {
   const selectedInitial = projectInitials.find((initial) => initial.id === selectedInitialId)
   const selectedStatusFilter = projectStatusFilters.find((filter) => filter.id === selectedStatusFilterId)
   const selectedStop = projectStops.find((stop) => stop.id === selectedStopId)
+  const selectedTimer = projectTimers.find((timer) => timer.id === selectedTimerId)
   const selectedWorkflowAgent = projectAgents.find((agent) => agent.id === selectedWorkflowAgentId)
   const dashboardNodeLabel = (nodeId: string) =>
-    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters, ...projectStops].find(
+    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters, ...projectStops, ...projectTimers].find(
       (node) => node.id === nodeId,
     )?.name ?? 'Unbekannter Baustein'
 
@@ -2035,6 +2121,9 @@ function App() {
     setWorkflowStops((current) =>
       current.filter((stop) => stop.ownerAgentId !== agent.id),
     )
+    setWorkflowTimers((current) =>
+      current.filter((timer) => timer.ownerAgentId !== agent.id),
+    )
     setWorkflowPositions((current) => {
       return Object.fromEntries(
         Object.entries(current).filter(([key]) => !key.endsWith(`:${agent.id}`)),
@@ -2507,12 +2596,13 @@ function App() {
       workflowInitials.find((initial) => initial.id === nodeId)?.name ??
       workflowStatusFilters.find((filter) => filter.id === nodeId)?.name ??
       workflowStops.find((stop) => stop.id === nodeId)?.name ??
+      workflowTimers.find((timer) => timer.id === nodeId)?.name ??
       'Knoten'
     addEvent(
       'Workflow-Verbindung erstellt',
       `${nodeName(route.sourceId)} → ${nodeName(route.targetId)}`,
     )
-  }, [activeDashboardOwnerId, addEvent, agents, selectedProject?.path, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStops])
+  }, [activeDashboardOwnerId, addEvent, agents, selectedProject?.path, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStops, workflowTimers])
 
   const addWorkflowPrompt = () => {
     const prompt: WorkflowPrompt = {
@@ -2741,6 +2831,53 @@ function App() {
     setSelectedStopId('')
   }
 
+  const addWorkflowTimer = () => {
+    if (!activeDashboardOwnerId || !selectedProject) return
+    const startAt = defaultTimerStart()
+    const timer: WorkflowTimer = {
+      id: crypto.randomUUID(),
+      ownerAgentId: activeDashboardOwnerId,
+      projectPath: selectedProject.path,
+      name: 'Zeitplan',
+      task: 'Prüfe den aktuellen Stand und melde die nächsten erforderlichen Schritte.',
+      schedule: 'once',
+      startAt,
+      intervalValue: 30,
+      intervalUnit: 'minutes',
+      enabled: false,
+      nextRunAt: startAt,
+      lastRunAt: '',
+    }
+    setWorkflowTimers((current) => [...current, timer])
+    addEvent('Zeitplan erstellt', 'Doppelklick auf den Baustein öffnet die Konfiguration.')
+  }
+
+  const updateWorkflowTimer = (timerId: string, patch: Partial<WorkflowTimer>) => {
+    setWorkflowTimers((current) =>
+      current.map((timer) => {
+        if (timer.id !== timerId) return timer
+        const next = { ...timer, ...patch }
+        if ('startAt' in patch || 'schedule' in patch || 'intervalValue' in patch || 'intervalUnit' in patch) {
+          next.nextRunAt = next.startAt
+        }
+        return next
+      }),
+    )
+  }
+
+  const deleteWorkflowTimer = (timerId: string) => {
+    setWorkflowTimers((current) => current.filter((timer) => timer.id !== timerId))
+    setRoutes((current) =>
+      current.filter((route) => route.sourceId !== timerId && route.targetId !== timerId),
+    )
+    setWorkflowPositions((current) => {
+      const next = { ...current }
+      delete next[`${activeDashboardOwnerId}:${timerId}`]
+      return next
+    })
+    setSelectedTimerId('')
+  }
+
   const removeAgentFromDashboard = (agentId: string) => {
     setWorkflowBoardAgentIds((current) => ({
       ...current,
@@ -2782,6 +2919,7 @@ function App() {
   const autoArrangeWorkflow = () => {
     const nodeIds = [
       ...projectInitials.map((initial) => initial.id),
+      ...projectTimers.map((timer) => timer.id),
       ...dashboardAgents.map((agent) => agent.id),
       ...dashboardPrompts.map((prompt) => prompt.id),
       ...projectStatusFilters.map((filter) => filter.id),
@@ -2985,6 +3123,90 @@ function App() {
     const timer = window.setInterval(() => void poll(), 2500)
     return () => window.clearInterval(timer)
   }, [addEvent, agents, autoRun, handoff, updateAgent])
+
+  useEffect(() => {
+    if (!autoRun) return
+
+    const dispatchDueTimers = async () => {
+      const now = Date.now()
+      const dueTimers = workflowTimers.filter((timer) =>
+        timer.enabled &&
+        samePath(timer.projectPath, selectedProject?.path ?? '') &&
+        Boolean(timer.nextRunAt || timer.startAt) &&
+        new Date(timer.nextRunAt || timer.startAt).getTime() <= now &&
+        !timerDispatchIds.current.has(timer.id),
+      )
+
+      await Promise.all(dueTimers.map(async (timer) => {
+        const targetAgents = routes
+          .filter((route) => route.ownerAgentId === timer.ownerAgentId && route.sourceId === timer.id)
+          .map((route) => agents.find((agent) => agent.id === route.targetId))
+          .filter((agent): agent is Agent => Boolean(agent))
+
+        if (targetAgents.some((agent) => agent.status === 'laeuft' || agent.pendingTurnId)) return
+
+        timerDispatchIds.current.add(timer.id)
+        const firedAt = new Date().toISOString()
+        const advanceTimer = (success: boolean) => {
+          setWorkflowTimers((current) => current.map((item) => {
+            if (item.id !== timer.id) return item
+            if (!success) {
+              return { ...item, nextRunAt: new Date(Date.now() + 60_000).toISOString() }
+            }
+            if (item.schedule === 'once') {
+              return { ...item, enabled: false, lastRunAt: firedAt, nextRunAt: '' }
+            }
+            return { ...item, lastRunAt: firedAt, nextRunAt: nextTimerRun(item) }
+          }))
+        }
+
+        if (targetAgents.length === 0) {
+          advanceTimer(true)
+          addEvent('Zeitplan ohne Ziel', `${timer.name} ist mit keinem Agenten verbunden.`)
+          timerDispatchIds.current.delete(timer.id)
+          return
+        }
+
+        try {
+          await Promise.all(targetAgents.map(async (target) => {
+            if (!target.threadId) throw new Error(`${target.name} ist mit keinem Codex-Chat verknüpft.`)
+            const message = [
+              `Zeitgesteuerte Aufgabe: ${timer.name}`,
+              '',
+              timer.task,
+              '',
+              'Bearbeite diese Aufgabe selbst anhand deines Projektkontexts. Die weitere Übergabe übernimmt ausschließlich der Workflow-Orchestrator.',
+              workflowStatusInstruction(workflowStatusesForAgent(target, workflowStatuses)),
+            ].join('\n')
+            const response = await fetch(`/api/threads/${encodeURIComponent(target.threadId)}/messages`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: message, model: target.model || undefined }),
+            })
+            const data = await response.json()
+            if (!response.ok) throw new Error(data.error || 'Zeitgesteuerte Aufgabe konnte nicht gesendet werden.')
+            applyThreadReplacement(target, data.replacementThread)
+            updateAgent(target.id, {
+              status: 'laeuft',
+              runStartedAt: firedAt,
+              pendingTurnId: data.turn?.id ?? '',
+            })
+          }))
+          advanceTimer(true)
+          addEvent('Zeitplan ausgeführt', `${timer.name} → ${targetAgents.map((agent) => agent.name).join(', ')}`)
+        } catch (error) {
+          advanceTimer(false)
+          addEvent('Zeitplan fehlgeschlagen', error instanceof Error ? error.message : 'Connector nicht erreichbar.')
+        } finally {
+          timerDispatchIds.current.delete(timer.id)
+        }
+      }))
+    }
+
+    void dispatchDueTimers()
+    const timer = window.setInterval(() => void dispatchDueTimers(), 10_000)
+    return () => window.clearInterval(timer)
+  }, [addEvent, agents, applyThreadReplacement, autoRun, routes, selectedProject?.path, updateAgent, workflowStatuses, workflowTimers])
 
   const startInitialWorkflows = useCallback(async () => {
     const activeProjectPath = selectedProject?.path ?? ''
@@ -3832,6 +4054,19 @@ function App() {
                         <small>Workflow-Pfad beenden</small>
                       </span>
                     </button>
+                    <button
+                      onClick={(event) => {
+                        addWorkflowTimer()
+                        event.currentTarget.closest('details')?.removeAttribute('open')
+                      }}
+                      type="button"
+                    >
+                      <span className="toolSymbol">◷</span>
+                      <span>
+                        <strong>Zeitplan</strong>
+                        <small>Aufgabe zeitgesteuert senden</small>
+                      </span>
+                    </button>
                     {PROMPT_NODES_ENABLED && (
                       <button
                         onClick={(event) => {
@@ -3866,6 +4101,7 @@ function App() {
               initials={projectInitials}
               statusFilters={projectStatusFilters}
               stops={projectStops}
+              timers={projectTimers}
               statuses={projectWorkflowStatuses}
               positions={dashboardPositions}
               dashboardId={activeDashboardOwnerId}
@@ -3915,6 +4151,15 @@ function App() {
                 setSelectedRouteId('')
                 setSelectedInitialId('')
                 setSelectedStatusFilterId('')
+                setSelectedTimerId('')
+              }}
+              onSelectTimer={(timerId) => {
+                setSelectedTimerId(timerId)
+                setSelectedWorkflowAgentId('')
+                setSelectedRouteId('')
+                setSelectedInitialId('')
+                setSelectedStatusFilterId('')
+                setSelectedStopId('')
               }}
               onNodePositionChange={(nodeId, position) =>
                 setWorkflowPositions((current) => ({
@@ -4303,6 +4548,118 @@ function App() {
                 Löschen
               </button>
               <button className="primary" onClick={() => setSelectedStopId('')}>Übernehmen</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {selectedTimer && (
+        <div className="modalBackdrop" role="presentation" onMouseDown={() => setSelectedTimerId('')}>
+          <section
+            className="promptModal timerModal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Zeitplan konfigurieren"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">Workflow-Zeitplan</p>
+                <h2>Zeitplan konfigurieren</h2>
+              </div>
+              <button title="Fenster schließen" onClick={() => setSelectedTimerId('')}>×</button>
+            </div>
+            <div className="timerFormGrid">
+              <label>
+                Name
+                <input
+                  value={selectedTimer.name}
+                  onChange={(event) => updateWorkflowTimer(selectedTimer.id, { name: event.target.value })}
+                />
+              </label>
+              <label>
+                Ausführung
+                <select
+                  value={selectedTimer.schedule}
+                  onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
+                    schedule: event.target.value as WorkflowTimer['schedule'],
+                  })}
+                >
+                  <option value="once">Einmaliger Kalendertermin</option>
+                  <option value="interval">Wiederkehrend</option>
+                </select>
+              </label>
+              <label className="timerStartField">
+                {selectedTimer.schedule === 'once' ? 'Termin' : 'Erste Ausführung'}
+                <input
+                  type="datetime-local"
+                  value={toDateTimeLocal(selectedTimer.startAt)}
+                  onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
+                    startAt: fromDateTimeLocal(event.target.value),
+                  })}
+                />
+              </label>
+              {selectedTimer.schedule === 'interval' && (
+                <div className="timerIntervalField">
+                  <label>
+                    Alle
+                    <input
+                      min="1"
+                      type="number"
+                      value={selectedTimer.intervalValue}
+                      onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
+                        intervalValue: Math.max(1, Number(event.target.value) || 1),
+                      })}
+                    />
+                  </label>
+                  <label>
+                    Einheit
+                    <select
+                      value={selectedTimer.intervalUnit}
+                      onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
+                        intervalUnit: event.target.value as WorkflowTimer['intervalUnit'],
+                      })}
+                    >
+                      <option value="minutes">Minuten</option>
+                      <option value="hours">Stunden</option>
+                      <option value="days">Tage</option>
+                      <option value="weeks">Wochen</option>
+                    </select>
+                  </label>
+                </div>
+              )}
+            </div>
+            <label>
+              Aufgabe
+              <textarea
+                rows={6}
+                value={selectedTimer.task}
+                onChange={(event) => updateWorkflowTimer(selectedTimer.id, { task: event.target.value })}
+                placeholder="Welche Aufgabe soll an den verbundenen Agenten gesendet werden?"
+              />
+            </label>
+            <label className="timerEnabled">
+              <input
+                type="checkbox"
+                checked={selectedTimer.enabled}
+                onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
+                  enabled: event.target.checked,
+                  nextRunAt: event.target.checked ? selectedTimer.startAt : selectedTimer.nextRunAt,
+                })}
+              />
+              <span>
+                <strong>Zeitplan aktiv</strong>
+                <small>Wird nur ausgeführt, solange die Automatik eingeschaltet ist.</small>
+              </span>
+            </label>
+            <div className="timerMeta">
+              <span>Nächster Lauf</span>
+              <strong>{selectedTimer.enabled && selectedTimer.nextRunAt
+                ? new Date(selectedTimer.nextRunAt).toLocaleString('de-DE')
+                : 'Nicht geplant'}</strong>
+            </div>
+            <div className="modalActions">
+              <button className="deleteButton" onClick={() => deleteWorkflowTimer(selectedTimer.id)}>Löschen</button>
+              <button className="primary" onClick={() => setSelectedTimerId('')}>Übernehmen</button>
             </div>
           </section>
         </div>
