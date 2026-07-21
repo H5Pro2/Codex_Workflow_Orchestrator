@@ -839,6 +839,8 @@ function App() {
   const [selectedStatusFilterId, setSelectedStatusFilterId] = useState('')
   const [newWorkflowStatusName, setNewWorkflowStatusName] = useState('')
   const [newWorkflowStatusDescription, setNewWorkflowStatusDescription] = useState('')
+  const [editingWorkflowStatusId, setEditingWorkflowStatusId] = useState('')
+  const [editingWorkflowStatusDescription, setEditingWorkflowStatusDescription] = useState('')
   const [layoutRevision, setLayoutRevision] = useState(0)
   const [selectedWorkflowAgentId, setSelectedWorkflowAgentId] = useState('')
   const [workflowBoardAgentIds, setWorkflowBoardAgentIds] = useState<Record<string, string[]>>(
@@ -1057,6 +1059,10 @@ function App() {
   const pendingPromptDeliveryAgent = useMemo(
     () => agents.find((agent) => agent.id === pendingPromptDeliveryAgentId),
     [agents, pendingPromptDeliveryAgentId],
+  )
+  const editingWorkflowStatus = useMemo(
+    () => workflowStatuses.find((status) => status.id === editingWorkflowStatusId) ?? null,
+    [editingWorkflowStatusId, workflowStatuses],
   )
 
   useEffect(() => {
@@ -2365,6 +2371,26 @@ function App() {
     addEvent('Workflow-Status erstellt', name)
   }
 
+  const openWorkflowStatusEditor = (status: WorkflowStatusDefinition) => {
+    setEditingWorkflowStatusId(status.id)
+    setEditingWorkflowStatusDescription(status.description)
+  }
+
+  const saveWorkflowStatusDescription = () => {
+    if (!editingWorkflowStatus) {
+      return
+    }
+    const description = editingWorkflowStatusDescription.trim()
+    setWorkflowStatuses((current) =>
+      current.map((status) =>
+        status.id === editingWorkflowStatus.id ? { ...status, description } : status,
+      ),
+    )
+    addEvent('Workflow-Status geändert', editingWorkflowStatus.name)
+    setEditingWorkflowStatusId('')
+    setEditingWorkflowStatusDescription('')
+  }
+
   const deleteWorkflowStatus = (statusId: string) => {
     const status = workflowStatuses.find((item) => item.id === statusId)
     setWorkflowStatuses((current) => current.filter((item) => item.id !== statusId))
@@ -3156,15 +3182,26 @@ function App() {
                     <div className="workflowStatusItem" key={status.id}>
                       <strong>{status.name}</strong>
                       <span>{status.description || 'Keine Beschreibung'}</span>
-                      <button
-                        aria-label={`Status ${status.name} löschen`}
-                        className="deleteStatus"
-                        onClick={() => deleteWorkflowStatus(status.id)}
-                        title="Status löschen"
-                        type="button"
-                      >
-                        ×
-                      </button>
+                      <div className="workflowStatusActions">
+                        <button
+                          aria-label={`Bedeutung von ${status.name} bearbeiten`}
+                          className="editStatus"
+                          onClick={() => openWorkflowStatusEditor(status)}
+                          title="Bedeutung bearbeiten"
+                          type="button"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          aria-label={`Status ${status.name} löschen`}
+                          className="deleteStatus"
+                          onClick={() => deleteWorkflowStatus(status.id)}
+                          title="Status löschen"
+                          type="button"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -3438,6 +3475,52 @@ function App() {
           </div>
         </aside>
       </section>
+
+      {editingWorkflowStatus && (
+        <div
+          className="modalBackdrop"
+          role="presentation"
+          onMouseDown={() => setEditingWorkflowStatusId('')}
+        >
+          <section
+            className="promptModal statusDescriptionModal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Bedeutung von ${editingWorkflowStatus.name} bearbeiten`}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">Workflow-Status</p>
+                <h2>{editingWorkflowStatus.name}</h2>
+              </div>
+              <button
+                aria-label="Fenster schließen"
+                onClick={() => setEditingWorkflowStatusId('')}
+                title="Fenster schließen"
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+            <label>
+              Bedeutung
+              <textarea
+                autoFocus
+                onChange={(event) => setEditingWorkflowStatusDescription(event.target.value)}
+                rows={5}
+                value={editingWorkflowStatusDescription}
+              />
+            </label>
+            <div className="modalActions">
+              <button onClick={() => setEditingWorkflowStatusId('')} type="button">Abbrechen</button>
+              <button className="primary" onClick={saveWorkflowStatusDescription} type="button">
+                Speichern
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {PROMPT_NODES_ENABLED && selectedPrompt && (
         <div className="modalBackdrop" role="presentation" onMouseDown={() => setSelectedPromptId('')}>

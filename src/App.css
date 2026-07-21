@@ -854,13 +854,31 @@ label {
   font-size: 12px;
 }
 
+.workflowStatusActions {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.editStatus,
 .deleteStatus {
   background: transparent;
   border: 0;
-  color: #fda4af;
   font-size: 17px;
   line-height: 1;
   padding: 2px 4px;
+}
+
+.editStatus {
+  color: #a8c7ee;
+}
+
+.editStatus:hover {
+  color: #d8e9ff;
+}
+
+.deleteStatus {
+  color: #fda4af;
 }
 
 .linkOverview {
