@@ -832,6 +832,7 @@ function App() {
   const [workflowBoardAgentIds, setWorkflowBoardAgentIds] = useState<Record<string, string[]>>(
     storedState.workflowBoardAgentIds,
   )
+  const [eventLogCollapsed, setEventLogCollapsed] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
   const [promptEditorOpen, setPromptEditorOpen] = useState(false)
   const [promptCreationOpen, setPromptCreationOpen] = useState(false)
@@ -2891,7 +2892,7 @@ function App() {
         </div>
       </section>
 
-      <section className="layout">
+      <section className={`layout ${eventLogCollapsed ? 'eventLogCollapsed' : ''}`}>
         <aside className="agentRail">
           <div className="railHeader">
             <div className="railHeaderTitle">
@@ -3376,18 +3377,31 @@ function App() {
           </section>
         )}
 
-        <aside className="eventLog">
-          <p className="eyebrow">Rollenfluss</p>
-          <CollapsibleText text={graphEdges} limit={700} monospace />
-          <p className="eyebrow">Ablaufprotokoll</p>
-          {events.length === 0 && <p className="empty">Noch keine Orchestrator-Aktion.</p>}
-          {events.map((event) => (
-            <article key={event.id}>
-              <time>{event.at}</time>
-              <strong>{event.title}</strong>
-              <CollapsibleText text={event.detail} limit={320} />
-            </article>
-          ))}
+        <aside className={`eventLog ${eventLogCollapsed ? 'collapsed' : ''}`}>
+          <div className="eventLogHeader">
+            <button
+              aria-label={eventLogCollapsed ? 'Ablaufprotokoll einblenden' : 'Ablaufprotokoll nach rechts einklappen'}
+              className="eventLogToggle"
+              onClick={() => setEventLogCollapsed((current) => !current)}
+              title={eventLogCollapsed ? 'Ablaufprotokoll einblenden' : 'Ablaufprotokoll nach rechts einklappen'}
+              type="button"
+            >
+              {eventLogCollapsed ? '‹' : '›'}
+            </button>
+          </div>
+          <div className="eventLogContent">
+            <p className="eyebrow">Rollenfluss</p>
+            <CollapsibleText text={graphEdges} limit={700} monospace />
+            <p className="eyebrow">Ablaufprotokoll</p>
+            {events.length === 0 && <p className="empty">Noch keine Orchestrator-Aktion.</p>}
+            {events.map((event) => (
+              <article key={event.id}>
+                <time>{event.at}</time>
+                <strong>{event.title}</strong>
+                <CollapsibleText text={event.detail} limit={320} />
+              </article>
+            ))}
+          </div>
         </aside>
       </section>
 

@@ -202,6 +202,10 @@ h2 {
   grid-template-columns: 252px minmax(560px, 1fr) 306px;
 }
 
+.layout.eventLogCollapsed {
+  grid-template-columns: 252px minmax(560px, 1fr) 42px;
+}
+
 .agentRail,
 .workspace,
 .eventLog {
@@ -1555,6 +1559,46 @@ button:hover {
   top: 16px;
 }
 
+.eventLogHeader {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.eventLogToggle {
+  align-items: center;
+  background: #1b1b1f;
+  border: 1px solid #38383f;
+  border-radius: 5px;
+  color: #d8dde8;
+  display: inline-flex;
+  font-size: 20px;
+  height: 30px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 30px;
+}
+
+.eventLogToggle:hover {
+  background: #292930;
+  border-color: #5b5b65;
+}
+
+.eventLog.collapsed {
+  overflow: hidden;
+  padding: 6px 5px;
+}
+
+.eventLog.collapsed .eventLogHeader {
+  justify-content: center;
+  margin: 0;
+}
+
+.eventLog.collapsed .eventLogContent {
+  display: none;
+}
+
 .graph,
 .collapsibleText.monospace {
   background: #171719;
@@ -1671,9 +1715,17 @@ summary:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .layout.eventLogCollapsed {
+    grid-template-columns: 1fr;
+  }
+
   .eventLog {
     height: min(720px, calc(100vh - 32px));
     position: static;
+  }
+
+  .eventLog.collapsed {
+    height: auto;
   }
 
   .agentRail,
