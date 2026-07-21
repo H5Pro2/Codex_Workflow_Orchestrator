@@ -4024,7 +4024,7 @@ function App() {
             <div className="modalHeader">
               <div>
                 <p className="eyebrow">Workflow-Status</p>
-                <h2>{tx('Projektweite Status', 'Project statuses')}</h2>
+                <h2>{tx('Status Setup', 'Status Setup')}</h2>
               </div>
               <button
                 aria-label={tx('Status-Fenster schließen', 'Close status window')}
