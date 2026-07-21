@@ -632,6 +632,7 @@ function WorkflowDashboard({
   positions,
   dashboardId,
   layoutRevision,
+  autoRun,
   routes,
   selectedRouteId,
   onConnectAgents,
@@ -655,6 +656,7 @@ function WorkflowDashboard({
   positions: Record<string, { x: number; y: number }>
   dashboardId: string
   layoutRevision: number
+  autoRun: boolean
   routes: WorkflowRoute[]
   selectedRouteId: string
   onConnectAgents: (connection: Connection) => void
@@ -719,10 +721,10 @@ function WorkflowDashboard({
         id: route.id,
         source: route.sourceId,
         target: route.targetId,
-        animated: true,
+        animated: autoRun,
         className: route.id === selectedRouteId ? 'selectedRoute' : '',
       })),
-    [routes, selectedRouteId],
+    [autoRun, routes, selectedRouteId],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
@@ -3517,6 +3519,7 @@ function App() {
                 positions={dashboardPositions}
                 dashboardId={activeDashboardOwnerId}
                 layoutRevision={layoutRevision}
+                autoRun={autoRun}
                 routes={dashboardRoutes}
                 selectedRouteId={selectedRouteId}
                 onConnectAgents={connectAgents}
