@@ -1579,6 +1579,24 @@ label {
   position: relative;
 }
 
+.agentStatusField {
+  color: #a8b3c4;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  gap: 7px;
+  min-width: 0;
+}
+
+.agentStatusMenu .promptStatusOptions {
+  box-sizing: border-box;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 20;
+}
+
 .promptStatusMenu > summary {
   align-items: center;
   background: #202025;
