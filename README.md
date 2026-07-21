@@ -4,7 +4,7 @@ Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der sich Cod
 
 Ein Agent entspricht einem Codex-Chat innerhalb eines Projekts. Für jeden Agenten können Rolle, Modell, Prompt-Dateien, Statusregeln und Verbindungen getrennt verwaltet werden. Ergebnisse werden über den lokalen Codex-Connector gelesen und abhängig vom Workflow an den nächsten Agenten übergeben.
 
-Das Projekt unterstützt die MCM-Feldforschung und -entwicklung von Mini_DIO. Ziel ist eine nachvollziehbare, organische Weiterentwicklung aus Forschungsergebnissen, Erfahrung und klaren Signalen: eine praktische Form von „Feldintelligenz“.
+Das Projekt ist ausschließlich ein Workflow-Orchestrator für Codex. Es enthält keine fachlichen Vorgaben für ein bestimmtes Anwendungs-, Forschungs- oder Handelsprojekt.
 
 ## Was das Programm kann
 
@@ -227,13 +227,13 @@ Die Konfiguration wird lokal im Orchestrator-Zustand gespeichert. Prompt-Dateien
 - Automatische Weitergabe funktioniert nur mit einem gültigen Abschlussformat, einem passenden Workflow-Status und einer verbundenen Zielroute.
 - Der Orchestrator entscheidet nicht selbst über den fachlichen Inhalt. Die Agenten müssen weiterhin mit sinnvollen Rollen und Arbeitsanweisungen eingerichtet werden.
 
-## Nächster Schwerpunkt für Mini_DIO
+## Nächster Schwerpunkt
 
-Als nächster reproduzierbarer Test sollte ein vollständiger Mini_DIO-Forschungsworkflow eingerichtet werden:
+Als nächster reproduzierbarer Test sollte ein vollständiger Workflow mit einem eigenen Testprojekt eingerichtet werden:
 
 ```text
 Initial -> Analyse -> Entwicklung -> Stopp
                     \-> Überarbeiten -> Analyse
 ```
 
-Dabei sollte geprüft werden, ob jedes Ergebnis den richtigen Workflow-Status am Ende ausgibt und ob die Rückroute zur weiteren Feldforschung nachvollziehbar dokumentiert wird.
+Dabei sollte geprüft werden, ob jedes Ergebnis den richtigen Workflow-Status am Ende ausgibt und ob die Rückroute nachvollziehbar dokumentiert wird.

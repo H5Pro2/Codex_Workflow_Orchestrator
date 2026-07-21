@@ -215,24 +215,15 @@ function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
 
 const workflowNodeTypes = { workflow: WorkflowNode }
 
-const STORAGE_KEY = 'minidio-codex-orchestrator'
+const STORAGE_KEY = 'codex-workflow-orchestrator'
 const PROMPT_NODES_ENABLED = false
 
 const initialCodexProjects: CodexProject[] = [
   { id: '8fe383a0-9e86-4a98-bf94-c790d6ae0233', label: 'codex_orchestrator', path: 'C:\\Users\\TV\\Documents\\claw_codex' },
-  { id: 'local-bbe4e27732a45739cbbcd842a5361e8c', label: 'MINI_DIO', path: 'C:\\Users\\TV\\Documents\\MINI_DIO' },
-  { id: 'local-9ee0f798f12e3a442a04b662184255a6', label: 'MCM_TradingView', path: 'C:\\Users\\TV\\Documents\\MCM_TradingView' },
-  { id: 'local-891672d6ac51047214a222f5a421a0d1', label: 'Phemex_Strategy_Observer', path: 'C:\\Users\\TV\\Documents\\New project 3' },
-  { id: 'local-1b8ed0d8127838bf36accc25354fcdd4', label: 'Mental-Core-Matrix-MCM', path: 'C:\\Users\\TV\\Documents\\New project 2' },
-  { id: 'local-fccf5d4e798b5bf4840da9149d9ff56a', label: 'MCM_Trading_Brain', path: 'C:\\Users\\TV\\Documents\\MCM_Trading_Brain' },
-  { id: 'local-b636d4da065e71d5adb0c62ec053b47f', label: 'TradingView AI', path: 'C:\\Users\\TV\\Documents\\New project' },
 ]
 
 const initialCodexThreads: CodexThread[] = [
   { id: '019f7d26-adcb-7722-a3cc-4bf7e7776bd3', title: 'CEO', cwd: 'C:\\Users\\TV\\Documents\\claw_codex', status: 'idle' },
-  { id: '019f487d-043f-7330-a490-b80912593134', title: 'ENTWICKLUNG', cwd: 'C:\\Users\\TV\\Documents\\MINI_DIO', status: 'idle' },
-  { id: '019f7aed-f24b-7880-a8c6-b32c9d1f7e76', title: '-> Analyse', cwd: 'C:\\Users\\TV\\Documents\\MINI_DIO', status: 'idle' },
-  { id: '019f7bfa-27d3-7a90-9f03-1fe3cd22a029', title: '°° REPO - Aenderungen', cwd: 'C:\\Users\\TV\\Documents\\MINI_DIO', status: 'notLoaded' },
   { id: '019f7d07-6747-7cc1-a665-aea5a79905a1', title: 'Programmierer', cwd: 'C:\\Users\\TV\\Documents\\claw_codex', status: 'active' },
 ]
 
@@ -296,7 +287,7 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
 
   return {
     id: agent.id ?? crypto.randomUUID(),
-    name: agent.name === 'Neuer MiniDIO Agent' ? 'Neuer Agent' : agent.name ?? 'Agent',
+    name: agent.name ?? 'Agent',
     role: agent.role ?? 'Rolle definieren',
     projectId: agent.projectId ?? '',
     projectPath: agent.projectPath ?? '',
@@ -379,15 +370,7 @@ function loadStoredState() {
     const parsed = JSON.parse(stored)
     return {
       agents: Array.isArray(parsed.agents)
-        ? deduplicateAgents(
-            parsed.agents
-              .map(normalizeAgent)
-              .filter(
-                (agent: Agent) =>
-                  agent.threadId ||
-                  !['MiniDIO CEO', 'MiniDIO Analyse', 'MiniDIO Entwicklung'].includes(agent.name),
-              ),
-          )
+        ? deduplicateAgents(parsed.agents.map(normalizeAgent))
         : initialAgents,
       events: Array.isArray(parsed.events) ? parsed.events : [],
       hiddenThreadIds: Array.isArray(parsed.hiddenThreadIds) ? parsed.hiddenThreadIds : [],
@@ -855,7 +838,7 @@ function App() {
   const [projectFilter, setProjectFilter] = useState(() =>
     initialCodexProjects.some((project) => project.id === storedState.selectedProjectId)
       ? storedState.selectedProjectId
-      : 'local-bbe4e27732a45739cbbcd842a5361e8c',
+      : '8fe383a0-9e86-4a98-bf94-c790d6ae0233',
   )
   const [hiddenThreadIds, setHiddenThreadIds] = useState<string[]>(storedState.hiddenThreadIds)
   const [routes, setRoutes] = useState<WorkflowRoute[]>(storedState.routes)
