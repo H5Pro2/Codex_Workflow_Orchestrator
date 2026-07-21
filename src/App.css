@@ -491,6 +491,11 @@ h2 {
   font-weight: 800;
 }
 
+.dashboardToggle {
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .agentChat {
   background: #101011;
   border: 1px solid var(--line);
@@ -897,6 +902,20 @@ label {
   overflow: hidden;
 }
 
+.workflowDashboardModal {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: min(820px, calc(100vh - 40px));
+  margin: 0;
+  max-width: 1180px;
+  width: min(1180px, 100%);
+}
+
+.workflowDashboardModal .workflowCanvas {
+  height: 100%;
+  min-height: 0;
+}
+
 .dashboardHeader {
   align-items: center;
   border-bottom: 1px solid var(--line);
@@ -976,6 +995,26 @@ label {
 
 .dashboardTools > summary::-webkit-details-marker {
   display: none;
+}
+
+.dashboardClose {
+  align-items: center;
+  background: #242428;
+  border: 1px solid #404046;
+  border-radius: 5px;
+  color: #e5e7eb;
+  display: inline-flex;
+  font-size: 19px;
+  height: 34px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 34px;
+}
+
+.dashboardClose:hover {
+  background: #313136;
+  border-color: #5a5a63;
 }
 
 .dashboardActions .compactAction:hover,

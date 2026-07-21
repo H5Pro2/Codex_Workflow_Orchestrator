@@ -887,6 +887,7 @@ function App() {
   )
   const [eventLogCollapsed, setEventLogCollapsed] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
+  const [dashboardOpen, setDashboardOpen] = useState(false)
   const [promptEditorOpen, setPromptEditorOpen] = useState(false)
   const [promptCreationOpen, setPromptCreationOpen] = useState(false)
   const [newPromptName, setNewPromptName] = useState('')
@@ -3316,6 +3317,15 @@ function App() {
                 <span className={`status ${selectedAgent.status}`}>{statusLabels[selectedAgent.status]}</span>
                 <span className="setupControl">
                   <button
+                    aria-label="Workflow-Dashboard öffnen"
+                    className={`setupToggle dashboardToggle ${dashboardOpen ? 'active' : ''}`}
+                    onClick={() => setDashboardOpen(true)}
+                    title="Workflow-Dashboard öffnen"
+                    type="button"
+                  >
+                    D
+                  </button>
+                  <button
                     aria-label="Prompt-Dateien öffnen"
                     className={`setupToggle promptToggle ${promptEditorOpen ? 'active' : ''}`}
                     onClick={() => setPromptEditorOpen(true)}
@@ -3436,145 +3446,6 @@ function App() {
                 />
                 Aktiv
               </label>
-            </section>
-
-            <section className="workflowDashboard">
-              <div className="dashboardHeader">
-                <div>
-                  <p className="eyebrow">Workflow-Dashboard</p>
-                  <strong>{selectedAgent.name} · Eigene Verdrahtung</strong>
-                </div>
-                <div className="dashboardActions">
-                  <div className="dashboardMetric">
-                    <strong>{dashboardRoutes.length}</strong>
-                    <span>Verbindungen</span>
-                  </div>
-                  <div className="dashboardActionGroup">
-                    <button className="compactAction" onClick={autoArrangeWorkflow}>Anordnen</button>
-                  </div>
-                  <details className="dashboardTools">
-                    <summary>Tools</summary>
-                    <div className="dashboardToolMenu">
-                      <button
-                        onClick={(event) => {
-                          addWorkflowInitial()
-                          event.currentTarget.closest('details')?.removeAttribute('open')
-                        }}
-                      >
-                        <span className="toolSymbol">+</span>
-                        <span>
-                          <strong>Initial</strong>
-                          <small>Startanweisung senden</small>
-                        </span>
-                      </button>
-                      <button
-                        onClick={(event) => {
-                          addWorkflowStatusFilter()
-                          event.currentTarget.closest('details')?.removeAttribute('open')
-                        }}
-                      >
-                        <span className="toolSymbol">+</span>
-                        <span>
-                          <strong>Status</strong>
-                          <small>Bei Status weiterleiten</small>
-                        </span>
-                      </button>
-                      <button
-                        onClick={(event) => {
-                          addWorkflowStop()
-                          event.currentTarget.closest('details')?.removeAttribute('open')
-                        }}
-                      >
-                        <span className="toolSymbol">■</span>
-                        <span>
-                          <strong>Stopp</strong>
-                          <small>Workflow-Pfad beenden</small>
-                        </span>
-                      </button>
-                      {PROMPT_NODES_ENABLED && (
-                        <button
-                          onClick={(event) => {
-                            addWorkflowPrompt()
-                            event.currentTarget.closest('details')?.removeAttribute('open')
-                          }}
-                        >
-                          <span className="toolSymbol">+</span>
-                          <span>
-                            <strong>Prompt</strong>
-                            <small>Bedingung auswerten</small>
-                          </span>
-                        </button>
-                      )}
-                    </div>
-                  </details>
-                </div>
-              </div>
-              <WorkflowDashboard
-                agents={dashboardAgents}
-                prompts={dashboardPrompts}
-                initials={projectInitials}
-                statusFilters={projectStatusFilters}
-                stops={projectStops}
-                statuses={projectWorkflowStatuses}
-                positions={dashboardPositions}
-                dashboardId={activeDashboardOwnerId}
-                layoutRevision={layoutRevision}
-                autoRun={autoRun}
-                routes={dashboardRoutes}
-                selectedRouteId={selectedRouteId}
-                onConnectAgents={connectAgents}
-                onSelectRoute={(routeId) => {
-                  setSelectedRouteId(routeId)
-                  setSelectedWorkflowAgentId('')
-                  setSelectedInitialId('')
-                  setSelectedStatusFilterId('')
-                  setSelectedStopId('')
-                }}
-                onSelectPrompt={(promptId) => {
-                  setSelectedPromptId(promptId)
-                  setSelectedWorkflowAgentId('')
-                  setSelectedInitialId('')
-                  setSelectedStatusFilterId('')
-                  setSelectedStopId('')
-                }}
-                onSelectAgent={(agentId) => {
-                  setSelectedWorkflowAgentId(agentId)
-                  setSelectedRouteId('')
-                  setSelectedInitialId('')
-                  setSelectedStatusFilterId('')
-                  setSelectedStopId('')
-                }}
-                onSelectInitial={(initialId) => {
-                  setSelectedInitialId(initialId)
-                  setSelectedWorkflowAgentId('')
-                  setSelectedRouteId('')
-                  setSelectedStatusFilterId('')
-                  setSelectedStopId('')
-                }}
-                onSelectStatusFilter={(filterId) => {
-                  setSelectedStatusFilterId(filterId)
-                  setSelectedWorkflowAgentId('')
-                  setSelectedRouteId('')
-                  setSelectedInitialId('')
-                  setSelectedStopId('')
-                }}
-                onSelectStop={(stopId) => {
-                  setSelectedStopId(stopId)
-                  setSelectedWorkflowAgentId('')
-                  setSelectedRouteId('')
-                  setSelectedInitialId('')
-                  setSelectedStatusFilterId('')
-                }}
-                onNodePositionChange={(nodeId, position) =>
-                  setWorkflowPositions((current) => ({
-                    ...current,
-                    [`${activeDashboardOwnerId}:${nodeId}`]: position,
-                  }))
-                }
-                onAgentDrop={dropAgentIntoDashboard}
-                draggedAgentId={draggedAgentId}
-                selectedAgentNodeId={selectedWorkflowAgentId}
-              />
             </section>
 
             <div className="adapter">
@@ -3815,6 +3686,171 @@ function App() {
               </button>
               <button className="primary" onClick={() => setSelectedPromptId('')}>Übernehmen</button>
             </div>
+          </section>
+        </div>
+      )}
+      {dashboardOpen && selectedAgent && (
+        <div
+          className="modalBackdrop"
+          role="presentation"
+          onMouseDown={() => setDashboardOpen(false)}
+        >
+          <section
+            className="workflowDashboard workflowDashboardModal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Workflow-Dashboard von ${selectedAgent.name}`}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="dashboardHeader">
+              <div>
+                <p className="eyebrow">Workflow-Dashboard</p>
+                <strong>{selectedAgent.name} · Eigene Verdrahtung</strong>
+              </div>
+              <div className="dashboardActions">
+                <div className="dashboardMetric">
+                  <strong>{dashboardRoutes.length}</strong>
+                  <span>Verbindungen</span>
+                </div>
+                <div className="dashboardActionGroup">
+                  <button className="compactAction" onClick={autoArrangeWorkflow} type="button">Anordnen</button>
+                </div>
+                <details className="dashboardTools">
+                  <summary>Tools</summary>
+                  <div className="dashboardToolMenu">
+                    <button
+                      onClick={(event) => {
+                        addWorkflowInitial()
+                        event.currentTarget.closest('details')?.removeAttribute('open')
+                      }}
+                      type="button"
+                    >
+                      <span className="toolSymbol">+</span>
+                      <span>
+                        <strong>Initial</strong>
+                        <small>Startanweisung senden</small>
+                      </span>
+                    </button>
+                    <button
+                      onClick={(event) => {
+                        addWorkflowStatusFilter()
+                        event.currentTarget.closest('details')?.removeAttribute('open')
+                      }}
+                      type="button"
+                    >
+                      <span className="toolSymbol">+</span>
+                      <span>
+                        <strong>Status</strong>
+                        <small>Bei Status weiterleiten</small>
+                      </span>
+                    </button>
+                    <button
+                      onClick={(event) => {
+                        addWorkflowStop()
+                        event.currentTarget.closest('details')?.removeAttribute('open')
+                      }}
+                      type="button"
+                    >
+                      <span className="toolSymbol">■</span>
+                      <span>
+                        <strong>Stopp</strong>
+                        <small>Workflow-Pfad beenden</small>
+                      </span>
+                    </button>
+                    {PROMPT_NODES_ENABLED && (
+                      <button
+                        onClick={(event) => {
+                          addWorkflowPrompt()
+                          event.currentTarget.closest('details')?.removeAttribute('open')
+                        }}
+                        type="button"
+                      >
+                        <span className="toolSymbol">+</span>
+                        <span>
+                          <strong>Prompt</strong>
+                          <small>Bedingung auswerten</small>
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </details>
+                <button
+                  aria-label="Workflow-Dashboard schließen"
+                  className="dashboardClose"
+                  onClick={() => setDashboardOpen(false)}
+                  title="Workflow-Dashboard schließen"
+                  type="button"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            <WorkflowDashboard
+              agents={dashboardAgents}
+              prompts={dashboardPrompts}
+              initials={projectInitials}
+              statusFilters={projectStatusFilters}
+              stops={projectStops}
+              statuses={projectWorkflowStatuses}
+              positions={dashboardPositions}
+              dashboardId={activeDashboardOwnerId}
+              layoutRevision={layoutRevision}
+              autoRun={autoRun}
+              routes={dashboardRoutes}
+              selectedRouteId={selectedRouteId}
+              onConnectAgents={connectAgents}
+              onSelectRoute={(routeId) => {
+                setSelectedRouteId(routeId)
+                setSelectedWorkflowAgentId('')
+                setSelectedInitialId('')
+                setSelectedStatusFilterId('')
+                setSelectedStopId('')
+              }}
+              onSelectPrompt={(promptId) => {
+                setSelectedPromptId(promptId)
+                setSelectedWorkflowAgentId('')
+                setSelectedInitialId('')
+                setSelectedStatusFilterId('')
+                setSelectedStopId('')
+              }}
+              onSelectAgent={(agentId) => {
+                setSelectedWorkflowAgentId(agentId)
+                setSelectedRouteId('')
+                setSelectedInitialId('')
+                setSelectedStatusFilterId('')
+                setSelectedStopId('')
+              }}
+              onSelectInitial={(initialId) => {
+                setSelectedInitialId(initialId)
+                setSelectedWorkflowAgentId('')
+                setSelectedRouteId('')
+                setSelectedStatusFilterId('')
+                setSelectedStopId('')
+              }}
+              onSelectStatusFilter={(filterId) => {
+                setSelectedStatusFilterId(filterId)
+                setSelectedWorkflowAgentId('')
+                setSelectedRouteId('')
+                setSelectedInitialId('')
+                setSelectedStopId('')
+              }}
+              onSelectStop={(stopId) => {
+                setSelectedStopId(stopId)
+                setSelectedWorkflowAgentId('')
+                setSelectedRouteId('')
+                setSelectedInitialId('')
+                setSelectedStatusFilterId('')
+              }}
+              onNodePositionChange={(nodeId, position) =>
+                setWorkflowPositions((current) => ({
+                  ...current,
+                  [`${activeDashboardOwnerId}:${nodeId}`]: position,
+                }))
+              }
+              onAgentDrop={dropAgentIntoDashboard}
+              draggedAgentId={draggedAgentId}
+              selectedAgentNodeId={selectedWorkflowAgentId}
+            />
           </section>
         </div>
       )}
