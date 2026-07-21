@@ -78,6 +78,8 @@ Bausteine werden per Doppelklick konfiguriert. Ein einfacher Klick wählt einen 
 
 Status werden projektweit im `Status-Setup` angelegt. Jeder Eintrag besteht aus einem Namen und einer eindeutigen Bedeutung. Im Agenten-Setup wird ausgewählt, welche Status der Agent verwenden darf. Dadurch erhält der Agent die erlaubten Status samt Beschreibung automatisch als Arbeitskontext.
 
+![Status Setup mit projektweiter Statusliste](bilder/Status_Setup.PNG)
+
 Beispiel:
 
 | Status | Bedeutung |
