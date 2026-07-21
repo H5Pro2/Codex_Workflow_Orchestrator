@@ -4203,7 +4203,15 @@ function App() {
                   <span>{tx('Verbindungen', 'connections')}</span>
                 </div>
                 <div className="dashboardActionGroup">
-                  <button className="compactAction" onClick={autoArrangeWorkflow} type="button">{tx('Anordnen', 'Arrange')}</button>
+                  <button
+                    aria-label={tx('Workflow anordnen', 'Arrange workflow')}
+                    className="compactAction iconAction"
+                    onClick={autoArrangeWorkflow}
+                    title={tx('Anordnen', 'Arrange')}
+                    type="button"
+                  >
+                    A
+                  </button>
                 </div>
                 <details className="dashboardStatusMenu">
                   <summary
@@ -4243,7 +4251,12 @@ function App() {
                   </div>
                 </details>
                 <details className="dashboardTools">
-                  <summary>Tools</summary>
+                  <summary
+                    aria-label={tx('Tools öffnen', 'Open tools')}
+                    title="Tools"
+                  >
+                    T
+                  </summary>
                   <div className="dashboardToolMenu">
                     <button
                       onClick={(event) => {

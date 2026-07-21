@@ -1064,7 +1064,9 @@ label {
   user-select: none;
 }
 
-.dashboardStatusMenu > summary {
+.dashboardActions .iconAction,
+.dashboardStatusMenu > summary,
+.dashboardTools > summary {
   align-items: center;
   display: flex;
   justify-content: center;
