@@ -6,6 +6,8 @@ Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der sich Cod
 
 Ein Agent entspricht einem Codex-Chat innerhalb eines Projekts. Für jeden Agenten können Rolle, Modell, Prompt-Dateien, Statusregeln und Verbindungen getrennt verwaltet werden. Ergebnisse werden über den lokalen Codex-Connector gelesen und abhängig vom Workflow an den nächsten Agenten übergeben.
 
+Die Oberfläche kann oben rechts vollständig zwischen Deutsch (`DE`) und Englisch (`EN`) umgeschaltet werden. Navigation, Schaltflächen, Statusanzeigen, Dialoge, Formulare, Dashboard-Werkzeuge und Systemmeldungen wechseln unmittelbar die Sprache. Gespeicherte Projektinhalte wie Agentennamen, Prompt-Texte, eigene Workflow-Status und Chatverläufe werden dabei nicht verändert.
+
 ## Was das Programm kann
 
 ### Projekte und Codex-Chats

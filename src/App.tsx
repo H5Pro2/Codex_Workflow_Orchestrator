@@ -176,13 +176,16 @@ type WorkflowNodeData = {
   label: string
   kind: 'agent' | 'prompt' | 'initial' | 'status' | 'stop' | 'timer'
   status?: AgentStatus
+  kindLabel?: string
 }
 
-function chatMessageIdentity(message: ChatMessage, agentName: string) {
+function chatMessageIdentity(message: ChatMessage, agentName: string, language: UiLanguage) {
   if (message.role === 'assistant') {
     return {
       name: agentName,
-      label: message.phase !== 'final_answer' ? 'Zwischenstand' : 'Antwort',
+      label: message.phase !== 'final_answer'
+        ? language === 'de' ? 'Zwischenstand' : 'Progress'
+        : language === 'de' ? 'Antwort' : 'Answer',
     }
   }
 
@@ -190,7 +193,7 @@ function chatMessageIdentity(message: ChatMessage, agentName: string) {
   if (handoff) {
     return {
       name: handoff[1],
-      label: `Übergabe an ${handoff[2]}`,
+      label: `${language === 'de' ? 'Übergabe an' : 'Handoff to'} ${handoff[2]}`,
     }
   }
 
@@ -198,11 +201,11 @@ function chatMessageIdentity(message: ChatMessage, agentName: string) {
   if (initial) {
     return {
       name: initial[1],
-      label: 'Initial-Anfrage',
+      label: language === 'de' ? 'Initial-Anfrage' : 'Initial request',
     }
   }
 
-  return { name: 'Orchestrator', label: 'Eingang' }
+  return { name: 'Orchestrator', label: language === 'de' ? 'Eingang' : 'Input' }
 }
 
 function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
@@ -214,19 +217,7 @@ function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
       {!isInitial && !isTimer && <Handle id="input" type="target" position={Position.Left} />}
       {!isInitial && !isTimer && <span className="portLabel input">In</span>}
       <strong>{data.label}</strong>
-      <span className="nodeKind">
-        {data.kind === 'agent'
-          ? 'Agent'
-          : data.kind === 'initial'
-            ? 'Start'
-            : data.kind === 'status'
-              ? 'Status-Filter'
-              : data.kind === 'stop'
-                ? 'Pfad beenden'
-                : data.kind === 'timer'
-                  ? 'Zeitsteuerung'
-                : 'Prompt / Bedingung'}
-      </span>
+      <span className="nodeKind">{data.kindLabel ?? data.kind}</span>
       {!isStop && <span className="portLabel output">Out</span>}
       {!isStop && <Handle id="output" type="source" position={Position.Right} />}
     </div>
@@ -295,12 +286,75 @@ const initialCodexThreads: CodexThread[] = [
   { id: '019f7d07-6747-7cc1-a665-aea5a79905a1', title: 'Programmierer', cwd: 'C:\\Users\\TV\\Documents\\Codex_Workflow_Orchestrator', status: 'active' },
 ]
 
-const statusLabels: Record<AgentStatus, string> = {
-  wartet: 'Warten',
-  laeuft: 'Läuft',
-  fertig: 'Fertig',
-  rueckfrage: 'Rückfrage',
-  weitergegeben: 'Weitergegeben',
+const statusLabels: Record<UiLanguage, Record<AgentStatus, string>> = {
+  de: { wartet: 'Warten', laeuft: 'Läuft', fertig: 'Fertig', rueckfrage: 'Rückfrage', weitergegeben: 'Weitergegeben' },
+  en: { wartet: 'Waiting', laeuft: 'Running', fertig: 'Finished', rueckfrage: 'Question', weitergegeben: 'Forwarded' },
+}
+
+const eventTitleTranslations: Record<string, string> = {
+  'Agent und Codex-Chat erstellt': 'Agent and Codex chat created',
+  'Agent aus Dashboard entfernt': 'Agent removed from dashboard',
+  'Agent gelöscht': 'Agent deleted',
+  'Automatik gestartet': 'Automation started',
+  'Automatik gestoppt': 'Automation stopped',
+  'Automatik ohne Initial gestartet': 'Automation started without initial node',
+  'Aufgabe weitergegeben': 'Task forwarded',
+  'Chat-Nachricht gesendet': 'Chat message sent',
+  'Codex Task ausgeblendet': 'Codex task hidden',
+  'Codex Task bereits verlinkt': 'Codex task already linked',
+  'Codex Task übernommen': 'Codex task imported',
+  'Codex-Ergebnis empfangen': 'Codex result received',
+  'Codex-Task umbenannt': 'Codex task renamed',
+  'Ergebnisabfrage fehlgeschlagen': 'Result query failed',
+  'Identische Aufgabe nicht weitergegeben': 'Duplicate task not forwarded',
+  'Initial-Anfrage gesendet': 'Initial request sent',
+  'Keine Status-Weitergabe': 'No status forwarding',
+  'Prompt an Codex übergeben': 'Prompt sent to Codex',
+  'Prompt nicht gesendet': 'Prompt not sent',
+  'Prompt nicht gespeichert': 'Prompt not saved',
+  'Prompt-Datei nicht erstellt': 'Prompt file not created',
+  'Prompt-Datei nicht umbenannt': 'Prompt file not renamed',
+  'Status-Filter erstellt': 'Status filter created',
+  'Status-Filter nicht erstellt': 'Status filter not created',
+  'Stopp-Baustein erstellt': 'Stop node created',
+  'Weitergabe blockiert': 'Forwarding blocked',
+  'Weitergabe gestoppt': 'Forwarding stopped',
+  'Weitergabe nicht gesendet': 'Forwarding not sent',
+  'Workflow-Pfad beendet': 'Workflow path ended',
+  'Workflow-Status erstellt': 'Workflow status created',
+  'Workflow-Status geändert': 'Workflow status changed',
+  'Workflow-Status gelöscht': 'Workflow status deleted',
+  'Workflow-Status nicht erstellt': 'Workflow status not created',
+  'Workflow-Status nicht geändert': 'Workflow status not changed',
+  'Workflow-Verbindung erstellt': 'Workflow connection created',
+  'Zeitplan ausgeführt': 'Schedule executed',
+  'Zeitplan erstellt': 'Schedule created',
+  'Zeitplan fehlgeschlagen': 'Schedule failed',
+  'Zeitplan ohne Ziel': 'Schedule has no target',
+}
+
+function eventTitleText(title: string, language: UiLanguage) {
+  return language === 'en' ? eventTitleTranslations[title] ?? title : title
+}
+
+function eventDetailText(detail: string, language: UiLanguage) {
+  if (language === 'de') return detail
+
+  return detail
+    .replace(/\bbleibt als Codex-Chat erhalten\./g, 'remains available as a Codex chat.')
+    .replace(/\bbeendet an diesem Punkt\./g, 'ends at this point.')
+    .replace(/\bist fertig\./g, 'is finished.')
+    .replace(/\bist mit keinem Codex-Chat verknüpft\./g, 'is not linked to a Codex chat.')
+    .replace(/\bhat keine Workflow-Verbindung\./g, 'has no workflow connection.')
+    .replace(/Die Automatik ist ausgeschaltet\./g, 'Automation is disabled.')
+    .replace(
+      /Weitere fertige Ergebnisse werden nicht automatisch weitergegeben\./g,
+      'Additional completed results will not be forwarded automatically.',
+    )
+    .replace(
+      /Doppelklick auf den Baustein öffnet die Konfiguration\./g,
+      'Double-click the node to open its configuration.',
+    )
 }
 
 const defaultWorkflowStatuses = [
@@ -702,24 +756,26 @@ function routeConditionMatches(condition: string, result: string) {
   )
 }
 
-function formatDuration(durationMs: number) {
+function formatDuration(durationMs: number, language: UiLanguage) {
   if (durationMs <= 0) {
-    return 'Keine Messung'
+    return language === 'de' ? 'Keine Messung' : 'No measurement'
   }
   if (durationMs < 60_000) {
-    return `${Math.max(1, Math.round(durationMs / 1000))} Sek.`
+    return `${Math.max(1, Math.round(durationMs / 1000))} ${language === 'de' ? 'Sek.' : 'sec.'}`
   }
-  return `${(durationMs / 60_000).toFixed(1)} Min.`
+  return `${(durationMs / 60_000).toFixed(1)} min.`
 }
 
 function CollapsibleText({
   text,
   limit,
   monospace = false,
+  language,
 }: {
   text: string
   limit: number
   monospace?: boolean
+  language: UiLanguage
 }) {
   const className = monospace ? 'collapsibleText monospace' : 'collapsibleText'
   if (text.length <= limit) {
@@ -730,8 +786,8 @@ function CollapsibleText({
   return (
     <details className={className}>
       <summary>
-        <span className="showMore">Mehr anzeigen</span>
-        <span className="showLess">Weniger anzeigen</span>
+        <span className="showMore">{language === 'de' ? 'Mehr anzeigen' : 'Show more'}</span>
+        <span className="showLess">{language === 'de' ? 'Weniger anzeigen' : 'Show less'}</span>
       </summary>
       {monospace ? <pre>{text}</pre> : <p>{text}</p>}
       {monospace ? <pre className="collapsedPreview">{preview}</pre> : <p className="collapsedPreview">{preview}</p>}
@@ -765,6 +821,7 @@ function WorkflowDashboard({
   onAgentDrop,
   draggedAgentId,
   selectedAgentNodeId,
+  language,
 }: {
   agents: Agent[]
   prompts: WorkflowPrompt[]
@@ -791,6 +848,7 @@ function WorkflowDashboard({
   onAgentDrop: (agentId: string, position: { x: number; y: number }) => void
   draggedAgentId: string
   selectedAgentNodeId: string
+  language: UiLanguage
 }) {
   const initialNodes = useMemo<Node[]>(
     () =>
@@ -799,21 +857,21 @@ function WorkflowDashboard({
           id: agent.id,
           type: 'workflow',
           position: positions[agent.id] ?? { x: 70 + (index % 3) * 220, y: 70 + Math.floor(index / 3) * 150 },
-          data: { label: agent.name, kind: 'agent' as const, status: agent.status },
+          data: { label: agent.name, kind: 'agent' as const, status: agent.status, kindLabel: 'Agent' },
           className: `workflowNode agent ${agent.status} ${agent.id === selectedAgentNodeId ? 'nodeSelected' : ''}`,
         })),
         ...prompts.map((prompt, index) => ({
           id: prompt.id,
           type: 'workflow',
           position: positions[prompt.id] ?? { x: 180 + (index % 3) * 220, y: 250 + Math.floor(index / 3) * 150 },
-          data: { label: prompt.name, kind: 'prompt' as const },
+          data: { label: prompt.name, kind: 'prompt' as const, kindLabel: language === 'de' ? 'Prompt / Bedingung' : 'Prompt / condition' },
           className: 'workflowNode prompt',
         })),
         ...initials.map((initial, index) => ({
           id: initial.id,
           type: 'workflow',
           position: positions[initial.id] ?? { x: 40, y: 70 + index * 130 },
-          data: { label: initial.name, kind: 'initial' as const },
+          data: { label: initial.name, kind: 'initial' as const, kindLabel: language === 'de' ? 'Start' : 'Start' },
           className: 'workflowNode initial',
         })),
         ...statusFilters.map((filter, index) => {
@@ -822,7 +880,7 @@ function WorkflowDashboard({
             id: filter.id,
             type: 'workflow',
             position: positions[filter.id] ?? { x: 260 + (index % 3) * 220, y: 430 + Math.floor(index / 3) * 130 },
-            data: { label: status?.name || filter.name, kind: 'status' as const },
+            data: { label: status?.name || filter.name, kind: 'status' as const, kindLabel: language === 'de' ? 'Status-Filter' : 'Status filter' },
             className: 'workflowNode statusFilter',
           }
         }),
@@ -830,18 +888,18 @@ function WorkflowDashboard({
           id: stop.id,
           type: 'workflow',
           position: positions[stop.id] ?? { x: 700, y: 120 + index * 130 },
-          data: { label: stop.name, kind: 'stop' as const },
+          data: { label: stop.name, kind: 'stop' as const, kindLabel: language === 'de' ? 'Pfad beenden' : 'End path' },
           className: 'workflowNode stop',
         })),
         ...timers.map((timer, index) => ({
           id: timer.id,
           type: 'workflow',
           position: positions[timer.id] ?? { x: 40, y: 240 + index * 130 },
-          data: { label: timer.name, kind: 'timer' as const },
+          data: { label: timer.name, kind: 'timer' as const, kindLabel: language === 'de' ? 'Zeitsteuerung' : 'Schedule' },
           className: `workflowNode timer ${timer.enabled ? 'enabled' : 'disabled'}`,
         })),
       ],
-    [agents, initials, positions, prompts, selectedAgentNodeId, statusFilters, statuses, stops, timers],
+    [agents, initials, language, positions, prompts, selectedAgentNodeId, statusFilters, statuses, stops, timers],
   )
   const initialEdges = useMemo<Edge[]>(
     () =>
@@ -1058,6 +1116,10 @@ function App() {
   const terminalResultObservations = useRef(new Map<string, number>())
   const timerDispatchIds = useRef(new Set<string>())
   const chatStreamRef = useRef<HTMLDivElement>(null)
+  const tx = useCallback(
+    (de: string, en: string) => language === 'de' ? de : en,
+    [language],
+  )
 
   useEffect(() => {
     const closeMenusOnOutsideClick = (event: PointerEvent) => {
@@ -1304,7 +1366,7 @@ function App() {
     setChatDraft('')
     if (!threadId) {
       setChatMessages([])
-      setChatError('Dieser Agent ist mit keinem Codex-Chat verknüpft.')
+      setChatError(tx('Dieser Agent ist mit keinem Codex-Chat verknüpft.', 'This agent is not linked to a Codex chat.'))
       return
     }
 
@@ -1315,7 +1377,7 @@ function App() {
         )
         const data = await response.json()
         if (!response.ok) {
-          throw new Error(data.error || 'Chat konnte nicht gelesen werden.')
+          throw new Error(data.error || tx('Chat konnte nicht gelesen werden.', 'The chat could not be loaded.'))
         }
         if (active) {
           setChatMessages(data.messages ?? [])
@@ -1324,7 +1386,7 @@ function App() {
       } catch (error) {
         if (active) {
           setChatError(
-            error instanceof Error ? error.message : 'Codex-Connector nicht erreichbar.',
+            error instanceof Error ? error.message : tx('Codex-Connector nicht erreichbar.', 'Codex connector is unavailable.'),
           )
         }
       }
@@ -1336,7 +1398,7 @@ function App() {
       active = false
       window.clearInterval(timer)
     }
-  }, [selectedAgent?.threadId])
+  }, [selectedAgent?.threadId, tx])
 
   useEffect(() => {
     const stream = chatStreamRef.current
@@ -1619,10 +1681,10 @@ function App() {
             .filter(Boolean)
           return targets.length > 0
             ? `${agent.name} -> ${targets.join(', ')}`
-            : `${agent.name} -> Ende`
+            : `${agent.name} -> ${tx('Ende', 'End')}`
         })
         .join('\n'),
-    [agents, routes],
+    [agents, routes, tx],
   )
 
   const addEvent = useCallback((title: string, detail: string) => {
@@ -1975,7 +2037,10 @@ function App() {
         samePath(agent.projectPath, selectedProject.path) &&
         agent.name.trim().toLocaleLowerCase('de-DE') === name.toLocaleLowerCase('de-DE'),
     )) {
-      setAgentCreationError('In diesem Projekt gibt es bereits einen Agenten mit diesem Namen.')
+      setAgentCreationError(tx(
+        'In diesem Projekt gibt es bereits einen Agenten mit diesem Namen.',
+        'An agent with this name already exists in this project.',
+      ))
       return
     }
 
@@ -1993,7 +2058,7 @@ function App() {
       })
       const data = await response.json()
       if (!response.ok) {
-        throw new Error(data.error || 'Codex-Chat konnte nicht erstellt werden.')
+        throw new Error(data.error || tx('Codex-Chat konnte nicht erstellt werden.', 'The Codex chat could not be created.'))
       }
 
       const thread: CodexThread = {
@@ -2042,7 +2107,7 @@ function App() {
       addEvent('Agent und Codex-Chat erstellt', `${selectedProject.label} / ${name}`)
     } catch (error) {
       setAgentCreationError(
-        error instanceof Error ? error.message : 'Der Codex-Connector ist nicht erreichbar.',
+        error instanceof Error ? error.message : tx('Der Codex-Connector ist nicht erreichbar.', 'The Codex connector is unavailable.'),
       )
     } finally {
       setAgentCreationBusy(false)
@@ -2071,8 +2136,14 @@ function App() {
 
   const deleteAgent = async (agent: Agent) => {
     const message = agent.threadId
-      ? `Möchten Sie den Agenten „${agent.name}“ wirklich löschen?\n\nDer zugehörige Codex-Chat wird archiviert und aus der aktiven Projektansicht entfernt.`
-      : `Möchten Sie den Agenten „${agent.name}“ wirklich aus dem Orchestrator entfernen?`
+      ? tx(
+          `Möchten Sie den Agenten „${agent.name}“ wirklich löschen?\n\nDer zugehörige Codex-Chat wird archiviert und aus der aktiven Projektansicht entfernt.`,
+          `Do you really want to delete agent “${agent.name}”?\n\nThe linked Codex chat will be archived and removed from the active project view.`,
+        )
+      : tx(
+          `Möchten Sie den Agenten „${agent.name}“ wirklich aus dem Orchestrator entfernen?`,
+          `Do you really want to remove agent “${agent.name}” from the orchestrator?`,
+        )
     if (!window.confirm(message)) {
       return
     }
@@ -2347,7 +2418,7 @@ function App() {
       )
       const data = await response.json()
       if (!response.ok) {
-        throw new Error(data.error || 'Nachricht konnte nicht gesendet werden.')
+        throw new Error(data.error || tx('Nachricht konnte nicht gesendet werden.', 'The message could not be sent.'))
       }
 
       applyThreadReplacement(agent, data.replacementThread)
@@ -2366,7 +2437,7 @@ function App() {
       )
     } catch (error) {
       setChatError(
-        error instanceof Error ? error.message : 'Der Codex-Connector ist nicht erreichbar.',
+        error instanceof Error ? error.message : tx('Der Codex-Connector ist nicht erreichbar.', 'The Codex connector is unavailable.'),
       )
     } finally {
       setChatSending(false)
@@ -3353,8 +3424,11 @@ function App() {
             className="usageSummary"
             title={
               usageSummary.resetsAt
-                ? `Wochenlimit wird am ${new Date(usageSummary.resetsAt * 1000).toLocaleString('de-DE')} zurückgesetzt.`
-                : 'Verbleibendes Codex-Wochenlimit'
+                ? tx(
+                    `Wochenlimit wird am ${new Date(usageSummary.resetsAt * 1000).toLocaleString('de-DE')} zurückgesetzt.`,
+                    `Weekly limit resets on ${new Date(usageSummary.resetsAt * 1000).toLocaleString('en-US')}.`,
+                  )
+                : tx('Verbleibendes Codex-Wochenlimit', 'Remaining Codex weekly limit')
             }
           >
             <small>{copy.week}</small>
@@ -3385,26 +3459,26 @@ function App() {
             className="promptModal agentCreationModal"
             role="dialog"
             aria-modal="true"
-            aria-label="Agent erstellen"
+            aria-label={tx('Agent erstellen', 'Create agent')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Codex-Agent</p>
-                <h2>Agent erstellen</h2>
+                <p className="eyebrow">Codex Agent</p>
+                <h2>{tx('Agent erstellen', 'Create agent')}</h2>
               </div>
               <button
-                aria-label="Fenster schließen"
+                aria-label={tx('Fenster schließen', 'Close window')}
                 disabled={agentCreationBusy}
-                title="Fenster schließen"
+                title={tx('Fenster schließen', 'Close window')}
                 onClick={() => setAgentCreationOpen(false)}
               >
                 ×
               </button>
             </div>
             <p className="modalHint">
-              Erstellt einen Codex-Chat im Projekt „{selectedProject?.label ?? 'Kein Projekt'}“.
-              Der Agent wird nicht automatisch mit dem Workflow verbunden.
+              {tx('Erstellt einen Codex-Chat im Projekt', 'Creates a Codex chat in project')} „{selectedProject?.label ?? tx('Kein Projekt', 'No project')}“.
+              {' '}{tx('Der Agent wird nicht automatisch mit dem Workflow verbunden.', 'The agent is not connected to the workflow automatically.')}
             </p>
             <label>
               Name
@@ -3418,19 +3492,19 @@ function App() {
                     void createAgent()
                   }
                 }}
-                placeholder="Zum Beispiel: Prompt-Architekt"
+                placeholder={tx('Zum Beispiel: Prompt-Architekt', 'For example: Prompt Architect')}
                 value={newAgentName}
               />
             </label>
             {agentCreationError && <p className="formError">{agentCreationError}</p>}
             <div className="modalActions">
-              <button disabled={agentCreationBusy} onClick={() => setAgentCreationOpen(false)}>Abbrechen</button>
+              <button disabled={agentCreationBusy} onClick={() => setAgentCreationOpen(false)}>{tx('Abbrechen', 'Cancel')}</button>
               <button
                 className="primary"
                 disabled={!newAgentName.trim() || agentCreationBusy}
                 onClick={() => void createAgent()}
               >
-                {agentCreationBusy ? 'Erstelle…' : 'Erstellen'}
+                {agentCreationBusy ? tx('Erstelle…', 'Creating…') : tx('Erstellen', 'Create')}
               </button>
             </div>
           </section>
@@ -3450,9 +3524,9 @@ function App() {
               </select>
             </label>
             <details className="threadManager">
-              <summary>Chats in der Agentenübersicht verwalten</summary>
+              <summary>{copy.manageChats}</summary>
               <div className="threadOptions">
-                {visibleThreads.length === 0 && <p>Für dieses Projekt wurden keine Chats gefunden.</p>}
+                {visibleThreads.length === 0 && <p>{copy.noChats}</p>}
                 {visibleThreads.map((thread) => {
                   const isVisible = !hiddenThreadIds.includes(thread.id)
                   return (
@@ -3474,10 +3548,10 @@ function App() {
             <button
               className="projectStatusButton"
               onClick={() => setStatusLibraryOpen(true)}
-              title="Projektweite Status konfigurieren"
+              title={tx('Projektweite Status konfigurieren', 'Configure project statuses')}
               type="button"
             >
-              Status
+              {tx('Status', 'Statuses')}
             </button>
           </div>
         </div>
@@ -3488,12 +3562,12 @@ function App() {
               <span className="stateDot" />
               <small>
                 {connectorOnline
-                  ? `${codexProjects.length} Projekte, ${codexThreads.length} Tasks · ${lastSyncedAt}`
+                  ? `${codexProjects.length} ${tx('Projekte', 'projects')}, ${codexThreads.length} ${tx('Tasks', 'tasks')} · ${lastSyncedAt}`
                   : copy.liveSync}
               </small>
             </div>
           </div>
-          <div className="languageSwitch" aria-label="Sprache / Language">
+          <div className="languageSwitch" aria-label={tx('Sprache', 'Language')}>
             <button
               className={language === 'en' ? 'active' : ''}
               aria-pressed={language === 'en'}
@@ -3519,23 +3593,23 @@ function App() {
         <aside className="agentRail">
           <div className="railHeader">
             <div className="railHeaderTitle">
-              <strong>{selectedProject?.label ?? 'Kein Projekt'}</strong>
-              <small>{projectAgents.length} Agenten</small>
+              <strong>{selectedProject?.label ?? tx('Kein Projekt', 'No project')}</strong>
+              <small>{projectAgents.length} {tx('Agenten', 'agents')}</small>
             </div>
             <button
               className="railAddAgent"
-              title="Agent im aktuellen Projekt erstellen"
+              title={tx('Agent im aktuellen Projekt erstellen', 'Create agent in current project')}
               onClick={() => {
                 setAgentCreationError('')
                 setNewAgentName('')
                 setAgentCreationOpen(true)
               }}
             >
-              + Agent
+              + {tx('Agent', 'Agent')}
             </button>
           </div>
           {projectAgents.length === 0 && (
-            <p className="empty railEmpty">Keine sichtbaren Chats oder Agenten in diesem Projekt.</p>
+            <p className="empty railEmpty">{tx('Keine sichtbaren Chats oder Agenten in diesem Projekt.', 'No visible chats or agents in this project.')}</p>
           )}
           {projectAgents.length > 0 && (
             <div
@@ -3607,14 +3681,14 @@ function App() {
                   setDropTarget(null)
                   setDropEdge(null)
                 }}
-                title="Zum Sortieren ziehen"
+                title={tx('Zum Sortieren ziehen', 'Drag to reorder')}
               >
                 <span className="agentName">
-                  {isAgentBusy(agent) && <span className="activitySpinner" aria-label="Agent arbeitet" role="status" />}
+                  {isAgentBusy(agent) && <span className="activitySpinner" aria-label={tx('Agent arbeitet', 'Agent is working')} role="status" />}
                   <span>{agent.name}</span>
                 </span>
                 <small className={isAgentBusy(agent) ? 'workingLabel' : ''}>
-                  {isAgentBusy(agent) ? 'Aktiv' : statusLabels[agent.status]}
+                  {isAgentBusy(agent) ? tx('Aktiv', 'Active') : statusLabels[language][agent.status]}
                 </small>
               </button>
             </div>
@@ -3643,44 +3717,44 @@ function App() {
           <section className="workspace">
             <div className="panelHeader">
               <div>
-                <p className="eyebrow">{setupOpen ? 'Agentenprofil' : 'Agenten-Chat'}</p>
+                <p className="eyebrow">{setupOpen ? tx('Agentenprofil', 'Agent profile') : tx('Agenten-Chat', 'Agent chat')}</p>
                 <h2>{selectedAgent.name}</h2>
               </div>
               <div className="agentStatusSummary">
                 {isAgentBusy(selectedAgent) && (
                   <span className="agentWorking" role="status">
                     <span className="activitySpinner" aria-hidden="true" />
-                    Arbeitet
+                    {tx('Arbeitet', 'Working')}
                   </span>
                 )}
                 <span className="responseTime">
-                  Dauer: {formatDuration(selectedAgent.lastDurationMs)}
+                  {tx('Dauer', 'Duration')}: {formatDuration(selectedAgent.lastDurationMs, language)}
                 </span>
-                <span className={`status ${selectedAgent.status}`}>{statusLabels[selectedAgent.status]}</span>
+                <span className={`status ${selectedAgent.status}`}>{statusLabels[language][selectedAgent.status]}</span>
                 <span className="setupControl">
                   <button
-                    aria-label="Workflow-Dashboard öffnen"
+                    aria-label={tx('Workflow-Dashboard öffnen', 'Open workflow dashboard')}
                     className={`setupToggle dashboardToggle ${dashboardOpen ? 'active' : ''}`}
                     onClick={() => setDashboardOpen(true)}
-                    title="Workflow-Dashboard öffnen"
+                    title={tx('Workflow-Dashboard öffnen', 'Open workflow dashboard')}
                     type="button"
                   >
                     D
                   </button>
                   <button
-                    aria-label="Prompt-Dateien öffnen"
+                    aria-label={tx('Prompt-Dateien öffnen', 'Open prompt files')}
                     className={`setupToggle promptToggle ${promptEditorOpen ? 'active' : ''}`}
                     onClick={() => setPromptEditorOpen(true)}
-                    title="Prompt-Dateien öffnen"
+                    title={tx('Prompt-Dateien öffnen', 'Open prompt files')}
                     type="button"
                   >
                     P
                   </button>
                   <button
-                    aria-label={setupOpen ? 'Setup schließen' : 'Setup öffnen'}
+                    aria-label={setupOpen ? tx('Setup schließen', 'Close setup') : tx('Setup öffnen', 'Open setup')}
                     className={`setupToggle ${setupOpen ? 'active' : ''}`}
                     onClick={() => setSetupOpen((current) => !current)}
-                    title={setupOpen ? 'Setup schließen' : 'Setup öffnen'}
+                    title={setupOpen ? tx('Setup schließen', 'Close setup') : tx('Setup öffnen', 'Open setup')}
                     type="button"
                   >
                     ⚙
@@ -3701,29 +3775,29 @@ function App() {
                 />
               </label>
               <label>
-                Rolle
+                {tx('Rolle', 'Role')}
                 <input value={selectedAgent.role} onChange={(event) => updateAgent(selectedAgent.id, { role: event.target.value })} />
               </label>
               <label>
-                Modell
+                {tx('Modell', 'Model')}
                 <select
                   value={selectedAgent.model}
                   onChange={(event) => updateAgent(selectedAgent.id, { model: event.target.value })}
                 >
-                  <option value="">Codex-Standard</option>
+                  <option value="">{tx('Codex-Standard', 'Codex default')}</option>
                   {codexModels.map((model) => (
                     <option key={model.id} value={model.id}>
-                      {model.name}{model.isDefault ? ' (Standard)' : ''}
+                      {model.name}{model.isDefault ? tx(' (Standard)', ' (Default)') : ''}
                     </option>
                   ))}
                 </select>
               </label>
             </div>
 
-            <section className="autoForwardControl" aria-label="Automatische Weitergabe">
+            <section className="autoForwardControl" aria-label={tx('Automatische Weitergabe', 'Automatic forwarding')}>
               <div>
-                <p className="eyebrow">Workflow-Funktion</p>
-                <strong>Automatisch weitergeben</strong>
+                <p className="eyebrow">{tx('Workflow-Funktion', 'Workflow function')}</p>
+                <strong>{tx('Automatisch weitergeben', 'Forward automatically')}</strong>
               </div>
               <label className="checkbox">
                 <input
@@ -3731,17 +3805,17 @@ function App() {
                   type="checkbox"
                   onChange={(event) => updateAgent(selectedAgent.id, { autoForward: event.target.checked })}
                 />
-                Aktiv
+                {tx('Aktiv', 'Active')}
               </label>
             </section>
 
             <div className="adapter">
-              <strong>Codex-Adapter</strong>
+              <strong>Codex Adapter</strong>
               <p>
-                Der lokale Connector synchronisiert Projekte und Tasks, erstellt neue Codex-Chats,
-                übernimmt Umbenennungen, sendet Rollen-Anweisungen und archiviert gelöschte Agenten.
-                Ergebnisse werden bis zum Abschluss überwacht und gemäß der Verdrahtung automatisch
-                an den nächsten Agenten übergeben.
+                {tx(
+                  'Der lokale Connector synchronisiert Projekte und Tasks, erstellt neue Codex-Chats, übernimmt Umbenennungen, sendet Rollen-Anweisungen und archiviert gelöschte Agenten. Ergebnisse werden bis zum Abschluss überwacht und gemäß der Verdrahtung automatisch an den nächsten Agenten übergeben.',
+                  'The local connector synchronizes projects and tasks, creates Codex chats, applies renames, sends role instructions, and archives deleted agents. Results are monitored until completion and forwarded automatically according to the workflow wiring.',
+                )}
               </p>
             </div>
             <div className="adapterDeleteAction">
@@ -3750,12 +3824,12 @@ function App() {
                 disabled={deletingAgentId === selectedAgent.id}
                 onClick={() => void deleteAgent(selectedAgent)}
               >
-                {deletingAgentId === selectedAgent.id ? 'Wird archiviert…' : 'Agent löschen'}
+                {deletingAgentId === selectedAgent.id ? tx('Wird archiviert…', 'Archiving…') : tx('Agent löschen', 'Delete agent')}
               </button>
             </div>
               </>
             ) : (
-              <section className="agentChat" aria-label={`Chat von ${selectedAgent.name}`}>
+              <section className="agentChat" aria-label={`${tx('Chat von', 'Chat of')} ${selectedAgent.name}`}>
                 <div className="chatHeader">
                   <div>
                     <strong>Codex-Chat</strong>
@@ -3763,7 +3837,7 @@ function App() {
                   </div>
                   <span className={`liveIndicator ${isAgentBusy(selectedAgent) ? 'active' : ''}`}>
                     {isAgentBusy(selectedAgent) && <span className="activitySpinner" aria-hidden="true" />}
-                    {isAgentBusy(selectedAgent) ? 'Antwort wird erstellt' : 'Aktuell'}
+                    {isAgentBusy(selectedAgent) ? tx('Antwort wird erstellt', 'Generating response') : tx('Aktuell', 'Current')}
                   </span>
                 </div>
                 <div className="chatBody">
@@ -3779,10 +3853,10 @@ function App() {
                   >
                     {chatError && <p className="chatError">{chatError}</p>}
                     {!chatError && chatMessages.length === 0 && (
-                      <p className="empty">Noch keine Nachrichten in diesem Chat.</p>
+                      <p className="empty">{tx('Noch keine Nachrichten in diesem Chat.', 'No messages in this chat yet.')}</p>
                     )}
                     {chatMessages.map((message) => {
-                      const identity = chatMessageIdentity(message, selectedAgent.name)
+                      const identity = chatMessageIdentity(message, selectedAgent.name, language)
                       return (
                         <article className={`chatMessage ${message.role}`} key={`${message.turnId}:${message.id}`}>
                           <div className="chatMessageMeta">
@@ -3796,7 +3870,7 @@ function App() {
                   </div>
                   {!chatPinnedToBottom && (
                     <button
-                      aria-label="Zur neuesten Nachricht"
+                      aria-label={tx('Zur neuesten Nachricht', 'Jump to latest message')}
                       className="jumpToLatest"
                       onClick={() => {
                         const stream = chatStreamRef.current
@@ -3805,7 +3879,7 @@ function App() {
                         }
                         setChatPinnedToBottom(true)
                       }}
-                      title="Zur neuesten Nachricht"
+                      title={tx('Zur neuesten Nachricht', 'Jump to latest message')}
                     >
                       ↓
                     </button>
@@ -3819,7 +3893,7 @@ function App() {
                   }}
                 >
                   <textarea
-                    aria-label="Nachricht an Agent"
+                    aria-label={tx('Nachricht an Agent', 'Message to agent')}
                     disabled={!selectedAgent.threadId || chatSending}
                     onChange={(event) => setChatDraft(event.target.value)}
                     onKeyDown={(event) => {
@@ -3828,15 +3902,15 @@ function App() {
                         void sendChatMessage(selectedAgent)
                       }
                     }}
-                    placeholder="Anweisung eingeben…"
+                    placeholder={tx('Anweisung eingeben…', 'Enter instruction…')}
                     rows={2}
                     value={chatDraft}
                   />
                   <button
-                    aria-label="Nachricht senden"
+                    aria-label={tx('Nachricht senden', 'Send message')}
                     className="sendChatButton"
                     disabled={!chatDraft.trim() || !selectedAgent.threadId || chatSending}
-                    title="Nachricht senden"
+                    title={tx('Nachricht senden', 'Send message')}
                     type="submit"
                   >
                     {chatSending ? '…' : '↑'}
@@ -3850,25 +3924,25 @@ function App() {
         <aside className={`eventLog ${eventLogCollapsed ? 'collapsed' : ''}`}>
           <div className="eventLogHeader">
             <button
-              aria-label={eventLogCollapsed ? 'Ablaufprotokoll einblenden' : 'Ablaufprotokoll nach rechts einklappen'}
+              aria-label={eventLogCollapsed ? tx('Ablaufprotokoll einblenden', 'Show activity log') : tx('Ablaufprotokoll nach rechts einklappen', 'Collapse activity log to the right')}
               className="eventLogToggle"
               onClick={() => setEventLogCollapsed((current) => !current)}
-              title={eventLogCollapsed ? 'Ablaufprotokoll einblenden' : 'Ablaufprotokoll nach rechts einklappen'}
+              title={eventLogCollapsed ? tx('Ablaufprotokoll einblenden', 'Show activity log') : tx('Ablaufprotokoll nach rechts einklappen', 'Collapse activity log to the right')}
               type="button"
             >
               {eventLogCollapsed ? '‹' : '›'}
             </button>
           </div>
           <div className="eventLogContent">
-            <p className="eyebrow">Rollenfluss</p>
-            <CollapsibleText text={graphEdges} limit={700} monospace />
-            <p className="eyebrow">Ablaufprotokoll</p>
-            {events.length === 0 && <p className="empty">Noch keine Orchestrator-Aktion.</p>}
+            <p className="eyebrow">{tx('Rollenfluss', 'Role flow')}</p>
+            <CollapsibleText text={graphEdges} limit={700} monospace language={language} />
+            <p className="eyebrow">{tx('Ablaufprotokoll', 'Activity log')}</p>
+            {events.length === 0 && <p className="empty">{tx('Noch keine Orchestrator-Aktion.', 'No orchestrator activity yet.')}</p>}
             {events.map((event) => (
               <article key={event.id}>
                 <time>{event.at}</time>
-                <strong>{event.title}</strong>
-                <CollapsibleText text={event.detail} limit={320} />
+                <strong>{eventTitleText(event.title, language)}</strong>
+                <CollapsibleText text={eventDetailText(event.detail, language)} limit={320} language={language} />
               </article>
             ))}
           </div>
@@ -3882,7 +3956,7 @@ function App() {
           onMouseDown={() => setStatusLibraryOpen(false)}
         >
           <section
-            aria-label="Projektweite Status konfigurieren"
+            aria-label={tx('Projektweite Status konfigurieren', 'Configure project statuses')}
             aria-modal="true"
             className="promptModal statusLibraryModal"
             onMouseDown={(event) => event.stopPropagation()}
@@ -3891,63 +3965,63 @@ function App() {
             <div className="modalHeader">
               <div>
                 <p className="eyebrow">Workflow-Status</p>
-                <h2>Projektweite Status</h2>
+                <h2>{tx('Projektweite Status', 'Project statuses')}</h2>
               </div>
               <button
-                aria-label="Status-Fenster schließen"
+                aria-label={tx('Status-Fenster schließen', 'Close status window')}
                 onClick={() => setStatusLibraryOpen(false)}
-                title="Status-Fenster schließen"
+                title={tx('Status-Fenster schließen', 'Close status window')}
                 type="button"
               >
                 ×
               </button>
             </div>
-            <section className="workflowStatusLibrary" aria-label="Workflow-Status">
+            <section className="workflowStatusLibrary" aria-label={tx('Workflow-Status', 'Workflow statuses')}>
               <div className="workflowStatusHeader">
                 <div>
-                  <strong>Statusliste</strong>
-                  <small>Namen und Bedeutungen gelten für das ausgewählte Projekt.</small>
+                  <strong>{tx('Statusliste', 'Status list')}</strong>
+                  <small>{tx('Namen und Bedeutungen gelten für das ausgewählte Projekt.', 'Names and meanings apply to the selected project.')}</small>
                 </div>
-                <small>{projectWorkflowStatuses.length} Status</small>
+                <small>{projectWorkflowStatuses.length} {tx('Status', 'statuses')}</small>
               </div>
               <div className="workflowStatusCreate">
                 <input
-                  aria-label="Name des Workflow-Status"
+                  aria-label={tx('Name des Workflow-Status', 'Workflow status name')}
                   onChange={(event) => setNewWorkflowStatusName(event.target.value)}
-                  placeholder="Statusname"
+                  placeholder={tx('Statusname', 'Status name')}
                   value={newWorkflowStatusName}
                 />
                 <input
-                  aria-label="Beschreibung des Workflow-Status"
+                  aria-label={tx('Beschreibung des Workflow-Status', 'Workflow status description')}
                   onChange={(event) => setNewWorkflowStatusDescription(event.target.value)}
-                  placeholder="Bedeutung"
+                  placeholder={tx('Bedeutung', 'Meaning')}
                   value={newWorkflowStatusDescription}
                 />
-                <button onClick={addWorkflowStatus} type="button">Hinzufügen</button>
+                <button onClick={addWorkflowStatus} type="button">{tx('Hinzufügen', 'Add')}</button>
               </div>
               {projectWorkflowStatuses.length === 0 ? (
-                <p className="empty">Für dieses Projekt wurden noch keine Status angelegt.</p>
+                <p className="empty">{tx('Für dieses Projekt wurden noch keine Status angelegt.', 'No statuses have been created for this project.')}</p>
               ) : (
                 <div className="workflowStatusList">
                   {projectWorkflowStatuses.map((status) => (
                     <div className="workflowStatusItem" key={status.id}>
                       <strong>{status.name}</strong>
-                      <span>{status.description || 'Keine Beschreibung'}</span>
+                      <span>{status.description || tx('Keine Beschreibung', 'No description')}</span>
                       <div className="workflowStatusActions">
                         <button
-                          aria-label={`Status ${status.name} bearbeiten`}
+                          aria-label={`${tx('Status bearbeiten', 'Edit status')}: ${status.name}`}
                           className="editStatus"
                           onClick={() => openWorkflowStatusEditor(status)}
-                          title="Status bearbeiten"
+                          title={tx('Status bearbeiten', 'Edit status')}
                           type="button"
                         >
                           ✎
                         </button>
                         <button
-                          aria-label={`Status ${status.name} löschen`}
+                          aria-label={`${tx('Status löschen', 'Delete status')}: ${status.name}`}
                           className="deleteStatus"
                           onClick={() => deleteWorkflowStatus(status.id)}
-                          title="Status löschen"
+                          title={tx('Status löschen', 'Delete status')}
                           type="button"
                         >
                           ×
@@ -3972,25 +4046,25 @@ function App() {
             className="promptModal statusDescriptionModal"
             role="dialog"
             aria-modal="true"
-            aria-label={`Status ${editingWorkflowStatus.name} bearbeiten`}
+            aria-label={`${tx('Status bearbeiten', 'Edit status')}: ${editingWorkflowStatus.name}`}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
                 <p className="eyebrow">Workflow-Status</p>
-                <h2>Status bearbeiten</h2>
+                <h2>{tx('Status bearbeiten', 'Edit status')}</h2>
               </div>
               <button
-                aria-label="Fenster schließen"
+                aria-label={tx('Fenster schließen', 'Close window')}
                 onClick={closeWorkflowStatusEditor}
-                title="Fenster schließen"
+                title={tx('Fenster schließen', 'Close window')}
                 type="button"
               >
                 ×
               </button>
             </div>
             <label>
-              Statusname
+              {tx('Statusname', 'Status name')}
               <input
                 autoFocus
                 onChange={(event) => setEditingWorkflowStatusName(event.target.value)}
@@ -3998,7 +4072,7 @@ function App() {
               />
             </label>
             <label>
-              Bedeutung
+              {tx('Bedeutung', 'Meaning')}
               <textarea
                 onChange={(event) => setEditingWorkflowStatusDescription(event.target.value)}
                 rows={5}
@@ -4006,9 +4080,9 @@ function App() {
               />
             </label>
             <div className="modalActions">
-              <button onClick={closeWorkflowStatusEditor} type="button">Abbrechen</button>
+              <button onClick={closeWorkflowStatusEditor} type="button">{tx('Abbrechen', 'Cancel')}</button>
               <button className="primary" onClick={saveWorkflowStatus} type="button">
-                Speichern
+                {tx('Speichern', 'Save')}
               </button>
             </div>
           </section>
@@ -4021,25 +4095,25 @@ function App() {
             className="promptModal"
             role="dialog"
             aria-modal="true"
-            aria-label="Prompt-Knoten bearbeiten"
+            aria-label={tx('Prompt-Knoten bearbeiten', 'Edit prompt node')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Workflow-Prompt</p>
+                <p className="eyebrow">{tx('Workflow-Prompt', 'Workflow prompt')}</p>
                 <h2>{selectedPrompt.name}</h2>
               </div>
-              <button title="Fenster schließen" onClick={() => setSelectedPromptId('')}>×</button>
+              <button title={tx('Fenster schließen', 'Close window')} onClick={() => setSelectedPromptId('')}>×</button>
             </div>
             <label>
-              Name
+              {tx('Name', 'Name')}
               <input
                 value={selectedPrompt.name}
                 onChange={(event) => updateWorkflowPrompt(selectedPrompt.id, { name: event.target.value })}
               />
             </label>
             <label>
-              Bedingung
+              {tx('Bedingung', 'Condition')}
               <textarea
                 rows={3}
                 value={selectedPrompt.condition}
@@ -4047,7 +4121,7 @@ function App() {
               />
             </label>
             <label>
-              Prompt-Anweisung
+              {tx('Prompt-Anweisung', 'Prompt instruction')}
               <textarea
                 rows={6}
                 value={selectedPrompt.prompt}
@@ -4056,9 +4130,9 @@ function App() {
             </label>
             <div className="modalActions">
               <button className="deleteButton" onClick={() => deleteWorkflowPrompt(selectedPrompt.id)}>
-                Prompt-Knoten löschen
+                {tx('Prompt-Knoten löschen', 'Delete prompt node')}
               </button>
-              <button className="primary" onClick={() => setSelectedPromptId('')}>Übernehmen</button>
+              <button className="primary" onClick={() => setSelectedPromptId('')}>{tx('Übernehmen', 'Apply')}</button>
             </div>
           </section>
         </div>
@@ -4073,21 +4147,21 @@ function App() {
             className="workflowDashboard workflowDashboardModal"
             role="dialog"
             aria-modal="true"
-            aria-label={`Workflow-Dashboard von ${selectedAgent.name}`}
+            aria-label={`${tx('Workflow-Dashboard von', 'Workflow dashboard for')} ${selectedAgent.name}`}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="dashboardHeader">
               <div>
-                <p className="eyebrow">Workflow-Dashboard</p>
+                <p className="eyebrow">Workflow Dashboard</p>
                 <strong>{selectedAgent.name}</strong>
               </div>
               <div className="dashboardActions">
                 <div className="dashboardMetric">
                   <strong>{dashboardRoutes.length}</strong>
-                  <span>Verbindungen</span>
+                  <span>{tx('Verbindungen', 'connections')}</span>
                 </div>
                 <div className="dashboardActionGroup">
-                  <button className="compactAction" onClick={autoArrangeWorkflow} type="button">Anordnen</button>
+                  <button className="compactAction" onClick={autoArrangeWorkflow} type="button">{tx('Anordnen', 'Arrange')}</button>
                 </div>
                 <details className="dashboardTools">
                   <summary>Tools</summary>
@@ -4102,7 +4176,7 @@ function App() {
                       <span className="toolSymbol">+</span>
                       <span>
                         <strong>Initial</strong>
-                        <small>Startanweisung senden</small>
+                        <small>{tx('Startanweisung senden', 'Send initial instruction')}</small>
                       </span>
                     </button>
                     <button
@@ -4115,7 +4189,7 @@ function App() {
                       <span className="toolSymbol">+</span>
                       <span>
                         <strong>Status</strong>
-                        <small>Bei Status weiterleiten</small>
+                        <small>{tx('Bei Status weiterleiten', 'Forward on status')}</small>
                       </span>
                     </button>
                     <button
@@ -4127,8 +4201,8 @@ function App() {
                     >
                       <span className="toolSymbol">■</span>
                       <span>
-                        <strong>Stopp</strong>
-                        <small>Workflow-Pfad beenden</small>
+                        <strong>{tx('Stopp', 'Stop')}</strong>
+                        <small>{tx('Workflow-Pfad beenden', 'End workflow path')}</small>
                       </span>
                     </button>
                     <button
@@ -4140,8 +4214,8 @@ function App() {
                     >
                       <span className="toolSymbol">◷</span>
                       <span>
-                        <strong>Zeitplan</strong>
-                        <small>Aufgabe zeitgesteuert senden</small>
+                        <strong>{tx('Zeitplan', 'Schedule')}</strong>
+                        <small>{tx('Aufgabe zeitgesteuert senden', 'Send task on schedule')}</small>
                       </span>
                     </button>
                     {PROMPT_NODES_ENABLED && (
@@ -4155,17 +4229,17 @@ function App() {
                         <span className="toolSymbol">+</span>
                         <span>
                           <strong>Prompt</strong>
-                          <small>Bedingung auswerten</small>
+                          <small>{tx('Bedingung auswerten', 'Evaluate condition')}</small>
                         </span>
                       </button>
                     )}
                   </div>
                 </details>
                 <button
-                  aria-label="Workflow-Dashboard schließen"
+                  aria-label={tx('Workflow-Dashboard schließen', 'Close workflow dashboard')}
                   className="dashboardClose"
                   onClick={() => setDashboardOpen(false)}
-                  title="Workflow-Dashboard schließen"
+                  title={tx('Workflow-Dashboard schließen', 'Close workflow dashboard')}
                   type="button"
                 >
                   ×
@@ -4247,6 +4321,7 @@ function App() {
               onAgentDrop={dropAgentIntoDashboard}
               draggedAgentId={draggedAgentId}
               selectedAgentNodeId={selectedWorkflowAgentId}
+              language={language}
             />
           </section>
         </div>
@@ -4261,17 +4336,17 @@ function App() {
             className="promptModal promptEditorModal"
             role="dialog"
             aria-modal="true"
-            aria-label={`Prompt-Dateien von ${selectedAgent.name}`}
+            aria-label={`${tx('Prompt-Dateien von', 'Prompt files for')} ${selectedAgent.name}`}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Prompt-Dateien</p>
+                <p className="eyebrow">{tx('Prompt-Dateien', 'Prompt files')}</p>
                 <h2>{selectedAgent.name}</h2>
               </div>
               <button
-                aria-label="Prompt-Fenster schließen"
-                title="Prompt-Fenster schließen"
+                aria-label={tx('Prompt-Fenster schließen', 'Close prompt window')}
+                title={tx('Prompt-Fenster schließen', 'Close prompt window')}
                 onClick={() => setPromptEditorOpen(false)}
                 type="button"
               >
@@ -4279,20 +4354,20 @@ function App() {
               </button>
             </div>
 
-            <section className="promptLibrary" aria-label="Aktive Prompt-Datei">
+            <section className="promptLibrary" aria-label={tx('Aktive Prompt-Datei', 'Active prompt file')}>
               <div className="promptLibraryHeader">
                 <div>
-                  <p className="eyebrow">Aktive Arbeitsanweisung</p>
-                  <strong>Prompt-Datei</strong>
+                  <p className="eyebrow">{tx('Aktive Arbeitsanweisung', 'Active work instruction')}</p>
+                  <strong>{tx('Prompt-Datei', 'Prompt file')}</strong>
                 </div>
                 <button
-                  aria-label="Prompt-Datei erstellen"
+                  aria-label={tx('Prompt-Datei erstellen', 'Create prompt file')}
                   className="iconButton"
                   onClick={() => {
                     setNewPromptName('')
                     setPromptCreationOpen(true)
                   }}
-                  title="Prompt-Datei erstellen"
+                  title={tx('Prompt-Datei erstellen', 'Create prompt file')}
                   type="button"
                 >
                   +
@@ -4300,7 +4375,7 @@ function App() {
               </div>
               <div className="promptPicker">
                 <label>
-                  Datei auswählen
+                  {tx('Datei auswählen', 'Select file')}
                   <select
                     value={selectedAgent.activePromptDocumentId}
                     onChange={(event) => selectPromptDocument(selectedAgent, event.target.value)}
@@ -4313,14 +4388,14 @@ function App() {
                   </select>
                 </label>
                 <button
-                  aria-label="Aktive Prompt-Datei umbenennen"
+                  aria-label={tx('Aktive Prompt-Datei umbenennen', 'Rename active prompt file')}
                   className="iconButton promptRenameButton"
                   onClick={() => {
                     const document = activePromptDocument(selectedAgent)
                     setRenamedPromptName(document?.name || '')
                     setPromptRenameOpen(true)
                   }}
-                  title="Aktive Prompt-Datei umbenennen"
+                  title={tx('Aktive Prompt-Datei umbenennen', 'Rename active prompt file')}
                   type="button"
                 >
                   ✎
@@ -4328,24 +4403,24 @@ function App() {
               </div>
               {activePromptDocument(selectedAgent) && (
                 <p className="promptFilePath">
-                  Datei: <code>{activePromptDocument(selectedAgent).filePath || `.codex-orchestrator/prompts/${selectedAgent.id}/${activePromptDocument(selectedAgent).fileName}`}</code>
+                  {tx('Datei', 'File')}: <code>{activePromptDocument(selectedAgent).filePath || `.codex-orchestrator/prompts/${selectedAgent.id}/${activePromptDocument(selectedAgent).fileName}`}</code>
                 </p>
               )}
             </section>
 
             <details className="promptStatusMenu">
-              <summary title="Workflow-Status für diese Prompt-Anweisung auswählen">
+              <summary title={tx('Workflow-Status für diese Prompt-Anweisung auswählen', 'Select workflow statuses for this prompt instruction')}>
                 <span>Workflow-Status</span>
                 <small>
                   {selectedAgent.workflowStatusIds === null
-                    ? 'Alle Projektstatus'
-                    : `${workflowStatusesForAgent(selectedAgent, workflowStatuses).length} ausgewählt`}
+                    ? tx('Alle Projektstatus', 'All project statuses')
+                    : `${workflowStatusesForAgent(selectedAgent, workflowStatuses).length} ${tx('ausgewählt', 'selected')}`}
                 </small>
               </summary>
               <div className="promptStatusOptions">
-                <p>Nur diese Status werden beim Übergeben an diesen Agenten erklärt.</p>
+                <p>{tx('Nur diese Status werden beim Übergeben an diesen Agenten erklärt.', 'Only these statuses are explained when handing work to this agent.')}</p>
                 {projectWorkflowStatuses.length === 0 ? (
-                  <span className="empty">Im Projekt sind noch keine Status angelegt.</span>
+                  <span className="empty">{tx('Im Projekt sind noch keine Status angelegt.', 'No statuses have been created in this project.')}</span>
                 ) : (
                   projectWorkflowStatuses.map((status) => {
                     const enabled = selectedAgent.workflowStatusIds === null ||
@@ -4361,7 +4436,7 @@ function App() {
                         />
                         <span>
                           <strong>{status.name}</strong>
-                          <small>{status.description || 'Keine Bedeutung hinterlegt.'}</small>
+                          <small>{status.description || tx('Keine Bedeutung hinterlegt.', 'No meaning provided.')}</small>
                         </span>
                       </label>
                     )
@@ -4371,7 +4446,7 @@ function App() {
             </details>
 
             <label className="wide promptEditorText">
-              {activePromptDocument(selectedAgent)?.name || 'Prompt-Anweisung'}
+              {activePromptDocument(selectedAgent)?.name || tx('Prompt-Anweisung', 'Prompt instruction')}
               <textarea
                 rows={14}
                 value={activePromptDocument(selectedAgent)?.content ?? ''}
@@ -4386,13 +4461,13 @@ function App() {
             </label>
 
             <div className="modalActions">
-              <button onClick={() => setPromptEditorOpen(false)} type="button">Schließen</button>
+              <button onClick={() => setPromptEditorOpen(false)} type="button">{tx('Schließen', 'Close')}</button>
               <button
                 className="primary"
                 onClick={() => setPendingPromptDeliveryAgentId(selectedAgent.id)}
                 type="button"
               >
-                Speichern und übergeben
+                {tx('Speichern und übergeben', 'Save and send')}
               </button>
             </div>
           </section>
@@ -4408,27 +4483,27 @@ function App() {
             className="promptModal promptConfirmModal"
             role="dialog"
             aria-modal="true"
-            aria-label="Prompt übergeben"
+            aria-label={tx('Prompt übergeben', 'Send prompt')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Prompt-Übergabe</p>
-                <h2>Prompt übergeben?</h2>
+                <p className="eyebrow">{tx('Prompt-Übergabe', 'Prompt delivery')}</p>
+                <h2>{tx('Prompt übergeben?', 'Send prompt?')}</h2>
               </div>
               <button
-                aria-label="Fenster schließen"
-                title="Fenster schließen"
+                aria-label={tx('Fenster schließen', 'Close window')}
+                title={tx('Fenster schließen', 'Close window')}
                 onClick={() => setPendingPromptDeliveryAgentId('')}
               >
                 ×
               </button>
             </div>
             <p className="modalHint">
-              <code>{activePromptDocument(pendingPromptDeliveryAgent)?.fileName}</code> wird gespeichert und an den Codex-Chat von <strong>{pendingPromptDeliveryAgent.name}</strong> übergeben.
+              <code>{activePromptDocument(pendingPromptDeliveryAgent)?.fileName}</code> {tx('wird gespeichert und an den Codex-Chat von', 'will be saved and sent to the Codex chat of')} <strong>{pendingPromptDeliveryAgent.name}</strong>.
             </p>
             <div className="modalActions">
-              <button onClick={() => setPendingPromptDeliveryAgentId('')}>Abbrechen</button>
+              <button onClick={() => setPendingPromptDeliveryAgentId('')}>{tx('Abbrechen', 'Cancel')}</button>
               <button
                 className="primary"
                 onClick={() => {
@@ -4436,7 +4511,7 @@ function App() {
                   void savePromptInstruction(pendingPromptDeliveryAgent)
                 }}
               >
-                Übergeben
+                {tx('Übergeben', 'Send')}
               </button>
             </div>
           </section>
@@ -4452,17 +4527,17 @@ function App() {
             className="promptModal promptFileModal"
             role="dialog"
             aria-modal="true"
-            aria-label="Prompt-Datei erstellen"
+            aria-label={tx('Prompt-Datei erstellen', 'Create prompt file')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Agenten-Setup</p>
-                <h2>Prompt-Datei erstellen</h2>
+                <p className="eyebrow">{tx('Agenten-Setup', 'Agent setup')}</p>
+                <h2>{tx('Prompt-Datei erstellen', 'Create prompt file')}</h2>
               </div>
               <button
-                aria-label="Fenster schließen"
-                title="Fenster schließen"
+                aria-label={tx('Fenster schließen', 'Close window')}
+                title={tx('Fenster schließen', 'Close window')}
                 onClick={() => setPromptCreationOpen(false)}
               >
                 ×
@@ -4472,7 +4547,7 @@ function App() {
               Name
               <input
                 autoFocus
-                placeholder="z. B. Workflow 1"
+                placeholder={tx('z. B. Workflow 1', 'e.g. Workflow 1')}
                 value={newPromptName}
                 onChange={(event) => setNewPromptName(event.target.value)}
                 onKeyDown={(event) => {
@@ -4484,12 +4559,12 @@ function App() {
               />
             </label>
             <p className="modalHint">
-              Die Datei wird für {selectedAgent.name} als <code>{promptFileName(newPromptName)}</code> angelegt.
+               {tx('Die Datei wird für', 'The file will be created for')} {selectedAgent.name} {tx('als', 'as')} <code>{promptFileName(newPromptName)}</code>.
             </p>
             <div className="modalActions">
-              <button onClick={() => setPromptCreationOpen(false)}>Abbrechen</button>
+              <button onClick={() => setPromptCreationOpen(false)}>{tx('Abbrechen', 'Cancel')}</button>
               <button className="primary" disabled={!newPromptName.trim()} onClick={createPromptDocument}>
-                Erstellen
+                {tx('Erstellen', 'Create')}
               </button>
             </div>
           </section>
@@ -4505,17 +4580,17 @@ function App() {
             className="promptModal promptFileModal"
             role="dialog"
             aria-modal="true"
-            aria-label="Prompt-Datei umbenennen"
+            aria-label={tx('Prompt-Datei umbenennen', 'Rename prompt file')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Agenten-Setup</p>
-                <h2>Prompt-Datei umbenennen</h2>
+                <p className="eyebrow">{tx('Agenten-Setup', 'Agent setup')}</p>
+                <h2>{tx('Prompt-Datei umbenennen', 'Rename prompt file')}</h2>
               </div>
               <button
-                aria-label="Fenster schließen"
-                title="Fenster schließen"
+                aria-label={tx('Fenster schließen', 'Close window')}
+                title={tx('Fenster schließen', 'Close window')}
                 onClick={() => setPromptRenameOpen(false)}
               >
                 ×
@@ -4536,12 +4611,12 @@ function App() {
               />
             </label>
             <p className="modalHint">
-              Neuer Dateiname: <code>{promptFileName(renamedPromptName)}</code>
+              {tx('Neuer Dateiname', 'New file name')}: <code>{promptFileName(renamedPromptName)}</code>
             </p>
             <div className="modalActions">
-              <button onClick={() => setPromptRenameOpen(false)}>Abbrechen</button>
+              <button onClick={() => setPromptRenameOpen(false)}>{tx('Abbrechen', 'Cancel')}</button>
               <button className="primary" disabled={!renamedPromptName.trim()} onClick={() => void renamePromptDocument()}>
-                Umbenennen
+                {tx('Umbenennen', 'Rename')}
               </button>
             </div>
           </section>
@@ -4553,15 +4628,15 @@ function App() {
             className="promptModal initialModal"
             role="dialog"
             aria-modal="true"
-            aria-label="Initial-Baustein bearbeiten"
+            aria-label={tx('Initial-Baustein bearbeiten', 'Edit initial node')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Workflow-Start</p>
+                <p className="eyebrow">Workflow Start</p>
                 <h2>{selectedInitial.name}</h2>
               </div>
-              <button title="Fenster schließen" onClick={() => setSelectedInitialId('')}>×</button>
+              <button title={tx('Fenster schließen', 'Close window')} onClick={() => setSelectedInitialId('')}>×</button>
             </div>
             <label>
               Name
@@ -4573,7 +4648,7 @@ function App() {
               />
             </label>
             <label>
-              Startanweisung
+              {tx('Startanweisung', 'Initial instruction')}
               <textarea
                 rows={7}
                 value={selectedInitial.instruction}
@@ -4583,13 +4658,13 @@ function App() {
               />
             </label>
             <p className="modalHint">
-              Beim Start der Automatik wird diese Anweisung an jeden direkt verbundenen Agenten gesendet.
+              {tx('Beim Start der Automatik wird diese Anweisung an jeden direkt verbundenen Agenten gesendet.', 'When automation starts, this instruction is sent to every directly connected agent.')}
             </p>
             <div className="modalActions">
               <button className="deleteButton" onClick={() => deleteWorkflowInitial(selectedInitial.id)}>
-                Löschen
+                {tx('Löschen', 'Delete')}
               </button>
-              <button className="primary" onClick={() => setSelectedInitialId('')}>Übernehmen</button>
+              <button className="primary" onClick={() => setSelectedInitialId('')}>{tx('Übernehmen', 'Apply')}</button>
             </div>
           </section>
         </div>
@@ -4600,15 +4675,15 @@ function App() {
             className="promptModal initialModal"
             role="dialog"
             aria-modal="true"
-            aria-label="Stopp-Baustein bearbeiten"
+            aria-label={tx('Stopp-Baustein bearbeiten', 'Edit stop node')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Workflow-Ende</p>
+                <p className="eyebrow">{tx('Workflow-Ende', 'Workflow end')}</p>
                 <h2>{selectedStop.name}</h2>
               </div>
-              <button title="Fenster schließen" onClick={() => setSelectedStopId('')}>×</button>
+              <button title={tx('Fenster schließen', 'Close window')} onClick={() => setSelectedStopId('')}>×</button>
             </div>
             <label>
               Name
@@ -4618,13 +4693,13 @@ function App() {
               />
             </label>
             <p className="modalHint">
-              Sobald ein Ergebnis diesen Baustein erreicht, endet dieser Workflow-Pfad. Es wird keine weitere Chat-Nachricht gesendet.
+              {tx('Sobald ein Ergebnis diesen Baustein erreicht, endet dieser Workflow-Pfad. Es wird keine weitere Chat-Nachricht gesendet.', 'When a result reaches this node, the workflow path ends. No further chat message is sent.')}
             </p>
             <div className="modalActions">
               <button className="deleteButton" onClick={() => deleteWorkflowStop(selectedStop.id)}>
-                Löschen
+                {tx('Löschen', 'Delete')}
               </button>
-              <button className="primary" onClick={() => setSelectedStopId('')}>Übernehmen</button>
+              <button className="primary" onClick={() => setSelectedStopId('')}>{tx('Übernehmen', 'Apply')}</button>
             </div>
           </section>
         </div>
@@ -4635,15 +4710,15 @@ function App() {
             className="promptModal timerModal"
             role="dialog"
             aria-modal="true"
-            aria-label="Zeitplan konfigurieren"
+            aria-label={tx('Zeitplan konfigurieren', 'Configure schedule')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Workflow-Zeitplan</p>
-                <h2>Zeitplan konfigurieren</h2>
+                <p className="eyebrow">{tx('Workflow-Zeitplan', 'Workflow schedule')}</p>
+                <h2>{tx('Zeitplan konfigurieren', 'Configure schedule')}</h2>
               </div>
-              <button title="Fenster schließen" onClick={() => setSelectedTimerId('')}>×</button>
+              <button title={tx('Fenster schließen', 'Close window')} onClick={() => setSelectedTimerId('')}>×</button>
             </div>
             <div className="timerFormGrid">
               <label>
@@ -4654,7 +4729,7 @@ function App() {
                 />
               </label>
               <label>
-                Art
+                {tx('Art', 'Type')}
                 <select
                   value={selectedTimer.schedule}
                   onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
@@ -4662,12 +4737,12 @@ function App() {
                   })}
                 >
                   <option value="interval">Timer</option>
-                  <option value="once">Kalender</option>
+                  <option value="once">{tx('Kalender', 'Calendar')}</option>
                 </select>
               </label>
               {selectedTimer.schedule === 'once' ? (
                 <label className="timerStartField">
-                  Datum und Uhrzeit
+                  {tx('Datum und Uhrzeit', 'Date and time')}
                   <input
                     type="datetime-local"
                     value={toDateTimeLocal(selectedTimer.startAt)}
@@ -4679,20 +4754,20 @@ function App() {
               ) : (
                 <div className="timerIntervalField">
                   <label>
-                    Ausführung
+                    {tx('Ausführung', 'Execution')}
                     <select
                       value={selectedTimer.recurring === false ? 'once' : 'recurring'}
                       onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
                         recurring: event.target.value === 'recurring',
                       })}
                     >
-                      <option value="recurring">Wiederkehrend</option>
-                      <option value="once">Einmalig</option>
+                      <option value="recurring">{tx('Wiederkehrend', 'Recurring')}</option>
+                      <option value="once">{tx('Einmalig', 'Once')}</option>
                     </select>
                   </label>
                   {selectedTimer.intervalUnit === 'time' ? (
                     <label>
-                      Startzeit
+                      {tx('Startzeit', 'Start time')}
                       <input
                         type="time"
                         value={toTimeInput(selectedTimer.startAt)}
@@ -4703,7 +4778,7 @@ function App() {
                     </label>
                   ) : (
                     <label>
-                      Intervall
+                      {tx('Intervall', 'Interval')}
                       <input
                         min="1"
                         type="number"
@@ -4715,30 +4790,30 @@ function App() {
                     </label>
                   )}
                   <label>
-                    Einheit
+                    {tx('Einheit', 'Unit')}
                     <select
                       value={selectedTimer.intervalUnit}
                       onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
                         intervalUnit: event.target.value as WorkflowTimer['intervalUnit'],
                       })}
                     >
-                      <option value="minutes">Minuten</option>
-                      <option value="hours">Stunden</option>
-                      <option value="days">Tage</option>
-                      <option value="weeks">Wochen</option>
-                      <option value="time">Uhrzeit</option>
+                      <option value="minutes">{tx('Minuten', 'Minutes')}</option>
+                      <option value="hours">{tx('Stunden', 'Hours')}</option>
+                      <option value="days">{tx('Tage', 'Days')}</option>
+                      <option value="weeks">{tx('Wochen', 'Weeks')}</option>
+                      <option value="time">{tx('Uhrzeit', 'Time')}</option>
                     </select>
                   </label>
                 </div>
               )}
             </div>
             <label>
-              Aufgabe
+              {tx('Aufgabe', 'Task')}
               <textarea
                 rows={6}
                 value={selectedTimer.task}
                 onChange={(event) => updateWorkflowTimer(selectedTimer.id, { task: event.target.value })}
-                placeholder="Welche Aufgabe soll an den verbundenen Agenten gesendet werden?"
+                placeholder={tx('Welche Aufgabe soll an den verbundenen Agenten gesendet werden?', 'Which task should be sent to the connected agent?')}
               />
             </label>
             <label className="timerEnabled">
@@ -4755,19 +4830,19 @@ function App() {
                 })}
               />
               <span>
-                <strong>Zeitplan aktiv</strong>
-                <small>Wird nur ausgeführt, solange die Automatik eingeschaltet ist.</small>
+                <strong>{tx('Zeitplan aktiv', 'Schedule active')}</strong>
+                <small>{tx('Wird nur ausgeführt, solange die Automatik eingeschaltet ist.', 'Runs only while automation is enabled.')}</small>
               </span>
             </label>
             <div className="timerMeta">
-              <span>Nächster Lauf</span>
+              <span>{tx('Nächster Lauf', 'Next run')}</span>
               <strong>{selectedTimer.enabled && selectedTimer.nextRunAt
-                ? new Date(selectedTimer.nextRunAt).toLocaleString('de-DE')
-                : 'Nicht geplant'}</strong>
+                ? new Date(selectedTimer.nextRunAt).toLocaleString(language === 'de' ? 'de-DE' : 'en-US')
+                : tx('Nicht geplant', 'Not scheduled')}</strong>
             </div>
             <div className="modalActions">
-              <button className="deleteButton" onClick={() => deleteWorkflowTimer(selectedTimer.id)}>Löschen</button>
-              <button className="primary" onClick={() => setSelectedTimerId('')}>Übernehmen</button>
+              <button className="deleteButton" onClick={() => deleteWorkflowTimer(selectedTimer.id)}>{tx('Löschen', 'Delete')}</button>
+              <button className="primary" onClick={() => setSelectedTimerId('')}>{tx('Übernehmen', 'Apply')}</button>
             </div>
           </section>
         </div>
@@ -4778,25 +4853,25 @@ function App() {
             className="promptModal"
             role="dialog"
             aria-modal="true"
-            aria-label="Verbindung konfigurieren"
+            aria-label={tx('Verbindung konfigurieren', 'Configure connection')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Workflow-Verbindung</p>
-                <h2>Verbindung konfigurieren</h2>
+                <p className="eyebrow">{tx('Workflow-Verbindung', 'Workflow connection')}</p>
+                <h2>{tx('Verbindung konfigurieren', 'Configure connection')}</h2>
               </div>
               <button
-                aria-label="Fenster schließen"
-                title="Fenster schließen"
+                aria-label={tx('Fenster schließen', 'Close window')}
+                title={tx('Fenster schließen', 'Close window')}
                 onClick={() => setSelectedRouteId('')}
               >
                 ×
               </button>
             </div>
             <p className="modalHint">
-              <strong>{dashboardNodeLabel(selectedRoute.sourceId)}</strong> leitet an{' '}
-              <strong>{dashboardNodeLabel(selectedRoute.targetId)}</strong> weiter.
+              <strong>{dashboardNodeLabel(selectedRoute.sourceId)}</strong> {tx('leitet an', 'forwards to')}{' '}
+              <strong>{dashboardNodeLabel(selectedRoute.targetId)}</strong>.
             </p>
             <div className="modalActions">
               <button
@@ -4806,9 +4881,9 @@ function App() {
                   setSelectedRouteId('')
                 }}
               >
-                Verbindung löschen
+                {tx('Verbindung löschen', 'Delete connection')}
               </button>
-              <button className="primary" onClick={() => setSelectedRouteId('')}>Schließen</button>
+              <button className="primary" onClick={() => setSelectedRouteId('')}>{tx('Schließen', 'Close')}</button>
             </div>
           </section>
         </div>
@@ -4819,33 +4894,36 @@ function App() {
             className="promptModal"
             role="dialog"
             aria-modal="true"
-            aria-label="Agenten-Baustein konfigurieren"
+            aria-label={tx('Agenten-Baustein konfigurieren', 'Configure agent node')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Agenten-Baustein</p>
+                <p className="eyebrow">{tx('Agenten-Baustein', 'Agent node')}</p>
                 <h2>{selectedWorkflowAgent.name}</h2>
               </div>
               <button
-                aria-label="Fenster schließen"
-                title="Fenster schließen"
+                aria-label={tx('Fenster schließen', 'Close window')}
+                title={tx('Fenster schließen', 'Close window')}
                 onClick={() => setSelectedWorkflowAgentId('')}
               >
                 ×
               </button>
             </div>
             <p className="modalHint">
-              Dieser Baustein repräsentiert den Codex-Chat „{selectedWorkflowAgent.name}“. Das Entfernen löscht den Chat nicht, sondern nur diesen Baustein und seine Verbindungen aus diesem Dashboard.
+              {tx(
+                `Dieser Baustein repräsentiert den Codex-Chat „${selectedWorkflowAgent.name}“. Das Entfernen löscht den Chat nicht, sondern nur diesen Baustein und seine Verbindungen aus diesem Dashboard.`,
+                `This node represents the Codex chat “${selectedWorkflowAgent.name}”. Removing it does not delete the chat; it only removes this node and its connections from the dashboard.`,
+              )}
             </p>
             <div className="modalActions">
               <button
                 className="deleteButton"
                 onClick={() => removeAgentFromDashboard(selectedWorkflowAgent.id)}
               >
-                Aus Dashboard entfernen
+                {tx('Aus Dashboard entfernen', 'Remove from dashboard')}
               </button>
-              <button className="primary" onClick={() => setSelectedWorkflowAgentId('')}>Schließen</button>
+              <button className="primary" onClick={() => setSelectedWorkflowAgentId('')}>{tx('Schließen', 'Close')}</button>
             </div>
           </section>
         </div>
@@ -4856,23 +4934,23 @@ function App() {
             className="promptModal statusFilterModal"
             role="dialog"
             aria-modal="true"
-            aria-label="Status-Filter konfigurieren"
+            aria-label={tx('Status-Filter konfigurieren', 'Configure status filter')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
                 <p className="eyebrow">Workflow-Status</p>
-                <h2>Status-Filter konfigurieren</h2>
+                <h2>{tx('Status-Filter konfigurieren', 'Configure status filter')}</h2>
               </div>
               <button
-                aria-label="Fenster schließen"
-                title="Fenster schließen"
+                aria-label={tx('Fenster schließen', 'Close window')}
+                title={tx('Fenster schließen', 'Close window')}
                 onClick={() => setSelectedStatusFilterId('')}
               >
                 ×
               </button>
             </div>
-            <section className="statusFilterSummary" aria-label="Ausgewählter Workflow-Status">
+            <section className="statusFilterSummary" aria-label={tx('Ausgewählter Workflow-Status', 'Selected workflow status')}>
               <label>
                 Status
                 <select
@@ -4893,7 +4971,7 @@ function App() {
                 return status?.description
                   ? (
                       <div className="statusFilterDescription">
-                        <span>Bedeutung</span>
+                        <span>{tx('Bedeutung', 'Meaning')}</span>
                         <p>{status.description}</p>
                       </div>
                     )
@@ -4901,16 +4979,16 @@ function App() {
               })()}
             </section>
             <p className="modalHint statusFilterInfo">
-              Der Status wird in der projektweiten Statusliste verwaltet. Dieser Baustein leitet nur passende Ergebnisse weiter.
+              {tx('Der Status wird in der projektweiten Statusliste verwaltet. Dieser Baustein leitet nur passende Ergebnisse weiter.', 'The status is managed in the project status list. This node forwards matching results only.')}
             </p>
             <div className="modalActions">
               <button
                 className="deleteButton"
                 onClick={() => deleteWorkflowStatusFilter(selectedStatusFilter.id)}
               >
-                Löschen
+                {tx('Löschen', 'Delete')}
               </button>
-              <button className="primary" onClick={() => setSelectedStatusFilterId('')}>Übernehmen</button>
+              <button className="primary" onClick={() => setSelectedStatusFilterId('')}>{tx('Übernehmen', 'Apply')}</button>
             </div>
           </section>
         </div>
