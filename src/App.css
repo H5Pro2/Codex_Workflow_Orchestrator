@@ -146,6 +146,38 @@
   color: #fda4af;
 }
 
+.languageSwitch {
+  align-items: center;
+  display: flex !important;
+  flex-direction: row !important;
+  gap: 4px !important;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+.languageSwitch button {
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  color: #8f9daf;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  min-height: 22px;
+  padding: 2px 4px;
+}
+
+.languageSwitch button:hover,
+.languageSwitch button.active {
+  background: #243143;
+  color: #f8fafc;
+}
+
+.languageSwitch span {
+  color: #596579;
+  font-size: 11px;
+}
+
 .topActions {
   align-items: center;
   display: flex;

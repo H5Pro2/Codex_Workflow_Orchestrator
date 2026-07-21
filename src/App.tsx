@@ -17,6 +17,7 @@ import '@xyflow/react/dist/style.css'
 import './App.css'
 
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
+type UiLanguage = 'de' | 'en'
 
 type PromptDocument = {
   id: string
@@ -216,7 +217,55 @@ function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
 const workflowNodeTypes = { workflow: WorkflowNode }
 
 const STORAGE_KEY = 'codex-workflow-orchestrator'
+const LANGUAGE_STORAGE_KEY = 'codex-workflow-orchestrator-language'
 const PROMPT_NODES_ENABLED = false
+
+const languageCopy: Record<UiLanguage, {
+  week: string
+  free: string
+  unlimited: string
+  credit: string
+  start: string
+  stop: string
+  projects: string
+  project: string
+  manageChats: string
+  noChats: string
+  online: string
+  offline: string
+  liveSync: string
+}> = {
+  de: {
+    week: 'Woche',
+    free: '% frei',
+    unlimited: 'Guthaben unbegrenzt',
+    credit: 'Guthaben',
+    start: 'Automatik starten',
+    stop: 'Automatik stoppen',
+    projects: 'Codex Projekte und Tasks',
+    project: 'Projekt',
+    manageChats: 'Chats in der Agentenübersicht verwalten',
+    noChats: 'Für dieses Projekt wurden keine Chats gefunden.',
+    online: 'Codex-Connector verbunden',
+    offline: 'Codex-Connector offline',
+    liveSync: 'Keine Live-Synchronisierung',
+  },
+  en: {
+    week: 'Week',
+    free: '% free',
+    unlimited: 'Unlimited credits',
+    credit: 'Credits',
+    start: 'Start automation',
+    stop: 'Stop automation',
+    projects: 'Codex projects and tasks',
+    project: 'Project',
+    manageChats: 'Manage chats in agent overview',
+    noChats: 'No chats were found for this project.',
+    online: 'Codex Connector connected',
+    offline: 'Codex Connector offline',
+    liveSync: 'No live synchronization',
+  },
+}
 
 const initialCodexProjects: CodexProject[] = [
   { id: '8fe383a0-9e86-4a98-bf94-c790d6ae0233', label: 'codex_orchestrator', path: 'C:\\Users\\TV\\Documents\\Codex_Workflow_Orchestrator' },
@@ -824,6 +873,10 @@ function App() {
   const [codexProjects, setCodexProjects] = useState<CodexProject[]>(initialCodexProjects)
   const [codexThreads, setCodexThreads] = useState<CodexThread[]>(initialCodexThreads)
   const [connectorOnline, setConnectorOnline] = useState(false)
+  const [language, setLanguage] = useState<UiLanguage>(() => {
+    const storedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
+    return storedLanguage === 'en' ? 'en' : 'de'
+  })
   const [lastSyncedAt, setLastSyncedAt] = useState('')
   const [selectedId, setSelectedId] = useState(agents[0]?.id ?? '')
   const [draggedAgentId, setDraggedAgentId] = useState('')
@@ -878,6 +931,12 @@ function App() {
   const [pendingPromptDeliveryAgentId, setPendingPromptDeliveryAgentId] = useState('')
   const [transmittingAgentIds, setTransmittingAgentIds] = useState<string[]>([])
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const copy = languageCopy[language]
+
+  useEffect(() => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
+    document.documentElement.lang = language
+  }, [language])
   const [chatError, setChatError] = useState('')
   const [chatPinnedToBottom, setChatPinnedToBottom] = useState(true)
   const [chatDraft, setChatDraft] = useState('')
@@ -3041,20 +3100,20 @@ function App() {
                 : 'Verbleibendes Codex-Wochenlimit'
             }
           >
-            <small>Woche</small>
+            <small>{copy.week}</small>
             <strong>
               {usageSummary.remainingPercent === null
                 ? '–'
-                : `${usageSummary.remainingPercent} % frei`}
+                : `${usageSummary.remainingPercent} ${copy.free}`}
             </strong>
             {(usageSummary.unlimited || usageSummary.credits) && (
               <small>
-                {usageSummary.unlimited ? 'Guthaben unbegrenzt' : `Guthaben ${usageSummary.credits}`}
+                {usageSummary.unlimited ? copy.unlimited : `${copy.credit} ${usageSummary.credits}`}
               </small>
             )}
           </div>
           <button className={autoRun ? 'danger' : ''} onClick={toggleAutomation}>
-            {autoRun ? 'Automatik stoppen' : 'Automatik starten'}
+            {autoRun ? copy.stop : copy.start}
           </button>
         </div>
       </section>
@@ -3123,10 +3182,10 @@ function App() {
 
       <section className="codexBrowser">
         <div>
-          <p className="eyebrow">Codex Projekte und Tasks</p>
+          <p className="eyebrow">{copy.projects}</p>
           <div className="codexPicker">
             <label>
-              Projekt
+              {copy.project}
               <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
                 {codexProjects.map((project) => (
                   <option key={project.id} value={project.id}>{project.label}</option>
@@ -3160,12 +3219,31 @@ function App() {
         <div className={`connectorState ${connectorOnline ? 'online' : 'offline'}`}>
           <span className="stateDot" />
           <div>
-            <strong>{connectorOnline ? 'Codex-Connector verbunden' : 'Codex-Connector offline'}</strong>
+            <strong>{connectorOnline ? copy.online : copy.offline}</strong>
             <small>
               {connectorOnline
                 ? `${codexProjects.length} Projekte, ${codexThreads.length} Tasks · ${lastSyncedAt}`
-                : 'Keine Live-Synchronisierung'}
+                : copy.liveSync}
             </small>
+          </div>
+          <div className="languageSwitch" aria-label="Sprache / Language">
+            <button
+              className={language === 'en' ? 'active' : ''}
+              aria-pressed={language === 'en'}
+              onClick={() => setLanguage('en')}
+              title="English"
+            >
+              EN
+            </button>
+            <span aria-hidden="true">|</span>
+            <button
+              className={language === 'de' ? 'active' : ''}
+              aria-pressed={language === 'de'}
+              onClick={() => setLanguage('de')}
+              title="Deutsch"
+            >
+              DE
+            </button>
           </div>
         </div>
       </section>
