@@ -1320,7 +1320,7 @@ label {
   display: grid;
   gap: 10px;
   grid-column: 1 / -1;
-  grid-template-columns: minmax(120px, 0.45fr) minmax(160px, 1fr);
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
 }
 
 .timerStartField {

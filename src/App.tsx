@@ -513,6 +513,21 @@ function fromDateTimeLocal(value: string) {
   return Number.isNaN(date.getTime()) ? '' : date.toISOString()
 }
 
+function toTimeInput(value: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+function fromTimeInput(value: string) {
+  const [hours, minutes] = value.split(':').map(Number)
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return ''
+  const date = new Date()
+  date.setHours(hours, minutes, 0, 0)
+  return date.toISOString()
+}
+
 function timerIntervalMs(timer: WorkflowTimer) {
   const factors = {
     minutes: 60_000,
@@ -2865,10 +2880,8 @@ function App() {
             next.startAt = defaultTimerStart()
             next.nextRunAt = next.startAt
           }
-        } else if (next.schedule === 'interval' && ('intervalValue' in patch || 'intervalUnit' in patch)) {
-          next.nextRunAt = new Date(Date.now() + timerIntervalMs(next)).toISOString()
-        } else if (next.schedule === 'once' && 'startAt' in patch) {
-          next.nextRunAt = next.startAt
+        } else if ('startAt' in patch || 'intervalValue' in patch || 'intervalUnit' in patch) {
+          next.nextRunAt = next.schedule === 'interval' ? nextTimerRun(next) : next.startAt
         }
         return next
       }),
@@ -4614,6 +4627,16 @@ function App() {
               ) : (
                 <div className="timerIntervalField">
                   <label>
+                    Startzeit
+                    <input
+                      type="time"
+                      value={toTimeInput(selectedTimer.startAt)}
+                      onChange={(event) => updateWorkflowTimer(selectedTimer.id, {
+                        startAt: fromTimeInput(event.target.value),
+                      })}
+                    />
+                  </label>
+                  <label>
                     Intervall
                     <input
                       min="1"
@@ -4658,7 +4681,7 @@ function App() {
                   enabled: event.target.checked,
                   nextRunAt: event.target.checked
                     ? selectedTimer.schedule === 'interval'
-                      ? new Date(Date.now() + timerIntervalMs(selectedTimer)).toISOString()
+                      ? nextTimerRun(selectedTimer)
                       : selectedTimer.startAt
                     : selectedTimer.nextRunAt,
                 })}
