@@ -1215,6 +1215,12 @@ label {
   padding: 9px 10px;
 }
 
+.statusFilterDescription {
+  color: #d5dee9;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .statusFilterEditor label {
   display: grid;
   font-size: 11px;
