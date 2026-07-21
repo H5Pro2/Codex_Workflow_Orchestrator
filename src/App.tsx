@@ -4312,7 +4312,7 @@ function App() {
               )
               return status?.description ? <p className="modalHint">{status.description}</p> : null
             })()}
-            <p className="modalHint">
+            <p className="modalHint statusFilterInfo">
               Der Status wird in der projektweiten Statusliste verwaltet. Dieser Baustein leitet nur passende Ergebnisse weiter.
             </p>
             <div className="modalActions">

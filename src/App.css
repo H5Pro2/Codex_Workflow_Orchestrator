@@ -1207,6 +1207,14 @@ label {
   margin-bottom: 4px;
 }
 
+.statusFilterInfo {
+  background: #151d23;
+  border-left: 2px solid #3d6f74;
+  color: #aebdca;
+  margin-top: 10px;
+  padding: 9px 10px;
+}
+
 .statusFilterEditor label {
   display: grid;
   font-size: 11px;
