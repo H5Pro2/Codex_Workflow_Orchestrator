@@ -3794,6 +3794,46 @@ function App() {
               </label>
             </div>
 
+            <details className="promptStatusMenu agentStatusMenu">
+              <summary title={tx('Workflow-Status für diesen Agenten auswählen', 'Select workflow statuses for this agent')}>
+                <span>Workflow-Status</span>
+                <small>
+                  {selectedAgent.workflowStatusIds === null
+                    ? tx('Alle Projektstatus', 'All project statuses')
+                    : `${workflowStatusesForAgent(selectedAgent, workflowStatuses).length} ${tx('ausgewählt', 'selected')}`}
+                </small>
+              </summary>
+              <div className="promptStatusOptions">
+                <p>{tx(
+                  'Diese Status werden dem Agenten bei Workflow-Aufgaben erklärt und gelten für alle seine Prompt-Dateien.',
+                  'These statuses are explained to the agent for workflow tasks and apply to all of its prompt files.',
+                )}</p>
+                {projectWorkflowStatuses.length === 0 ? (
+                  <span className="empty">{tx('Im Projekt sind noch keine Status angelegt.', 'No statuses have been created in this project.')}</span>
+                ) : (
+                  projectWorkflowStatuses.map((status) => {
+                    const enabled = selectedAgent.workflowStatusIds === null ||
+                      selectedAgent.workflowStatusIds.includes(status.id)
+                    return (
+                      <label className="promptStatusOption" key={status.id}>
+                        <input
+                          checked={enabled}
+                          onChange={(event) =>
+                            setAgentWorkflowStatusEnabled(selectedAgent, status.id, event.target.checked)
+                          }
+                          type="checkbox"
+                        />
+                        <span>
+                          <strong>{status.name}</strong>
+                          <small>{status.description || tx('Keine Bedeutung hinterlegt.', 'No meaning provided.')}</small>
+                        </span>
+                      </label>
+                    )
+                  })
+                )}
+              </div>
+            </details>
+
             <section className="autoForwardControl" aria-label={tx('Automatische Weitergabe', 'Automatic forwarding')}>
               <div>
                 <p className="eyebrow">{tx('Workflow-Funktion', 'Workflow function')}</p>
@@ -4407,43 +4447,6 @@ function App() {
                 </p>
               )}
             </section>
-
-            <details className="promptStatusMenu">
-              <summary title={tx('Workflow-Status für diese Prompt-Anweisung auswählen', 'Select workflow statuses for this prompt instruction')}>
-                <span>Workflow-Status</span>
-                <small>
-                  {selectedAgent.workflowStatusIds === null
-                    ? tx('Alle Projektstatus', 'All project statuses')
-                    : `${workflowStatusesForAgent(selectedAgent, workflowStatuses).length} ${tx('ausgewählt', 'selected')}`}
-                </small>
-              </summary>
-              <div className="promptStatusOptions">
-                <p>{tx('Nur diese Status werden beim Übergeben an diesen Agenten erklärt.', 'Only these statuses are explained when handing work to this agent.')}</p>
-                {projectWorkflowStatuses.length === 0 ? (
-                  <span className="empty">{tx('Im Projekt sind noch keine Status angelegt.', 'No statuses have been created in this project.')}</span>
-                ) : (
-                  projectWorkflowStatuses.map((status) => {
-                    const enabled = selectedAgent.workflowStatusIds === null ||
-                      selectedAgent.workflowStatusIds.includes(status.id)
-                    return (
-                      <label className="promptStatusOption" key={status.id}>
-                        <input
-                          checked={enabled}
-                          onChange={(event) =>
-                            setAgentWorkflowStatusEnabled(selectedAgent, status.id, event.target.checked)
-                          }
-                          type="checkbox"
-                        />
-                        <span>
-                          <strong>{status.name}</strong>
-                          <small>{status.description || tx('Keine Bedeutung hinterlegt.', 'No meaning provided.')}</small>
-                        </span>
-                      </label>
-                    )
-                  })
-                )}
-              </div>
-            </details>
 
             <label className="wide promptEditorText">
               {activePromptDocument(selectedAgent)?.name || tx('Prompt-Anweisung', 'Prompt instruction')}
