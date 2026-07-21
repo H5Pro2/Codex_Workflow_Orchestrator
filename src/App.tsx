@@ -3247,11 +3247,6 @@ function App() {
                   setSetupOpen(false)
                   setPromptEditorOpen(false)
                 }}
-                onDoubleClick={() => {
-                  setSelectedId(agent.id)
-                  setSetupOpen(false)
-                  setPromptEditorOpen(true)
-                }}
                 onDragStart={(event) => {
                   event.dataTransfer.effectAllowed = 'move'
                   event.dataTransfer.setData('application/x-codex-agent', agent.id)
