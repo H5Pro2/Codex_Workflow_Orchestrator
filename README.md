@@ -6,7 +6,7 @@ Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der Codex-Ch
 
 ## Funktionsumfang
 
-- Codex-Projekte und zugehörige Chats über den lokalen Connector einlesen
+- die in Codex gespeicherten Projekte und ihre zugehörigen Chats über den lokalen Connector einlesen
 - Chats als Agenten übernehmen, erstellen, umbenennen, ausblenden und archivieren
 - Rollen, Modelle und Statusfreigaben pro Agent konfigurieren
 - mehrere Prompt-Dateien pro Agent verwalten

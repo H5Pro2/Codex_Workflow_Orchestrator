@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { createReadStream } from 'node:fs'
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
+import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
@@ -9,6 +10,8 @@ import { createInterface } from 'node:readline'
 const PORT = Number(process.env.CODEX_BRIDGE_PORT || 4317)
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url))
 const STATE_FILE = join(SERVER_DIR, 'orchestrator-state.json')
+const CODEX_HOME = process.env.CODEX_HOME || join(homedir(), '.codex')
+const CODEX_GLOBAL_STATE_FILE = join(CODEX_HOME, '.codex-global-state.json')
 const LOCAL_CODEX_ENTRY = join(
   SERVER_DIR,
   '..',
@@ -174,6 +177,38 @@ async function listAllThreads() {
     cursor = result.nextCursor
   } while (cursor)
   return threads
+}
+
+async function listSavedProjects() {
+  const rawState = await readFile(CODEX_GLOBAL_STATE_FILE, 'utf8')
+  const state = JSON.parse(rawState)
+  const localProjects = state['local-projects'] ?? {}
+  const projectOrder = Array.isArray(state['project-order']) ? state['project-order'] : []
+  const projectsById = new Map(
+    Object.values(localProjects)
+      .filter((project) => (
+        project &&
+        typeof project.id === 'string' &&
+        typeof project.name === 'string' &&
+        Array.isArray(project.rootPaths) &&
+        typeof project.rootPaths[0] === 'string'
+      ))
+      .map((project) => [project.id, {
+        id: project.id,
+        label: project.name,
+        path: project.rootPaths[0].replace(/^\\\\\?\\/, ''),
+      }]),
+  )
+
+  const orderedProjects = projectOrder
+    .map((projectId) => projectsById.get(projectId))
+    .filter(Boolean)
+  const orderedIds = new Set(orderedProjects.map((project) => project.id))
+  const remainingProjects = [...projectsById.values()]
+    .filter((project) => !orderedIds.has(project.id))
+    .sort((left, right) => left.label.localeCompare(right.label, 'de'))
+
+  return [...orderedProjects, ...remainingProjects]
 }
 
 async function waitForThreadListed(threadId, cwd) {
@@ -431,6 +466,12 @@ const server = createServer(async (incoming, response) => {
     if (incoming.method === 'GET' && url.pathname === '/api/threads') {
       const threads = await listAllThreads()
       sendJson(response, 200, { threads })
+      return
+    }
+
+    if (incoming.method === 'GET' && url.pathname === '/api/projects') {
+      const projects = await listSavedProjects()
+      sendJson(response, 200, { projects })
       return
     }
 

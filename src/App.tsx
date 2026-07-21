@@ -276,14 +276,9 @@ const languageCopy: Record<UiLanguage, {
   },
 }
 
-const initialCodexProjects: CodexProject[] = [
-  { id: '8fe383a0-9e86-4a98-bf94-c790d6ae0233', label: 'codex_orchestrator', path: 'C:\\Users\\TV\\Documents\\Codex_Workflow_Orchestrator' },
-]
+const initialCodexProjects: CodexProject[] = []
 
-const initialCodexThreads: CodexThread[] = [
-  { id: '019f7d26-adcb-7722-a3cc-4bf7e7776bd3', title: 'CEO', cwd: 'C:\\Users\\TV\\Documents\\Codex_Workflow_Orchestrator', status: 'idle' },
-  { id: '019f7d07-6747-7cc1-a665-aea5a79905a1', title: 'Programmierer', cwd: 'C:\\Users\\TV\\Documents\\Codex_Workflow_Orchestrator', status: 'active' },
-]
+const initialCodexThreads: CodexThread[] = []
 
 const statusLabels: Record<UiLanguage, Record<AgentStatus, string>> = {
   de: { wartet: 'Warten', laeuft: 'Läuft', fertig: 'Fertig', rueckfrage: 'Rückfrage', weitergegeben: 'Weitergegeben' },
@@ -609,10 +604,6 @@ function nextTimerRun(timer: WorkflowTimer, after = Date.now()) {
   if (configuredStart > after) return new Date(configuredStart).toISOString()
   const elapsedSteps = Math.floor((after - configuredStart) / step) + 1
   return new Date(configuredStart + elapsedSteps * step).toISOString()
-}
-
-function projectLabelFromPath(path: string) {
-  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
 }
 
 function samePath(left: string, right: string) {
@@ -1062,11 +1053,7 @@ function App() {
   const [agentCreationBusy, setAgentCreationBusy] = useState(false)
   const [agentCreationError, setAgentCreationError] = useState('')
   const [autoRun, setAutoRun] = useState(storedState.autoRun)
-  const [projectFilter, setProjectFilter] = useState(() =>
-    initialCodexProjects.some((project) => project.id === storedState.selectedProjectId)
-      ? storedState.selectedProjectId
-      : '8fe383a0-9e86-4a98-bf94-c790d6ae0233',
-  )
+  const [projectFilter, setProjectFilter] = useState(storedState.selectedProjectId)
   const [hiddenThreadIds, setHiddenThreadIds] = useState<string[]>(storedState.hiddenThreadIds)
   const [routes, setRoutes] = useState<WorkflowRoute[]>(storedState.routes)
   const [workflowPrompts, setWorkflowPrompts] = useState<WorkflowPrompt[]>(storedState.workflowPrompts)
@@ -1909,32 +1896,36 @@ function App() {
 
   const syncCodex = useCallback(async () => {
     try {
-      const response = await fetch('/api/threads')
-      if (!response.ok) {
-        throw new Error('Codex-Tasks konnten nicht geladen werden.')
+      const [projectsResponse, threadsResponse] = await Promise.all([
+        fetch('/api/projects'),
+        fetch('/api/threads'),
+      ])
+      if (!projectsResponse.ok || !threadsResponse.ok) {
+        throw new Error('Codex-Projekte und -Tasks konnten nicht geladen werden.')
       }
-      const data = await response.json()
-      const threads: CodexThread[] = data.threads.map(
+      const projectsData = await projectsResponse.json()
+      const threadsData = await threadsResponse.json()
+      const projects: CodexProject[] = projectsData.projects
+      const threads: CodexThread[] = threadsData.threads.map(
         (thread: { id: string; name?: string | null; preview?: string; cwd: string; status: string }) => ({
           id: thread.id,
           title: thread.name || thread.preview || 'Unbenannter Chat',
           cwd: thread.cwd,
           status: thread.status,
         }),
-      )
+      ).filter((thread: CodexThread) => (
+        projects.some((project) => samePath(project.path, thread.cwd))
+      ))
+      setCodexProjects(projects)
       setCodexThreads(threads)
-      setCodexProjects((current) => {
-        const next = [...current]
-        threads.forEach((thread) => {
-          if (!next.some((project) => samePath(project.path, thread.cwd))) {
-            next.push({
-              id: `path:${thread.cwd}`,
-              label: projectLabelFromPath(thread.cwd),
-              path: thread.cwd,
-            })
-          }
-        })
-        return next
+      setProjectFilter((current: string) => {
+        if (projects.some((project) => project.id === current)) {
+          return current
+        }
+        const previousPath = current.startsWith('path:') ? current.slice(5) : ''
+        return projects.find((project) => samePath(project.path, previousPath))?.id
+          ?? projects[0]?.id
+          ?? ''
       })
       setConnectorOnline(true)
       setLastSyncedAt(nowLabel())
