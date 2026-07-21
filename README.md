@@ -81,7 +81,10 @@ Der CEO erhält dann die Startanweisung, verarbeitet sie in seinem Codex-Chat un
 
 ### Zeitplan-Baustein
 
-Der Zeitplan-Baustein sendet eine hinterlegte Aufgabe zum festgelegten Termin an direkt verbundene Agenten. Er unterstützt einmalige Kalendertermine sowie wiederkehrende Intervalle in Minuten, Stunden, Tagen oder Wochen.
+Der Zeitplan-Baustein sendet eine hinterlegte Aufgabe zeitgesteuert an direkt verbundene Agenten. In der Konfiguration stehen zwei getrennte Arten zur Auswahl:
+
+- **Timer:** wiederholt die Aufgabe nach einem Intervall in Minuten, Stunden, Tagen oder Wochen.
+- **Kalender:** führt die Aufgabe einmalig zu einem festgelegten Datum mit Uhrzeit aus.
 
 ```text
 Zeitplan -> Agent

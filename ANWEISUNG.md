@@ -11,3 +11,9 @@
 - Ein einfaches Codex-Workflow-Programm
 - Zweisprachig Deutsch/Englisch
 - Saubere und übersichtliche Oberfläche
+
+## Abschluss jedes Durchlaufs
+
+- Nach jeder funktionalen Änderung prüfen, ob die README angepasst werden muss, und sie bei Bedarf im selben Durchlauf aktualisieren.
+- Anschließend Lint und Produktions-Build ausführen.
+- Erfolgreiche Änderungen committen und direkt nach GitHub pushen.
