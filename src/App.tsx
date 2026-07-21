@@ -2587,12 +2587,6 @@ function App() {
     addEvent('Status-Filter erstellt', status.name)
   }
 
-  const updateWorkflowStatusFilter = (filterId: string, patch: Partial<WorkflowStatusFilter>) => {
-    setWorkflowStatusFilters((current) =>
-      current.map((filter) => (filter.id === filterId ? { ...filter, ...patch } : filter)),
-    )
-  }
-
   const deleteWorkflowStatusFilter = (filterId: string) => {
     setWorkflowStatusFilters((current) => current.filter((filter) => filter.id !== filterId))
     setRoutes((current) => current.filter((route) => route.sourceId !== filterId && route.targetId !== filterId))
@@ -4285,34 +4279,20 @@ function App() {
                 ×
               </button>
             </div>
-            <label>
-              Name
-              <input
-                value={selectedStatusFilter.name}
-                onChange={(event) =>
-                  updateWorkflowStatusFilter(selectedStatusFilter.id, { name: event.target.value })
-                }
-              />
-            </label>
-            <label>
-              Status
-              <select
-                value={selectedStatusFilter.statusId}
-                onChange={(event) => {
-                  const status = projectWorkflowStatuses.find((item) => item.id === event.target.value)
-                  updateWorkflowStatusFilter(selectedStatusFilter.id, {
-                    statusId: event.target.value,
-                    name: status ? `Status: ${status.name}` : selectedStatusFilter.name,
-                  })
-                }}
-              >
-                {projectWorkflowStatuses.map((status) => (
-                  <option key={status.id} value={status.id}>{status.name}</option>
-                ))}
-              </select>
-            </label>
+            {(() => {
+              const status = projectWorkflowStatuses.find(
+                (item) => item.id === selectedStatusFilter.statusId,
+              )
+              return (
+                <div className="statusFilterReadout">
+                  <span>Status</span>
+                  <strong>{status?.name ?? 'Nicht verfügbar'}</strong>
+                  <small>{status?.description || 'Keine Bedeutung hinterlegt.'}</small>
+                </div>
+              )
+            })()}
             <p className="modalHint">
-              Nur Ergebnisse mit dem gewählten Workflow-Status werden über diesen Baustein weitergeleitet.
+              Der Status wird in der projektweiten Statusliste verwaltet. Dieser Baustein leitet nur passende Ergebnisse weiter.
             </p>
             <div className="modalActions">
               <button

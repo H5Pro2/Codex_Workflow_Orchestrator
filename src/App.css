@@ -1207,6 +1207,29 @@ label {
   margin-bottom: 4px;
 }
 
+.statusFilterReadout {
+  background: #111820;
+  border: 1px solid #2c425b;
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+}
+
+.statusFilterReadout > span {
+  color: #8c9aae;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.statusFilterReadout > strong {
+  color: #e6f5ff;
+}
+
+.statusFilterReadout > small {
+  color: #b3c2d4;
+  line-height: 1.45;
+}
+
 .statusFilterEditor label {
   display: grid;
   font-size: 11px;
