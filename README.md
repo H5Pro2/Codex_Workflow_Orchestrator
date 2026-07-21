@@ -1,102 +1,185 @@
 # Codex Workflow Orchestrator
 
-Lokale Weboberfläche zur Einrichtung und Steuerung von Codex-Agenten als Workflow. Ein Agent entspricht dabei einem Codex-Chat innerhalb eines Projekts. Der Orchestrator speichert Rollen, Prompt-Dateien, Statusregeln und die Verdrahtung zwischen Agenten.
+Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der sich Codex-Chats als Agenten zu einem kontrollierten Workflow verbinden lassen.
 
-Das Projekt unterstützt die MCM-Feldforschung und -entwicklung von Mini_DIO. Arbeitsabläufe sollen sich aus Forschungsfortschritt, Ergebnissen und nachvollziehbaren Statussignalen organisch weiterentwickeln.
+Ein Agent entspricht einem Codex-Chat innerhalb eines Projekts. Für jeden Agenten können Rolle, Modell, Prompt-Dateien, Statusregeln und Verbindungen getrennt verwaltet werden. Ergebnisse werden über den lokalen Codex-Connector gelesen und abhängig vom Workflow an den nächsten Agenten übergeben.
 
-## Funktionsstand
+Das Projekt unterstützt die MCM-Feldforschung und -entwicklung von Mini_DIO. Ziel ist eine nachvollziehbare, organische Weiterentwicklung aus Forschungsergebnissen, Erfahrung und klaren Signalen: eine praktische Form von „Feldintelligenz“.
 
-- Liest lokale Codex-Projekte und Codex-Chats über den lokalen Codex-App-Server ein.
-- Zeigt nur die Chats des aktuell gewählten Projekts als Agenten an.
-- Erstellt, benennt und archiviert verknüpfte Codex-Chats über den lokalen Connector.
-- Bietet für jeden Agenten einen Betriebs-Chat sowie ein separates Setup.
-- Speichert mehrere Prompt-Dateien pro Agent unter `.codex-orchestrator/prompts/` im jeweiligen Projekt.
-- Übergibt nur veränderte Prompt-Dateien an Codex und verlangt vor der Übergabe eine Bestätigung.
-- Bietet eine individuelle Workflow-Verdrahtung pro Agent mit In- und Out-Anschlüssen.
-- Startet Workflows über einen Initial-Baustein.
-- Leitet Ergebnisse anhand projektweiter Workflow-Status weiter.
-- Unterstützt frei definierbare Status mit Name und Bedeutung, einschließlich der Grundstatus `Fertig` und `Weiterleitung`.
-- Erzwingt bei Initial, Prompt-Übergabe, direkter Chat-Anweisung und automatischer Weitergabe ein JSON-Abschlussformat mit `workflow_status`.
-- Erfasst Laufstatus, Dauer, Ereignisprotokoll und Codex-Ausführungen.
-- Speichert die lokale Orchestrator-Konfiguration in `server/orchestrator-state.json`.
+## Was das Programm kann
 
-## Workflow-Prinzip
+### Projekte und Codex-Chats
 
-Ein typischer Ablauf besteht aus folgenden Bausteinen:
+- Liest lokale Codex-Projekte und deren Chats über den Codex-App-Server ein.
+- Zeigt in der Agentenübersicht nur die Chats des aktuell ausgewählten Projekts.
+- Übernimmt Umbenennungen von Codex-Chats in die Agentenübersicht.
+- Erstellt neue Agenten beziehungsweise Codex-Chats über den lokalen Connector.
+- Archiviert gelöschte Agenten und hält die Orchestrator-Daten mit dem Codex-Projekt synchron.
+- Speichert das zuletzt ausgewählte Projekt.
+
+### Agenten
+
+Für jeden Agenten gibt es:
+
+- einen eigenen Codex-Chat für direkte Nachrichten,
+- ein separates Setup für Name, Rolle und Modell,
+- eine eigene Workflow-Verdrahtung,
+- einen eigenen Status- und Prompt-Kontext,
+- Laufstatus, Dauer und Aktivitätsanzeige.
+
+Die Verdrahtung eines Agenten ist nicht global. Jeder Agent besitzt sein eigenes Dashboard und seine eigenen gespeicherten Positionen und Verbindungen.
+
+### Prompt-Dateien
+
+Ein Agent kann mehrere Prompt-Dateien verwalten. Jede Datei besitzt einen Namen, einen Inhalt und einen Pfad im Projekt, zum Beispiel:
 
 ```text
-Initial -> CEO -> Statusfilter "Weiterleitung" -> Entwicklung
+.codex-orchestrator/prompts/<agent-id>/Anweisung.md
+.codex-orchestrator/prompts/<agent-id>/Projektliste.md
 ```
 
-1. Der Initial-Baustein sendet seine Startanweisung an den direkt am `Out` verbundenen Agenten.
-2. Der Agent bearbeitet die Aufgabe in seinem Codex-Chat.
-3. Die Antwort enthält am Ende ein maschinenlesbares Ergebnis, beispielsweise:
+Über `P` wird das Prompt-Fenster geöffnet. Dort kann eine Datei ausgewählt, bearbeitet, erstellt und umbenannt werden. Beim Speichern wird die Datei nur dann an den Codex-Chat übergeben, wenn sich ihr Inhalt tatsächlich geändert hat. Vor der Übergabe erscheint eine Bestätigung.
+
+### Workflow-Dashboard
+
+Über `D` wird das Workflow-Dashboard als separates Fenster geöffnet. Dort können Agenten und Workflow-Bausteine miteinander verbunden werden:
+
+```text
+Initial -> CEO -> Statusfilter -> Entwickler
+```
+
+Die Anschlüsse sind eindeutig:
+
+- `In` ist der Eingang eines Bausteins.
+- `Out` ist der Ausgang eines Bausteins.
+- Eine Verbindung verläuft immer von `Out` zu `In`.
+
+Das Dashboard unterstützt:
+
+- Agenten per Drag-and-drop hinzufügen,
+- Agenten individuell verdrahten,
+- Initial-Bausteine für den Workflow-Start,
+- Statusfilter für bedingte Weiterleitungen,
+- Stopp-Bausteine zum kontrollierten Beenden eines Pfades,
+- automatische Anordnung der Bausteine,
+- Auswahl, Verschieben und Löschen von Verbindungen.
+
+Bausteine werden per Doppelklick konfiguriert. Ein einfacher Klick wählt einen Baustein oder eine Verbindung aus. Agenten in der linken Übersicht werden dagegen nur per einfachem Klick ausgewählt.
+
+### Initial-Baustein
+
+Der Initial-Baustein startet einen Ablauf. Er wird mit seinem `Out`-Anschluss an den `In`-Anschluss des ersten Agenten verbunden. Beim Start der Automatik wird die hinterlegte Startanweisung an diesen Agenten gesendet.
+
+Beispiel:
+
+```text
+Initial -> CEO
+```
+
+Der CEO erhält dann die Startanweisung, verarbeitet sie in seinem Codex-Chat und gibt sein Ergebnis gemäß der weiteren Verdrahtung weiter.
+
+### Workflow-Status
+
+Statussignale steuern die Weiterleitung. Die projektweite Statusliste enthält einen Statusnamen und seine Bedeutung, zum Beispiel:
+
+| Status | Bedeutung |
+| --- | --- |
+| `Fertig` | Der aktuelle Lauf ist abgeschlossen. |
+| `Weiterleitung` | Das Ergebnis soll an den nächsten Agenten übergeben werden. |
+| `Überarbeiten` | Das Ergebnis muss erneut geprüft oder korrigiert werden. |
+
+Eigene Status können im Setup ergänzt, bearbeitet und gelöscht werden. Die Bedeutung wird den Agenten als Kontext erklärt. Im Prompt muss daher nicht jedes Mal die vollständige Beschreibung wiederholt werden.
+
+Ein Statusfilter prüft ein Ergebnis auf einen ausgewählten Status. Nur passende Ergebnisse passieren diesen Baustein:
+
+```text
+Programmierer -> Statusfilter „Weiterleitung“ -> Entwickler
+Programmierer -> Statusfilter „Überarbeiten“ -> Entwickler
+```
+
+Beide Wege können zum selben Agenten führen, obwohl sie unterschiedliche Arbeitsschritte auslösen.
+
+### Abschlussformat und Weitergabe
+
+Damit die Automatik zuverlässig arbeiten kann, muss der Agent am Ende seiner Antwort ein maschinenlesbares Ergebnis liefern. Das Signal steht am Ende der Antwort, nicht am Anfang. Ein Beispiel:
 
 ```json
 {
   "status": "fertig",
-  "kurzfassung": "Aufgabe abgeschlossen.",
-  "naechste_aufgabe": "Ergebnis prüfen.",
-  "weitergabe_an": "Entwicklung",
+  "kurzfassung": "Die Aufgabe wurde abgeschlossen.",
+  "naechste_aufgabe": "Das Ergebnis prüfen.",
+  "weitergabe_an": "Entwickler",
   "workflow_status": ["Weiterleitung"]
 }
 ```
 
-4. Ein Statusfilter leitet nur Ergebnisse weiter, deren `workflow_status` dem ausgewählten Status entspricht.
-5. Die nächste Verbindung bestimmt den Empfänger der Übergabe.
+Wichtig:
 
-Der Statusname muss exakt einem Eintrag der projektweiten Statusliste entsprechen. Bei keinem passenden Status antwortet ein Agent mit `"workflow_status": []`.
+- `status` beschreibt den Abschluss des aktuellen Codex-Laufs.
+- `workflow_status` beschreibt die gewünschte Workflow-Route.
+- Ein Statusfilter verwendet den Wert aus `workflow_status`.
+- Die Weitergabe erfolgt nur, wenn Automatik aktiv ist, ein passender Statusfilter verbunden ist und ein gültiges Signal erkannt wurde.
+- Ohne passenden Status bleibt das Ergebnis im aktuellen Agenten.
 
-## Status und Weiterleitung
+Die Oberfläche trennt deshalb die Rückmeldung `Fertig` von der Workflow-Entscheidung `Weiterleitung` oder `Überarbeiten`. Ein Agent kann fertig mit seiner aktuellen Aufgabe sein und trotzdem über einen Workflow-Status den nächsten Schritt auslösen.
 
-Ein Status ist kein zusätzlicher Chat und keine eigene Aufgabe. Er beschreibt, **wie** der nächste Schritt behandelt werden soll. Die Bedeutung wird einmal projektweit hinterlegt und kann im Agenten-Setup gezielt für jeden Agenten ein- oder ausgeschaltet werden.
+## Automatik und Offline-Modus
 
-Beispiel für zwei unterschiedliche Wege vom Programmierer zum Entwickler:
+`Automatik starten` aktiviert Initial-Anfragen, Ergebnisüberwachung und automatische Weitergaben. Während die Automatik läuft, werden aktive Agenten und laufende Verbindungen visuell angezeigt.
 
-```text
-Programmierer -> Statusfilter "Weiterleitung" -> Entwickler
-Programmierer -> Statusfilter "Überarbeiten" -> Entwickler
-```
+Nach `Automatik stoppen` gilt:
 
-- **Weiterleitung:** Das Ergebnis ist regulär und der Entwickler übernimmt die nächste fachliche Aufgabe.
-- **Überarbeiten:** Das Ergebnis braucht eine gezielte Prüfung oder Korrektur. Der Entwickler erhält dieselbe Übergabe, aber zusätzlich die Bedeutung des Status `Überarbeiten` und arbeitet deshalb als Nachbearbeitung weiter.
+- keine Initial-Anfragen,
+- keine automatische Weitergabe,
+- keine weitere Workflow-Kommunikation zwischen Agenten,
+- keine animierten Verbindungen,
+- direkte Chat-Nachrichten und manuelle Prompt-Übergaben bleiben möglich.
 
-Beide Pfade dürfen zum selben Agenten führen. Entscheidend ist der `workflow_status` am **Ende** der Antwort. Der Agent gibt genau den Status aus, der zu seinem Ergebnis passt, zum Beispiel `Weiterleitung` für einen normalen Abschluss oder `Überarbeiten`, wenn etwas erneut geprüft werden muss.
-
-Statusfilter routen ausschließlich passende Ergebnisse. Ein Ergebnis mit `Weiterleitung` läuft nicht über einen Filter für `Überarbeiten` und umgekehrt. Dadurch können auch später mehrere Spezialwege ergänzt werden, etwa zur Analyse, Qualitätssicherung oder zurück zu einem Entscheidungsagenten.
+Die Automatik wird im lokalen Zustand gespeichert und bleibt beim Neuladen erhalten.
 
 ## Bedienung
 
-- **Projekt wählen:** Oben ein Codex-Projekt auswählen. Die Agentenübersicht zeigt nur dessen Chats.
-- **Agenten-Chat:** Direkte Anweisungen im Chat eingeben und an den verknüpften Codex-Chat senden.
-- **Setup:** Über das Zahnradsymbol Rollen, Modell, Prompt-Dateien, Statusliste und die Workflow-Verdrahtung bearbeiten.
-- **Workflow-Dashboard:** Agenten aus der linken Übersicht hineinziehen und `Out` mit `In` verbinden.
-- **Initial:** Im Tools-Menü einen Startbaustein hinzufügen und mit dem ersten Agenten verbinden.
-- **Status:** Einen Statusfilter hinzufügen, Status auswählen und zwischen Agenten verbinden.
-- **Konfiguration:** Bausteine und Linien mit Doppelklick öffnen. Einfache Klicks dienen nur der Auswahl oder dem Verschieben.
-- **Anordnen:** Ordnet die Verdrahtung nach der Flussrichtung an, damit Statuspfade möglichst ohne Kreuzungen verlaufen.
+1. Oben ein Codex-Projekt auswählen.
+2. Einen vorhandenen Agenten auswählen oder über `+ Agent` einen neuen Codex-Chat anlegen.
+3. Mit `P` die Prompt-Dateien verwalten.
+4. Mit dem Zahnrad das Agenten-Setup öffnen.
+5. Mit `D` das individuelle Workflow-Dashboard öffnen.
+6. Agenten und Bausteine verbinden: immer `Out` zu `In`.
+7. Einen Initial-Baustein mit dem ersten Agenten verbinden.
+8. Statusfilter für die gewünschten Weiterleitungswege konfigurieren.
+9. `Automatik starten` drücken und den Ablauf im Chat und Ereignisprotokoll verfolgen.
+
+Das Ereignisprotokoll zeigt unter anderem Chat-Nachrichten, Übergaben, empfangene Ergebnisse, Statusfilter, Fehler und gestoppte Pfade. Der Bereich kann eingeklappt werden, damit der Chat mehr Platz erhält.
 
 ## Voraussetzungen
 
 - Windows
 - Node.js mit `npm`
-- Eine lokale, angemeldete Codex-Installation. Der Connector verwendet das mitgelieferte Paket `@openai/codex` und dessen App-Server.
+- eine lokal angemeldete Codex-Installation
+- Zugriff des lokalen Connectors auf den Codex-App-Server
+
+Der Connector verwendet das mitgelieferte Paket `@openai/codex`. Es ist keine zusätzliche OpenAI-API-Abrechnung für die lokale Connector-Kommunikation erforderlich; die Nutzung richtet sich nach der vorhandenen Codex-Installation und deren Konto.
 
 ## Start
 
-Die einfachste Variante ist ein Doppelklick auf:
+Am einfachsten ist ein Doppelklick auf:
 
 ```text
 start.bat
 ```
 
-Die Datei startet den Connector auf Port `4317` sowie die Weboberfläche auf Port `5173` und öffnet anschließend:
+Das Startskript:
+
+1. installiert fehlende Abhängigkeiten,
+2. startet den lokalen Connector auf Port `4317`,
+3. startet die Weboberfläche auf Port `5173`,
+4. öffnet anschließend:
 
 ```text
 http://127.0.0.1:5173/
 ```
 
-Alternativ:
+Alternativ kann die Anwendung manuell gestartet werden:
 
 ```powershell
 npm install
@@ -111,15 +194,24 @@ npm run lint
 npm run build
 ```
 
-Die Build-Ausgabe liegt in `dist/`. Lokale Laufzeitdaten und Token- bzw. Chat-Zustände werden nicht versioniert.
+Die Produktionsausgabe liegt in `dist/`. Lokale Zustände, Token und Chatdaten werden nicht versioniert.
 
-## Wichtige Grenzen
+## Architektur
 
-- Der Orchestrator kommuniziert über den lokalen Codex-App-Server. Er ist keine Cloud-Synchronisation zwischen mehreren Rechnern.
-- Änderungen werden im Orchestrator und über den Connector gespeichert; die Darstellung in einer bereits geöffneten Codex-Desktopansicht kann von deren eigener Aktualisierung abhängen.
-- Ein Agent wird nur automatisch weitergeleitet, wenn sein Ergebnis ein passendes, gültiges `workflow_status`-Signal enthält und der entsprechende Statusfilter verbunden ist.
+```text
+React/Vite-Weboberfläche
+        |
+        v
+Lokaler Connector auf Port 4317
+        |
+        v
+Codex-App-Server
+        |
+        v
+Codex-Projekte und Codex-Chats
+```
 
-## Projektstruktur
+Wichtige Bereiche:
 
 ```text
 src/                 React-Oberfläche und Workflow-Logik
@@ -127,6 +219,22 @@ server/bridge.mjs    Lokaler Connector zum Codex-App-Server
 start.bat            Windows-Startskript
 ```
 
-## Nächster Schwerpunkt
+Die Konfiguration wird lokal im Orchestrator-Zustand gespeichert. Prompt-Dateien werden projektbezogen unter `.codex-orchestrator/prompts/` geführt.
 
-Für Mini_DIO sollte als Nächstes ein reproduzierbarer Forschungsworkflow mit klaren Statuspfaden eingerichtet werden, zum Beispiel `Weiterleitung` zur Entwicklung und `überarbeiten` zurück zur Analyse.
+## Grenzen
+
+- Der Orchestrator arbeitet über den lokalen Codex-App-Server und ist keine Cloud-Synchronisation zwischen mehreren Rechnern.
+- Bereits geöffnete Codex-Ansichten können ihre eigene Aktualisierung benötigen, obwohl der Connector die Änderung bereits übernommen hat.
+- Automatische Weitergabe funktioniert nur mit einem gültigen Abschlussformat, einem passenden Workflow-Status und einer verbundenen Zielroute.
+- Der Orchestrator entscheidet nicht selbst über den fachlichen Inhalt. Die Agenten müssen weiterhin mit sinnvollen Rollen und Arbeitsanweisungen eingerichtet werden.
+
+## Nächster Schwerpunkt für Mini_DIO
+
+Als nächster reproduzierbarer Test sollte ein vollständiger Mini_DIO-Forschungsworkflow eingerichtet werden:
+
+```text
+Initial -> Analyse -> Entwicklung -> Fertig
+                    \-> Überarbeiten -> Analyse
+```
+
+Dabei sollte geprüft werden, ob jedes Ergebnis den richtigen Workflow-Status am Ende ausgibt und ob die Rückroute zur weiteren Feldforschung nachvollziehbar dokumentiert wird.
