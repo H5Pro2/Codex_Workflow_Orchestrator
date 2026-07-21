@@ -224,14 +224,39 @@ h2 {
 .railHeader {
   border-bottom: 1px solid var(--line);
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 4px;
   padding: 6px 5px 14px;
 }
 
+.railHeaderTitle {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
 .railHeader small {
   color: #8f9daf;
+}
+
+.railAddAgent {
+  align-items: center;
+  align-self: flex-start;
+  background: #172235;
+  border: 1px solid #31425d;
+  color: #dce6f5;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 11px;
+  min-height: 28px;
+  padding: 0 9px;
+}
+
+.railAddAgent:hover {
+  background: #21314a;
+  border-color: #4d6385;
 }
 
 .railEmpty {

@@ -505,8 +505,17 @@ function workflowStatusIdsFromResult(
   if (!parsed) {
     return []
   }
-  const values = parsed.workflow_status ?? parsed.workflow_statuses ?? parsed.signale
-  const names = Array.isArray(values) ? values.filter((item): item is string => typeof item === 'string') : []
+  const names = [
+    parsed.workflow_status,
+    parsed.workflow_statuses,
+    parsed.signale,
+  ].flatMap((value) =>
+    Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : typeof value === 'string'
+        ? [value]
+        : [],
+  )
   return definitions
     .filter((definition) =>
       names.some((name) => name.trim().toLocaleLowerCase('de-DE') === definition.name.trim().toLocaleLowerCase('de-DE')),
@@ -517,9 +526,10 @@ function workflowStatusIdsFromResult(
 function workflowStatusInstruction(statuses: WorkflowStatusDefinition[]) {
   return [
     'Workflow-Abschlussformat (verbindlich):',
-    '{"status":"fertig","kurzfassung":"...","naechste_aufgabe":"...","weitergabe_an":"...","workflow_status":["STATUS_NAME"]}',
+    '{"kurzfassung":"...","naechste_aufgabe":"...","weitergabe_an":"...","workflow_status":["STATUS_NAME"]}',
     '',
-    'Workflow-Status steuern die Weiterleitung. Gib im Feld "workflow_status" ausschließlich exakte Statusnamen aus dieser Projektliste an:',
+    'workflow_status ist das einzige Signal für die Workflow-Weiterleitung. Die Oberfläche zeigt den Abschluss eines Codex-Turns separat als „Fertig“ an.',
+    'Gib im Feld "workflow_status" ausschließlich exakte Statusnamen aus dieser Projektliste an:',
     ...(statuses.length > 0
       ? statuses.map((status) => `- ${status.name}: ${status.description || 'Keine Beschreibung'}`)
       : ['- Keine Status definiert: verwende "workflow_status": [].']),
@@ -785,6 +795,10 @@ function App() {
   const [dropTarget, setDropTarget] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
   const [dropEdge, setDropEdge] = useState<'start' | 'end' | null>(null)
   const [deletingAgentId, setDeletingAgentId] = useState('')
+  const [agentCreationOpen, setAgentCreationOpen] = useState(false)
+  const [newAgentName, setNewAgentName] = useState('')
+  const [agentCreationBusy, setAgentCreationBusy] = useState(false)
+  const [agentCreationError, setAgentCreationError] = useState('')
   const [autoRun, setAutoRun] = useState(storedState.autoRun)
   const [projectFilter, setProjectFilter] = useState(() =>
     initialCodexProjects.some((project) => project.id === storedState.selectedProjectId)
@@ -1655,6 +1669,89 @@ function App() {
     addEvent('Codex Task übernommen', `${project.label} / ${thread.title}`)
   }
 
+  const createAgent = async () => {
+    const name = newAgentName.trim()
+    if (!name || !selectedProject || agentCreationBusy) {
+      return
+    }
+
+    if (agents.some(
+      (agent) =>
+        samePath(agent.projectPath, selectedProject.path) &&
+        agent.name.trim().toLocaleLowerCase('de-DE') === name.toLocaleLowerCase('de-DE'),
+    )) {
+      setAgentCreationError('In diesem Projekt gibt es bereits einen Agenten mit diesem Namen.')
+      return
+    }
+
+    setAgentCreationBusy(true)
+    setAgentCreationError('')
+    try {
+      const response = await fetch('/api/threads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cwd: selectedProject.path,
+          name,
+          startInitialPrompt: false,
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || 'Codex-Chat konnte nicht erstellt werden.')
+      }
+
+      const thread: CodexThread = {
+        id: data.thread.id,
+        title: data.thread.name || name,
+        cwd: selectedProject.path,
+        status: data.thread.status || 'idle',
+      }
+      const agent: Agent = {
+        id: crypto.randomUUID(),
+        name,
+        role: 'Rolle definieren',
+        projectId: selectedProject.id,
+        projectPath: selectedProject.path,
+        threadTitle: thread.title,
+        threadId: thread.id,
+        model: '',
+        prompt: 'Definiere die Rollen-Anweisung für diesen Codex-Agenten.',
+        promptDocuments: [createDefaultPromptDocument('Definiere die Rollen-Anweisung für diesen Codex-Agenten.')],
+        activePromptDocumentId: 'default',
+        status: 'wartet',
+        talkTo: [],
+        autoForward: true,
+        finishSignal: '"status":"fertig"',
+        lastResult: '',
+        instructionVersion: 1,
+        lastInstruction: '',
+        runStartedAt: '',
+        lastDurationMs: 0,
+        completedRuns: 0,
+        pendingTurnId: '',
+        lastCompletedTurnId: '',
+        updatedAt: new Date().toISOString(),
+      }
+
+      setCodexThreads((current) => [
+        ...current.filter((item) => item.id !== thread.id),
+        thread,
+      ])
+      setAgents((current) => [...current, agent])
+      setSelectedId(agent.id)
+      setAgentCreationOpen(false)
+      setNewAgentName('')
+      addEvent('Agent und Codex-Chat erstellt', `${selectedProject.label} / ${name}`)
+    } catch (error) {
+      setAgentCreationError(
+        error instanceof Error ? error.message : 'Der Codex-Connector ist nicht erreichbar.',
+      )
+    } finally {
+      setAgentCreationBusy(false)
+    }
+  }
+
   const setThreadVisibility = (thread: CodexThread, visible: boolean) => {
     if (visible) {
       setHiddenThreadIds((current) => current.filter((id) => id !== thread.id))
@@ -1926,13 +2023,16 @@ function App() {
     setChatSending(true)
     setAgentTransmission(agent.id, true)
     setChatError('')
-    const message = [
-      text,
-      '',
-      workflowStatusInstruction(
-        workflowStatuses.filter((status) => samePath(status.projectPath, agent.projectPath)),
-      ),
-    ].join('\n')
+    const requiresWorkflowStatus = /\bstatus\s+hinzuf(?:ü|ue)gen\b/i.test(text)
+    const message = requiresWorkflowStatus
+      ? [
+          text,
+          '',
+          workflowStatusInstruction(
+            workflowStatuses.filter((status) => samePath(status.projectPath, agent.projectPath)),
+          ),
+        ].join('\n')
+      : text
     try {
       const response = await fetch(
         `/api/threads/${encodeURIComponent(agent.threadId)}/messages`,
@@ -1955,7 +2055,12 @@ function App() {
         runStartedAt: new Date().toISOString(),
         pendingTurnId: data.turn?.id ?? '',
       })
-      addEvent('Chat-Nachricht gesendet', `${agent.name} hat eine direkte Anweisung erhalten.`)
+      addEvent(
+        'Chat-Nachricht gesendet',
+        requiresWorkflowStatus
+          ? `${agent.name} hat eine direkte Anweisung mit Workflow-Status erhalten.`
+          : `${agent.name} hat eine direkte Anweisung ohne Workflow-Status erhalten.`,
+      )
     } catch (error) {
       setChatError(
         error instanceof Error ? error.message : 'Der Codex-Connector ist nicht erreichbar.',
@@ -2669,6 +2774,68 @@ function App() {
         </div>
       </section>
 
+      {agentCreationOpen && (
+        <div
+          className="modalBackdrop"
+          role="presentation"
+          onMouseDown={() => !agentCreationBusy && setAgentCreationOpen(false)}
+        >
+          <section
+            className="promptModal agentCreationModal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Agent erstellen"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">Codex-Agent</p>
+                <h2>Agent erstellen</h2>
+              </div>
+              <button
+                aria-label="Fenster schließen"
+                disabled={agentCreationBusy}
+                title="Fenster schließen"
+                onClick={() => setAgentCreationOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <p className="modalHint">
+              Erstellt einen Codex-Chat im Projekt „{selectedProject?.label ?? 'Kein Projekt'}“.
+              Der Agent wird nicht automatisch mit dem Workflow verbunden.
+            </p>
+            <label>
+              Name
+              <input
+                autoFocus
+                disabled={agentCreationBusy}
+                onChange={(event) => setNewAgentName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void createAgent()
+                  }
+                }}
+                placeholder="Zum Beispiel: Prompt-Architekt"
+                value={newAgentName}
+              />
+            </label>
+            {agentCreationError && <p className="formError">{agentCreationError}</p>}
+            <div className="modalActions">
+              <button disabled={agentCreationBusy} onClick={() => setAgentCreationOpen(false)}>Abbrechen</button>
+              <button
+                className="primary"
+                disabled={!newAgentName.trim() || agentCreationBusy}
+                onClick={() => void createAgent()}
+              >
+                {agentCreationBusy ? 'Erstelle…' : 'Erstellen'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       <section className="codexBrowser">
         <div>
           <p className="eyebrow">Codex Projekte und Tasks</p>
@@ -2721,8 +2888,21 @@ function App() {
       <section className="layout">
         <aside className="agentRail">
           <div className="railHeader">
-            <strong>{selectedProject?.label ?? 'Kein Projekt'}</strong>
-            <small>{projectAgents.length} Agenten</small>
+            <div className="railHeaderTitle">
+              <strong>{selectedProject?.label ?? 'Kein Projekt'}</strong>
+              <small>{projectAgents.length} Agenten</small>
+            </div>
+            <button
+              className="railAddAgent"
+              title="Agent im aktuellen Projekt erstellen"
+              onClick={() => {
+                setAgentCreationError('')
+                setNewAgentName('')
+                setAgentCreationOpen(true)
+              }}
+            >
+              + Agent
+            </button>
           </div>
           {projectAgents.length === 0 && (
             <p className="empty railEmpty">Keine sichtbaren Chats oder Agenten in diesem Projekt.</p>

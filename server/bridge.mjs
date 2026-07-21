@@ -447,22 +447,24 @@ const server = createServer(async (incoming, response) => {
         persistExtendedHistory: true,
       })
       await request('thread/name/set', { threadId: result.thread.id, name: body.name })
-      const initialTurn = await request('turn/start', {
-        threadId: result.thread.id,
-        input: [
-          {
-            type: 'text',
-            text:
-              body.initialPrompt ||
-              'Dieser Agent wurde vom Codex Workflow Orchestrator erstellt. Warte auf die konkrete Rollen-Anweisung und Aufgabe.',
-            text_elements: [],
-          },
-        ],
-      })
+      const initialTurn = body.startInitialPrompt === false
+        ? null
+        : await request('turn/start', {
+            threadId: result.thread.id,
+            input: [
+              {
+                type: 'text',
+                text:
+                  body.initialPrompt ||
+                  'Dieser Agent wurde vom Codex Workflow Orchestrator erstellt. Warte auf die konkrete Rollen-Anweisung und Aufgabe.',
+                text_elements: [],
+              },
+            ],
+          })
       const persistedThread = await waitForThreadListed(result.thread.id, body.cwd)
       sendJson(response, 201, {
         thread: { ...persistedThread, name: body.name },
-        turn: initialTurn.turn,
+        turn: initialTurn?.turn ?? null,
       })
       return
     }
