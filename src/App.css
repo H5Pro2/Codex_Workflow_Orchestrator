@@ -124,15 +124,22 @@
   position: relative;
 }
 
-.connectorState div {
+.connectorCopy {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
-.connectorState > div:not(.languageSwitch) {
+.connectorState > .connectorCopy {
   align-items: flex-end;
   text-align: right;
+}
+
+.connectorMeta {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
 }
 
 .connectorState small {

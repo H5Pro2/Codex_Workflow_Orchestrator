@@ -3439,14 +3439,16 @@ function App() {
           </div>
         </div>
         <div className={`connectorState ${connectorOnline ? 'online' : 'offline'}`}>
-          <span className="stateDot" />
-          <div>
+          <div className="connectorCopy">
             <strong>{connectorOnline ? copy.online : copy.offline}</strong>
-            <small>
-              {connectorOnline
-                ? `${codexProjects.length} Projekte, ${codexThreads.length} Tasks · ${lastSyncedAt}`
-                : copy.liveSync}
-            </small>
+            <div className="connectorMeta">
+              <span className="stateDot" />
+              <small>
+                {connectorOnline
+                  ? `${codexProjects.length} Projekte, ${codexThreads.length} Tasks · ${lastSyncedAt}`
+                  : copy.liveSync}
+              </small>
+            </div>
           </div>
           <div className="languageSwitch" aria-label="Sprache / Language">
             <button
