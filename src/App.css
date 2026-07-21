@@ -1295,6 +1295,101 @@ label {
   font: inherit;
 }
 
+.promptStatusMenu {
+  position: relative;
+}
+
+.promptStatusMenu > summary {
+  align-items: center;
+  background: #202025;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  justify-content: space-between;
+  list-style: none;
+  min-height: 40px;
+  padding: 8px 11px;
+  user-select: none;
+}
+
+.promptStatusMenu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.promptStatusMenu > summary small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.promptStatusMenu > summary:hover {
+  background: #29292f;
+  border-color: #5a5a63;
+}
+
+.promptStatusMenu[open] > summary {
+  background: #173b39;
+  border-color: #63cbbf;
+  color: #d9fffa;
+}
+
+.promptStatusOptions {
+  background: #171719;
+  border: 1px solid #3f706b;
+  border-radius: 6px;
+  box-shadow: 0 14px 36px rgb(0 0 0 / 48%);
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 10px;
+}
+
+.promptStatusOptions > p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0 0 3px;
+}
+
+.promptStatusOption {
+  align-items: flex-start;
+  background: #202025;
+  border: 1px solid #36363c;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  gap: 9px;
+  padding: 9px;
+}
+
+.promptStatusOption:hover {
+  background: #28282d;
+  border-color: #53535c;
+}
+
+.promptStatusOption input {
+  margin: 3px 0 0;
+}
+
+.promptStatusOption span {
+  display: grid;
+  gap: 3px;
+}
+
+.promptStatusOption strong {
+  font-size: 13px;
+}
+
+.promptStatusOption small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .compact {
   padding: 7px 10px;
 }

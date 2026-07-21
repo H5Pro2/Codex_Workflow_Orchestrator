@@ -43,6 +43,7 @@ type Agent = {
   status: AgentStatus
   talkTo: string[]
   autoForward: boolean
+  workflowStatusIds: string[] | null
   finishSignal: string
   lastResult: string
   instructionVersion: number
@@ -296,6 +297,9 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
         ? [legacyAgent.handoffTo]
         : [],
     autoForward: agent.autoForward ?? true,
+    workflowStatusIds: Array.isArray(agent.workflowStatusIds)
+      ? Array.from(new Set(agent.workflowStatusIds.filter((id): id is string => typeof id === 'string')))
+      : null,
     finishSignal: agent.finishSignal ?? '"status":"fertig"',
     lastResult: agent.lastResult ?? '',
     instructionVersion: agent.instructionVersion ?? 1,
@@ -541,6 +545,14 @@ function workflowStatusInstruction(statuses: WorkflowStatusDefinition[]) {
     '',
     'Wenn kein Status zutrifft, verwende [Workflow-Status: Kein Status]. Erfinde keine Statusnamen.',
   ].join('\n')
+}
+
+function workflowStatusesForAgent(agent: Agent, statuses: WorkflowStatusDefinition[]) {
+  const projectStatuses = statuses.filter((status) => samePath(status.projectPath, agent.projectPath))
+  const selectedStatusIds = agent.workflowStatusIds
+  return selectedStatusIds === null
+    ? projectStatuses
+    : projectStatuses.filter((status) => selectedStatusIds.includes(status.id))
 }
 
 function routeConditionMatches(condition: string, result: string) {
@@ -866,7 +878,7 @@ function App() {
       if (!(target instanceof Element)) {
         return
       }
-      document.querySelectorAll<HTMLElement>('details.threadManager[open], details.dashboardTools[open]').forEach((menu) => {
+      document.querySelectorAll<HTMLElement>('details.threadManager[open], details.dashboardTools[open], details.promptStatusMenu[open]').forEach((menu) => {
         if (!menu.contains(target)) {
           menu.removeAttribute('open')
         }
@@ -1316,10 +1328,11 @@ function App() {
           prompt: 'Definiere die Rollen-Anweisung für diesen Codex Task.',
           promptDocuments: [createDefaultPromptDocument('Definiere die Rollen-Anweisung für diesen Codex Task.')],
           activePromptDocumentId: 'default',
-          status: 'wartet',
-          talkTo: [],
-          autoForward: true,
-          finishSignal: '"status":"fertig"',
+           status: 'wartet',
+           talkTo: [],
+           autoForward: true,
+           workflowStatusIds: null,
+           finishSignal: '"status":"fertig"',
           lastResult: '',
           instructionVersion: 1,
           lastInstruction: '',
@@ -1401,6 +1414,19 @@ function App() {
       activePromptDocumentId: document.id,
       prompt: document.content,
     })
+  }
+
+  const setAgentWorkflowStatusEnabled = (agent: Agent, statusId: string, enabled: boolean) => {
+    const availableStatuses = workflowStatuses.filter((status) => samePath(status.projectPath, agent.projectPath))
+    const currentIds = agent.workflowStatusIds === null
+      ? availableStatuses.map((status) => status.id)
+      : agent.workflowStatusIds
+    const nextIds = enabled
+      ? Array.from(new Set([...currentIds, statusId]))
+      : currentIds.filter((id) => id !== statusId)
+    const allSelected = availableStatuses.length > 0 && availableStatuses.every((status) => nextIds.includes(status.id))
+
+    updateAgent(agent.id, { workflowStatusIds: allSelected ? null : nextIds })
   }
 
   const updatePromptDocument = (agent: Agent, documentId: string, content: string) => {
@@ -1662,6 +1688,7 @@ function App() {
       status: thread.status === 'active' ? 'laeuft' : 'wartet',
       talkTo: [],
       autoForward: true,
+      workflowStatusIds: null,
       finishSignal: '"status":"fertig"',
       lastResult: '',
       instructionVersion: 1,
@@ -1731,6 +1758,7 @@ function App() {
         status: 'wartet',
         talkTo: [],
         autoForward: true,
+        workflowStatusIds: null,
         finishSignal: '"status":"fertig"',
         lastResult: '',
         instructionVersion: 1,
@@ -1972,7 +2000,7 @@ function App() {
     const instruction = buildInstruction(
       agent,
       filePath,
-      workflowStatuses.filter((status) => samePath(status.projectPath, agent.projectPath)),
+      workflowStatusesForAgent(agent, workflowStatuses),
     )
     let startedTurnId = ''
     try {
@@ -2038,7 +2066,7 @@ function App() {
           text,
           '',
           workflowStatusInstruction(
-            workflowStatuses.filter((status) => samePath(status.projectPath, agent.projectPath)),
+            workflowStatusesForAgent(agent, workflowStatuses),
           ),
         ].join('\n')
       : text
@@ -2123,7 +2151,7 @@ function App() {
       return
     }
     const currentTaskSignature = taskSignature(agent.lastResult)
-    const projectStatuses = workflowStatuses.filter((status) => samePath(status.projectPath, agent.projectPath))
+    const projectStatuses = workflowStatusesForAgent(agent, workflowStatuses)
     const resultStatusIds = workflowStatusIdsFromResult(agent.lastResult, projectStatuses)
     const deliveries = activeRoutes.flatMap((route) => {
       const directTarget = agents.find((item) => item.id === route.targetId)
@@ -2190,7 +2218,12 @@ function App() {
     const deliveredTargets: string[] = []
     await Promise.all(newDeliveries.map(async ({ target, route }) => {
       deliveredTargets.push(target.name)
-      const message = buildHandoffMessage(agent, target, route, projectStatuses)
+      const message = buildHandoffMessage(
+        agent,
+        target,
+        route,
+        workflowStatusesForAgent(target, workflowStatuses),
+      )
       updateAgent(target.id, {
         status: 'laeuft',
         lastResult: message,
@@ -2699,9 +2732,7 @@ function App() {
           owner
             ? `Antworte mit dem aktuellen Stand so, dass ${owner.name} den nächsten Schritt bestimmen kann.`
             : 'Antworte mit dem aktuellen Projektstand und dem sinnvollsten nächsten Schritt.',
-          workflowStatusInstruction(
-            workflowStatuses.filter((status) => samePath(status.projectPath, target.projectPath)),
-          ),
+          workflowStatusInstruction(workflowStatusesForAgent(target, workflowStatuses)),
         ].join('\n')
 
         try {
@@ -3537,6 +3568,43 @@ function App() {
                 </p>
               )}
             </section>
+
+            <details className="promptStatusMenu">
+              <summary title="Workflow-Status für diese Prompt-Anweisung auswählen">
+                <span>Workflow-Status</span>
+                <small>
+                  {selectedAgent.workflowStatusIds === null
+                    ? 'Alle Projektstatus'
+                    : `${workflowStatusesForAgent(selectedAgent, workflowStatuses).length} ausgewählt`}
+                </small>
+              </summary>
+              <div className="promptStatusOptions">
+                <p>Nur diese Status werden beim Übergeben an diesen Agenten erklärt.</p>
+                {projectWorkflowStatuses.length === 0 ? (
+                  <span className="empty">Im Projekt sind noch keine Status angelegt.</span>
+                ) : (
+                  projectWorkflowStatuses.map((status) => {
+                    const enabled = selectedAgent.workflowStatusIds === null ||
+                      selectedAgent.workflowStatusIds.includes(status.id)
+                    return (
+                      <label className="promptStatusOption" key={status.id}>
+                        <input
+                          checked={enabled}
+                          onChange={(event) =>
+                            setAgentWorkflowStatusEnabled(selectedAgent, status.id, event.target.checked)
+                          }
+                          type="checkbox"
+                        />
+                        <span>
+                          <strong>{status.name}</strong>
+                          <small>{status.description || 'Keine Bedeutung hinterlegt.'}</small>
+                        </span>
+                      </label>
+                    )
+                  })
+                )}
+              </div>
+            </details>
 
             <label className="wide promptEditorText">
               {activePromptDocument(selectedAgent)?.name || 'Prompt-Anweisung'}
