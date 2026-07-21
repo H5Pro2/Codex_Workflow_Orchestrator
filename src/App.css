@@ -1239,6 +1239,7 @@ label {
   background: var(--accent);
   border: 2px solid #0f1011;
   height: 10px;
+  top: 50%;
   width: 10px;
 }
 
@@ -1259,9 +1260,13 @@ label {
 }
 
 .workflowNodeContent .portLabel {
+  align-items: center;
   color: var(--accent);
+  display: flex;
   font-size: 9px;
   font-weight: 800;
+  height: 16px;
+  line-height: 1;
   position: absolute;
   text-transform: uppercase;
   top: 50%;

@@ -45,7 +45,7 @@ Unveränderte Inhalte werden nicht erneut versendet.
 
 ### Workflow-Dashboard
 
-Jeder Agent besitzt eine eigene gespeicherte Verdrahtung. Verbindungen verlaufen immer vom Ausgang `Out` zum Eingang `In`. Agenten können aus der Seitenleiste in das Dashboard gezogen und dort mit Werkzeugen verbunden werden.
+Jeder Agent besitzt eine eigene gespeicherte Verdrahtung. Verbindungen verlaufen immer vom Ausgang `Out` zum Eingang `In`. Agenten können aus der Seitenleiste in das Dashboard gezogen und dort mit Werkzeugen verbunden werden. Bausteine lassen sich frei und ohne Raster positionieren; nur die Aktion `A` ordnet sie automatisch an.
 
 ![Workflow-Dashboard mit mehreren Statusrouten](bilder/Workflow_Dashboard.PNG)
 

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Background,
   Controls,
   Handle,
   Position,
@@ -916,19 +915,28 @@ function WorkflowDashboard({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null)
   const [agentDragOver, setAgentDragOver] = useState(false)
+  const initialNodesRef = useRef(initialNodes)
+  const isNodeDraggingRef = useRef(false)
+  const previousDashboardIdRef = useRef(dashboardId)
   const nodeSignature = initialNodes.map((node) => node.id).sort().join(':')
 
   useEffect(() => {
-    setNodes((current) =>
-      initialNodes.map((node) => ({
+    initialNodesRef.current = initialNodes
+    if (isNodeDraggingRef.current) {
+      return
+    }
+    const dashboardChanged = previousDashboardIdRef.current !== dashboardId
+    setNodes((current) => {
+      const currentPositions = new Map(current.map((node) => [node.id, node.position]))
+      return initialNodes.map((node) => ({
         ...node,
-        position:
-          positions[node.id] ??
-          current.find((item) => item.id === node.id)?.position ??
-          node.position,
-      })),
-    )
-  }, [initialNodes, positions, setNodes])
+        position: dashboardChanged
+          ? node.position
+          : currentPositions.get(node.id) ?? node.position,
+      }))
+    })
+    previousDashboardIdRef.current = dashboardId
+  }, [dashboardId, initialNodes, setNodes])
 
   useEffect(() => {
     setEdges(initialEdges)
@@ -936,9 +944,10 @@ function WorkflowDashboard({
 
   useEffect(() => {
     if (layoutRevision > 0 && flowInstance) {
-      window.setTimeout(() => void flowInstance.fitView({ padding: 0.22, duration: 280 }), 0)
+      setNodes(initialNodesRef.current)
+      window.setTimeout(() => void flowInstance.fitView({ padding: 0.22, duration: 220 }), 0)
     }
-  }, [flowInstance, layoutRevision])
+  }, [flowInstance, layoutRevision, setNodes])
 
   useEffect(() => {
     if (!flowInstance || !nodeSignature) {
@@ -1012,11 +1021,19 @@ function WorkflowDashboard({
             onSelectAgent(node.id)
           }
         }}
-        onNodeDragStop={(_, node) => onNodePositionChange(node.id, node.position)}
+        onNodeDragStart={() => {
+          isNodeDraggingRef.current = true
+        }}
+        onNodeDragStop={(_, node) => {
+          isNodeDraggingRef.current = false
+          onNodePositionChange(node.id, node.position)
+        }}
+        connectionRadius={18}
         fitView
         fitViewOptions={{ padding: 0.22 }}
+        nodeDragThreshold={1}
+        snapToGrid={false}
       >
-        <Background gap={20} size={1} />
         <Controls showInteractive={false} />
       </ReactFlow>
     </div>
