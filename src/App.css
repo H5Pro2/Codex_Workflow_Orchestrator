@@ -2147,9 +2147,31 @@ button:hover {
 }
 
 .primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #10201e;
+  background: #356f68;
+  border-color: #4f9188;
+  color: #f3fbfa;
+}
+
+.primary:hover:not(:disabled) {
+  background: #3e7b73;
+  border-color: #61a096;
+}
+
+.primary:disabled {
+  background: #2c514d;
+  border-color: #426d67;
+  color: #b9d1ce;
+  cursor: default;
+  opacity: 0.82;
+}
+
+.agentCreationProgress {
+  align-items: center;
+  color: #b9d1ce;
+  display: flex;
+  font-size: 12px;
+  gap: 9px;
+  margin: 2px 0 0;
 }
 
 .danger {

@@ -229,6 +229,28 @@ async function waitForThreadListed(threadId, cwd) {
   throw new Error('Der neue Codex-Chat wurde erstellt, aber noch nicht im Projekt-Inventar bestätigt.')
 }
 
+async function finalizeCreatedThreadName(threadId, turnId, name) {
+  if (turnId) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try {
+        const result = await request('thread/read', {
+          threadId,
+          includeTurns: true,
+        })
+        const turn = (result.thread?.turns ?? []).find((item) => item.id === turnId)
+        if (turn && turn.status !== 'inProgress') {
+          break
+        }
+      } catch {
+        // The new thread can take a moment to appear in the local history.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
+
+  await request('thread/name/set', { threadId, name })
+}
+
 async function startTurn(threadId, text, model = '') {
   const turnParams = {
     threadId,
@@ -487,7 +509,6 @@ const server = createServer(async (incoming, response) => {
         experimentalRawEvents: false,
         persistExtendedHistory: true,
       })
-      await request('thread/name/set', { threadId: result.thread.id, name: body.name })
       const initialTurn = body.startInitialPrompt === false
         ? null
         : await request('turn/start', {
@@ -502,10 +523,22 @@ const server = createServer(async (incoming, response) => {
               },
             ],
           })
-      const persistedThread = await waitForThreadListed(result.thread.id, body.cwd)
+      const createdThread = normalizeThread({
+        ...result.thread,
+        cwd: result.thread.cwd || body.cwd,
+        status: initialTurn ? 'active' : result.thread.status,
+      })
+      void finalizeCreatedThreadName(
+        result.thread.id,
+        initialTurn?.turn?.id ?? '',
+        body.name,
+      ).catch((error) => {
+        console.error(`Codex-Chat ${result.thread.id} konnte nicht benannt werden:`, error)
+      })
       sendJson(response, 201, {
-        thread: { ...persistedThread, name: body.name },
+        thread: { ...createdThread, name: body.name },
         turn: initialTurn?.turn ?? null,
+        inventoryPending: true,
       })
       return
     }

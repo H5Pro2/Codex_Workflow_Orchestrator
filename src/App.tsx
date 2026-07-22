@@ -2269,6 +2269,18 @@ function App() {
       return
     }
 
+    const existingThread = codexThreads.find(
+      (thread) =>
+        samePath(thread.cwd, selectedProject.path) &&
+        thread.title.trim().toLocaleLowerCase('de-DE') === name.toLocaleLowerCase('de-DE'),
+    )
+    if (existingThread) {
+      addAgentFromThread(existingThread.id)
+      setAgentCreationOpen(false)
+      setNewAgentName('')
+      return
+    }
+
     setAgentCreationBusy(true)
     setAgentCreationError('')
     try {
@@ -2278,7 +2290,10 @@ function App() {
         body: JSON.stringify({
           cwd: selectedProject.path,
           name,
-          startInitialPrompt: false,
+          initialPrompt: tx(
+            'Dieser Codex-Chat wurde als Agent eingerichtet. Antworte ausschließlich mit BEREIT und warte danach auf eine Benutzeranweisung.',
+            'This Codex chat was created as an agent. Reply only with READY, then wait for a user instruction.',
+          ),
         }),
       })
       const data = await response.json()
@@ -2298,13 +2313,15 @@ function App() {
         role: 'Rolle definieren',
         projectId: selectedProject.id,
         projectPath: selectedProject.path,
-        threadTitle: thread.title,
+        // The setup turn may create an automatic Codex title. Keep this empty
+        // until the completed setup turn has been renamed to the requested name.
+        threadTitle: data.inventoryPending ? '' : thread.title,
         threadId: thread.id,
         model: '',
         prompt: 'Definiere die Rollen-Anweisung für diesen Codex-Agenten.',
         promptDocuments: [createDefaultPromptDocument('Definiere die Rollen-Anweisung für diesen Codex-Agenten.')],
         activePromptDocumentId: 'default',
-        status: 'wartet',
+        status: data.turn?.id ? 'laeuft' : 'wartet',
         talkTo: [],
         autoForward: true,
         assignment: 'agent',
@@ -2320,14 +2337,17 @@ function App() {
         lastResult: '',
         instructionVersion: 1,
         lastInstruction: '',
-        runStartedAt: '',
+        runStartedAt: data.turn?.id ? new Date().toISOString() : '',
         lastDurationMs: 0,
         completedRuns: 0,
-        pendingTurnId: '',
+        pendingTurnId: data.turn?.id ?? '',
         lastCompletedTurnId: '',
         updatedAt: new Date().toISOString(),
       }
 
+      // Prevent a shared-state snapshot from replacing this freshly created
+      // local record before the debounced state write has reached the connector.
+      sharedStateDirty.current = true
       setCodexThreads((current) => [
         ...current.filter((item) => item.id !== thread.id),
         thread,
@@ -2435,7 +2455,10 @@ function App() {
             body: JSON.stringify({
               cwd: selectedProject.path,
               name: specification.name,
-              startInitialPrompt: false,
+              initialPrompt: tx(
+                'Dieser Codex-Chat wurde als Agent eingerichtet. Antworte ausschließlich mit BEREIT und warte danach auf eine Benutzeranweisung.',
+                'This Codex chat was created as an agent. Reply only with READY, then wait for a user instruction.',
+              ),
             }),
           })
           const data = await response.json()
@@ -2448,6 +2471,7 @@ function App() {
             cwd: selectedProject.path,
             status: data.thread.status || 'idle',
           }
+          sharedStateDirty.current = true
           createdThreads.push(thread)
           agent = normalizeAgent({
             id: crypto.randomUUID(),
@@ -2455,14 +2479,17 @@ function App() {
             role: specification.role,
             projectId: selectedProject.id,
             projectPath: selectedProject.path,
-            threadTitle: thread.title,
+            threadTitle: data.inventoryPending ? '' : thread.title,
             threadId: thread.id,
             prompt: specification.prompt,
             promptDocuments: [createDefaultPromptDocument(specification.prompt)],
             activePromptDocumentId: 'default',
+            status: data.turn?.id ? 'laeuft' : 'wartet',
             workflowStatusIds: specification.workflowStatuses.length > 0
               ? specification.workflowStatuses.map((status) => statusByName.get(status.toLocaleLowerCase('de-DE'))?.id).filter((id): id is string => Boolean(id))
               : null,
+            pendingTurnId: data.turn?.id ?? '',
+            runStartedAt: data.turn?.id ? new Date().toISOString() : '',
           })
         } else {
           const document = activePromptDocument(agent) ?? createDefaultPromptDocument(specification.prompt)
@@ -2906,7 +2933,7 @@ function App() {
     }
   }
 
-  const renameCodexThread = async (agent: Agent) => {
+  const renameCodexThread = useCallback(async (agent: Agent) => {
     if (!agent.threadId || agent.name === agent.threadTitle) {
       return
     }
@@ -2936,7 +2963,7 @@ function App() {
         error instanceof Error ? error.message : 'Der Codex-Connector ist nicht erreichbar.',
       )
     }
-  }
+  }, [addEvent, updateAgent])
 
   const handoff = useCallback(async (agent: Agent) => {
     if (!autoRunRef.current) {
@@ -3659,6 +3686,9 @@ function App() {
               }
               updateAgent(agent.id, completedAgent)
               addEvent('Codex-Ergebnis empfangen', `${agent.name} ist fertig.`)
+              if (completedAgent.threadTitle !== completedAgent.name) {
+                await renameCodexThread(completedAgent)
+              }
               if (autoRun && agent.autoForward) {
                 await handoff(completedAgent)
               }
@@ -3689,7 +3719,7 @@ function App() {
     void poll()
     const timer = window.setInterval(() => void poll(), 2500)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, autoRun, handoff, updateAgent])
+  }, [addEvent, agents, autoRun, handoff, renameCodexThread, updateAgent])
 
   useEffect(() => {
     if (!autoRun) return
@@ -4016,7 +4046,10 @@ function App() {
             </div>
             <p className="modalHint">
               {tx('Erstellt einen Codex-Chat im Projekt', 'Creates a Codex chat in project')} „{selectedProject?.label ?? tx('Kein Projekt', 'No project')}“.
-              {' '}{tx('Der Agent wird nicht automatisch mit dem Workflow verbunden.', 'The agent is not connected to the workflow automatically.')}
+              {' '}{tx(
+                'Ein kurzer Setup-Turn bestätigt den Chat. Die Automatik und die Workflow-Weitergabe bleiben aus.',
+                'A short setup turn confirms the chat. Automation and workflow forwarding remain off.',
+              )}
             </p>
             <label>
               Name
@@ -4035,6 +4068,12 @@ function App() {
               />
             </label>
             {agentCreationError && <p className="formError">{agentCreationError}</p>}
+            {agentCreationBusy && (
+              <p aria-live="polite" className="agentCreationProgress">
+                <span className="activitySpinner" />
+                {tx('Codex-Chat wird eingerichtet…', 'Setting up Codex chat…')}
+              </p>
+            )}
             <div className="modalActions">
               <button disabled={agentCreationBusy} onClick={() => setAgentCreationOpen(false)}>{tx('Abbrechen', 'Cancel')}</button>
               <button

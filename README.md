@@ -44,13 +44,13 @@ Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltu
 
 `Team übernehmen` führt ausschließlich bei `Auto Stop` folgende Schritte im aktuell ausgewählten Projekt aus:
 
-- fehlende Codex-Chats ohne initialen Turn erstellen
+- fehlende Codex-Chats mit einem neutralen Setup-Turn dauerhaft registrieren
 - noch nicht vorhandene Statusbefehle projektweit anlegen
 - Rollen und Statusbefehle zuweisen
 - Arbeitsanweisungen als `Anweisung.md` speichern, ohne sie als Aufgabe zu starten
 - vorgeschlagene Agenten im Dashboard des Verwaltungsagenten anordnen und verbinden
 
-Der Orchestrator startet danach weder einen Agenten noch die Automatik. `Auto Start` bleibt eine bewusste Benutzeraktion. Ein neues Projektverzeichnis wird nicht automatisch erzeugt, weil dessen Speicherort vom Benutzer beziehungsweise von Codex festgelegt werden muss.
+Der neutrale Setup-Turn bestätigt ausschließlich die dauerhafte Registrierung eines neuen Codex-Chats und löst keine Workflow-Weitergabe aus. Der Orchestrator startet danach weder die Automatik noch eine fachliche Aufgabe. `Auto Start` bleibt eine bewusste Benutzeraktion. Ein neues Projektverzeichnis wird nicht automatisch erzeugt, weil dessen Speicherort vom Benutzer beziehungsweise von Codex festgelegt werden muss.
 
 ### Prompt-Dateien
 
