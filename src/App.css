@@ -557,8 +557,21 @@ h2 {
 }
 
 .workspace {
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   padding: 16px;
+}
+
+.workspace.chatWorkspace {
+  overflow: hidden;
+}
+
+.workspace.chatWorkspace > .agentChat {
+  flex: 1 1 auto;
+  height: auto;
+  max-height: none;
+  min-height: 0;
 }
 
 .panelHeader {
@@ -785,6 +798,7 @@ h2 {
 .chatBody {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   position: relative;
 }
 
@@ -829,8 +843,12 @@ h2 {
   background: #151517;
   border-top: 1px solid var(--line);
   display: flex;
+  flex: 0 0 auto;
   gap: 9px;
   padding: 10px 12px;
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
 }
 
 .chatComposer textarea {

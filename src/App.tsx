@@ -5401,7 +5401,7 @@ function App() {
         </aside>
 
         {selectedAgent ? (
-          <section className="workspace">
+          <section className={`workspace ${setupOpen ? 'setupWorkspace' : 'chatWorkspace'}`}>
             <div className="panelHeader">
               <div>
                 <p className="eyebrow">{setupOpen ? tx('Agentenprofil', 'Agent profile') : tx('Agenten-Chat', 'Agent chat')}</p>
@@ -5911,7 +5911,7 @@ function App() {
             )}
           </section>
         ) : (
-          <section className="workspace emptyWorkspace" aria-label={tx('Leerer Agenten-Chat', 'Empty agent chat')}>
+          <section className="workspace emptyWorkspace chatWorkspace" aria-label={tx('Leerer Agenten-Chat', 'Empty agent chat')}>
             <div className="panelHeader">
               <div>
                 <p className="eyebrow">{tx('Agenten-Chat', 'Agent chat')}</p>
