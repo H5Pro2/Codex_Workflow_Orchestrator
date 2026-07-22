@@ -1633,10 +1633,6 @@ function App() {
       return !statusId || !agent?.workflowStatusIds?.includes(statusId)
     }))) return false
 
-    const expectedAgentIds = [selectedAgent.id, ...proposedAgents.map(({ agent }) => agent!.id)]
-    const dashboardAgentIds = workflowBoardAgentIds[selectedAgent.id] ?? []
-    if (expectedAgentIds.some((id) => !dashboardAgentIds.includes(id))) return false
-
     const startAgentId = projectAgentByName.get(selectedTeamPlan.plan.startAgent.trim().toLocaleLowerCase('de-DE'))?.id
     const initial = workflowInitials.find((item) =>
       item.ownerAgentId === selectedAgent.id &&
@@ -1648,19 +1644,24 @@ function App() {
       route.sourceId === initial.id &&
       route.targetId === startAgentId,
     )) return false
+    const managerDashboardAgentIds = workflowBoardAgentIds[selectedAgent.id] ?? []
+    if (!managerDashboardAgentIds.includes(selectedAgent.id) || !managerDashboardAgentIds.includes(startAgentId)) return false
 
     return selectedTeamPlan.plan.connections.every((connection) => {
       const sourceId = projectAgentByName.get(connection.from.trim().toLocaleLowerCase('de-DE'))?.id
       const targetId = projectAgentByName.get(connection.to.trim().toLocaleLowerCase('de-DE'))?.id
       const statusId = statusByName.get(connection.status.trim().toLocaleLowerCase('de-DE'))?.id
       const filter = workflowStatusFilters.find((item) =>
-        item.ownerAgentId === selectedAgent.id &&
+        item.ownerAgentId === sourceId &&
         item.statusId === statusId &&
         item.name === `${connection.status}: ${connection.from} → ${connection.to}`,
       )
+      const sourceDashboardAgentIds = sourceId ? workflowBoardAgentIds[sourceId] ?? [] : []
       return Boolean(sourceId && targetId && filter &&
-        routes.some((route) => route.ownerAgentId === selectedAgent.id && route.sourceId === sourceId && route.targetId === filter.id) &&
-        routes.some((route) => route.ownerAgentId === selectedAgent.id && route.sourceId === filter.id && route.targetId === targetId))
+        sourceDashboardAgentIds.includes(sourceId) &&
+        sourceDashboardAgentIds.includes(targetId) &&
+        routes.some((route) => route.ownerAgentId === sourceId && route.sourceId === sourceId && route.targetId === filter.id) &&
+        routes.some((route) => route.ownerAgentId === sourceId && route.sourceId === filter.id && route.targetId === targetId))
     })
   }, [agents, routes, selectedAgent, selectedTeamPlan, workflowBoardAgentIds, workflowInitials, workflowStatusFilters, workflowStatuses])
   const selectedTeamPlanMalformed = Boolean(
@@ -2682,9 +2683,6 @@ function App() {
 
       const resolvedAgents = [...nextAgentMap.values()]
       setTeamPlanProgress(tx('Statusbefehle und Verdrahtung werden eingerichtet…', 'Configuring status commands and workflow wiring…'))
-      const teamAgentIds = plan.agents
-        .map((item) => projectAgentMap.get(item.name.toLocaleLowerCase('de-DE'))?.id)
-        .filter((id): id is string => Boolean(id))
       const startAgent = projectAgentMap.get(plan.startAgent.toLocaleLowerCase('de-DE'))
       if (!startAgent) throw new Error(tx('Der Start-Agent des Teamplans wurde nicht gefunden.', 'The team plan start agent was not found.'))
       const teamInitial = workflowInitials.find((item) =>
@@ -2700,9 +2698,18 @@ function App() {
       const planFilters = plan.connections.map((connection) => {
         const status = statusByName.get(connection.status.toLocaleLowerCase('de-DE'))
         if (!status) throw new Error(`${tx('Statusbefehl fehlt', 'Missing status command')}: ${connection.status}`)
+        const source = projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!
         const name = `${connection.status}: ${connection.from} → ${connection.to}`
-        return workflowStatusFilters.find((item) => item.ownerAgentId === manager.id && item.name === name)
-          ?? { id: crypto.randomUUID(), ownerAgentId: manager.id, projectPath: selectedProject.path, name, statusId: status.id }
+        const existing = workflowStatusFilters.find((item) =>
+          samePath(item.projectPath, selectedProject.path) && item.name === name,
+        )
+        return {
+          id: existing?.id ?? crypto.randomUUID(),
+          ownerAgentId: source.id,
+          projectPath: selectedProject.path,
+          name,
+          statusId: status.id,
+        }
       })
       const newRoutes: WorkflowRoute[] = [
         {
@@ -2720,11 +2727,11 @@ function App() {
           const filter = planFilters[index]
           return [
             {
-              id: crypto.randomUUID(), ownerAgentId: manager.id, projectPath: selectedProject.path,
+              id: crypto.randomUUID(), ownerAgentId: source.id, projectPath: selectedProject.path,
               sourceId: source.id, targetId: filter.id, condition: 'Immer', prompt: '',
             },
             {
-              id: crypto.randomUUID(), ownerAgentId: manager.id, projectPath: selectedProject.path,
+              id: crypto.randomUUID(), ownerAgentId: source.id, projectPath: selectedProject.path,
               sourceId: filter.id, targetId: target.id, condition: 'Immer',
               prompt: 'Übernimm das Ergebnis, prüfe es gemäß deiner Rolle und arbeite selbstständig weiter.',
             },
@@ -2747,50 +2754,55 @@ function App() {
         ...current.filter((thread) => !createdThreads.some((created) => created.id === thread.id)),
         ...createdThreads,
       ])
-      setWorkflowBoardAgentIds((current) => ({
-        ...current,
-        [manager.id]: Array.from(new Set([manager.id, ...(current[manager.id] ?? []), ...teamAgentIds])),
-      }))
+      setWorkflowBoardAgentIds((current) => {
+        const next = {
+          ...current,
+          [manager.id]: Array.from(new Set([manager.id, startAgent.id])),
+        }
+        plan.connections.forEach((connection) => {
+          const source = projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!
+          const target = projectAgentMap.get(connection.to.toLocaleLowerCase('de-DE'))!
+          next[source.id] = Array.from(new Set([source.id, ...(next[source.id] ?? []), target.id]))
+        })
+        return next
+      })
       setRoutes((current) => {
         const planFilterIds = new Set(planFilters.map((filter) => filter.id))
+        const planSourceIds = new Set(plan.connections.map((connection) =>
+          projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!.id,
+        ))
         const proposedPairs = new Set(plan.connections.map((connection) => {
           const sourceId = projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!.id
           const targetId = projectAgentMap.get(connection.to.toLocaleLowerCase('de-DE'))!.id
           return `${sourceId}:${targetId}`
         }))
-        const retained = current.filter((route) =>
-          route.ownerAgentId !== manager.id || (
-            route.sourceId !== configuredInitial.id &&
-            !planFilterIds.has(route.sourceId) &&
-            !planFilterIds.has(route.targetId) &&
-            !proposedPairs.has(`${route.sourceId}:${route.targetId}`)
-          ),
-        )
+        const retained = current.filter((route) => !(
+          samePath(route.projectPath, selectedProject.path) && (
+            route.sourceId === configuredInitial.id ||
+            planFilterIds.has(route.sourceId) ||
+            planFilterIds.has(route.targetId) ||
+            (planSourceIds.has(route.sourceId) && proposedPairs.has(`${route.sourceId}:${route.targetId}`))
+          )
+        ))
         return [...retained, ...newRoutes]
       })
-      const orderedWorkflowNodeIds = [configuredInitial.id]
-      plan.connections.forEach((connection, index) => {
-        const sourceId = projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!.id
-        const targetId = projectAgentMap.get(connection.to.toLocaleLowerCase('de-DE'))!.id
-        ;[sourceId, planFilters[index].id, targetId].forEach((nodeId) => {
-          if (!orderedWorkflowNodeIds.includes(nodeId)) orderedWorkflowNodeIds.push(nodeId)
-        })
-      })
-      const remainingNodeIds = [manager.id, ...teamAgentIds].filter((nodeId) => !orderedWorkflowNodeIds.includes(nodeId))
       setWorkflowPositions((current) => ({
         ...current,
-        ...Object.fromEntries(
-          [
-            ...orderedWorkflowNodeIds.map((nodeId, index) => [
-              `${manager.id}:${nodeId}`,
-              { x: 50 + index * 190, y: 90 },
-            ] as const),
-            ...remainingNodeIds.map((nodeId, index) => [
-              `${manager.id}:${nodeId}`,
-              { x: 50 + index * 190, y: 270 },
-            ] as const),
-          ],
-        ),
+        [`${manager.id}:${configuredInitial.id}`]: { x: 50, y: 90 },
+        [`${manager.id}:${startAgent.id}`]: { x: 280, y: 90 },
+        ...Object.fromEntries(plan.connections.flatMap((connection, index) => {
+          const source = projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!
+          const target = projectAgentMap.get(connection.to.toLocaleLowerCase('de-DE'))!
+          const branchIndex = plan.connections
+            .slice(0, index)
+            .filter((item) => item.from.toLocaleLowerCase('de-DE') === connection.from.toLocaleLowerCase('de-DE')).length
+          const y = 60 + branchIndex * 140
+          return [
+            [`${source.id}:${source.id}`, { x: 40, y: 130 }],
+            [`${source.id}:${planFilters[index].id}`, { x: 270, y }],
+            [`${source.id}:${target.id}`, { x: 500, y }],
+          ]
+        })),
       }))
       addEvent(
         'Team-Vorschlag übernommen',
