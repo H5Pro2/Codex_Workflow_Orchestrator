@@ -22,6 +22,7 @@ const LOCAL_CODEX_ENTRY = join(
   'codex.js',
 )
 const pending = new Map()
+const inactiveTurnSince = new Map()
 let nextRequestId = 1
 let initialized = false
 let sharedStateCache = null
@@ -776,6 +777,7 @@ const server = createServer(async (incoming, response) => {
       await ready
       const threadId = decodeURIComponent(resultMatch[1])
       const requestedTurnId = url.searchParams.get('turnId')
+      const turnObservationKey = requestedTurnId ? `${threadId}:${requestedTurnId}` : ''
       let turn = null
       let threadStatusType = ''
       try {
@@ -802,6 +804,9 @@ const server = createServer(async (incoming, response) => {
             durationMs: protocolTurn.durationMs ?? null,
             error: protocolTurn.error ?? null,
           }
+          if (protocolTurn.status === 'completed' && turnObservationKey) {
+            inactiveTurnSince.delete(turnObservationKey)
+          }
         }
       } catch {
         // Manche Codex-Tasks erscheinen kurz nach dem Start noch nicht im Protokoll.
@@ -821,7 +826,17 @@ const server = createServer(async (incoming, response) => {
           const message = error instanceof Error ? error.message : ''
           if (requestedTurnId && message.includes('Historie nicht gefunden')) {
             const threadIsIdle = ['idle', 'notLoaded', 'systemError'].includes(threadStatusType)
-            turn = threadIsIdle
+            if (!threadIsIdle) {
+              inactiveTurnSince.delete(turnObservationKey)
+            }
+            const firstInactiveAt = threadIsIdle
+              ? inactiveTurnSince.get(turnObservationKey) ?? Date.now()
+              : Date.now()
+            if (threadIsIdle) {
+              inactiveTurnSince.set(turnObservationKey, firstInactiveAt)
+            }
+            const inactivityConfirmed = threadIsIdle && Date.now() - firstInactiveAt >= 20_000
+            turn = inactivityConfirmed
               ? {
                   turnId: requestedTurnId,
                   status: 'interrupted',
@@ -849,13 +864,19 @@ const server = createServer(async (incoming, response) => {
         turn?.status === 'inProgress' &&
         ['idle', 'notLoaded', 'systemError'].includes(threadStatusType)
       ) {
-        turn = {
-          ...turn,
-          status: 'interrupted',
-          error: {
-            message: 'Codex-Task ist inaktiv; der angeforderte Turn wurde nicht abgeschlossen.',
-          },
+        const firstInactiveAt = inactiveTurnSince.get(turnObservationKey) ?? Date.now()
+        inactiveTurnSince.set(turnObservationKey, firstInactiveAt)
+        if (Date.now() - firstInactiveAt >= 20_000) {
+          turn = {
+            ...turn,
+            status: 'interrupted',
+            error: {
+              message: 'Codex-Task ist inaktiv; der angeforderte Turn wurde nicht abgeschlossen.',
+            },
+          }
         }
+      } else if (turnObservationKey && turn?.status !== 'inProgress') {
+        inactiveTurnSince.delete(turnObservationKey)
       }
 
       sendJson(response, 200, turn)
