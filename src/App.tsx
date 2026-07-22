@@ -41,6 +41,12 @@ type ManagementTeamPlanStatusCommand = {
   meaning: string
 }
 
+type ManagementTeamPlanStop = {
+  from: string
+  status: string
+  name: string
+}
+
 type ManagementTeamPlan = {
   projectGoal: string
   startAgent: string
@@ -48,6 +54,7 @@ type ManagementTeamPlan = {
   statusCommands: ManagementTeamPlanStatusCommand[]
   agents: ManagementTeamPlanAgent[]
   connections: ManagementTeamPlanConnection[]
+  stops: ManagementTeamPlanStop[]
 }
 
 type PromptDocument = {
@@ -413,6 +420,20 @@ function createDefaultPromptDocument(content = ''): PromptDocument {
   }
 }
 
+function activePromptDocumentForAgent(agent: Agent) {
+  return agent.promptDocuments.find((document) => document.id === agent.activePromptDocumentId) ??
+    agent.promptDocuments[0]
+}
+
+function agentPromptInstruction(agent: Agent) {
+  const content = (activePromptDocumentForAgent(agent)?.content ?? agent.prompt).trim()
+  return content || `Du bist ${agent.name}. Arbeite entsprechend deiner Rolle: ${agent.role}`
+}
+
+function normalizedInstructionText(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('de-DE')
+}
+
 function promptFileName(name: string) {
   const cleaned = name
     .trim()
@@ -725,6 +746,9 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
     '  ],',
     '  "connections": [',
     '    { "from": "Agentenname", "to": "Anderer Agent", "status": "Weiterleitung" }',
+    '  ],',
+    '  "stops": [',
+    '    { "from": "Abschlussprüfer", "status": "Projekt abgeschlossen", "name": "Projekt abgeschlossen" }',
     '  ]',
     '}',
     '</orchestrator_team_plan>',
@@ -732,6 +756,8 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
     ...existingStatusContext,
     'Nimm wiederverwendete Statusbefehle mit exakt demselben Namen und exakt derselben Bedeutung in statusCommands auf. Erstelle nur dann einen neuen Statusbefehl, wenn keiner der vorhandenen Befehle den benötigten Zweck abdeckt.',
     'Jede Verbindung muss einen vorhandenen Statusbefehl nennen. Weise jedem Agenten unter workflowStatuses genau die Statusbefehle zu, die er verwenden darf.',
+    'Definiere unter stops mindestens einen ausdrücklichen Abschlussweg. Ein Stop nennt den Quellagenten, den eindeutigen Abschlussstatus und einen kurzen Namen. Ein normaler Weiterleitungsstatus ist kein Abschlussstatus.',
+    'Der Arbeitsablauf darf nicht nur aus einer Endlosschleife bestehen. Jeder erfolgreiche Gesamtabschluss muss über einen Status-Filter zu einem Stop führen.',
     `Der Systemstatus "${MANAGEMENT_ERROR_STATUS_NAME}" ist verpflichtend. Verwende ihn mit der Bedeutung: "${MANAGEMENT_ERROR_STATUS_MEANING}". Weise ihn jedem vorgeschlagenen Agenten zu. Der Orchestrator verdrahtet diesen Status automatisch zurück zum Verwaltungsagenten.`,
     'Wähle ein startAgent aus dem vorgeschlagenen Team und formuliere eine startInstruction, mit der die Arbeit bei Auto Start eindeutig beginnt.',
     'Verwende nur gültiges JSON. Erfinde keine Projektpfade. Der Orchestrator prüft den Vorschlag und ein Benutzer muss ihn übernehmen.',
@@ -815,6 +841,27 @@ function parseManagementTeamPlan(text: string): { plan: ManagementTeamPlan; sign
           return { from, to, status }
         })
       : []
+    const stops = Array.isArray(raw.stops)
+      ? raw.stops.map((entry) => {
+          if (!entry || typeof entry !== 'object') throw new Error('invalid stop')
+          const item = entry as Record<string, unknown>
+          const from = typeof item.from === 'string' ? item.from.trim() : ''
+          const status = typeof item.status === 'string' ? item.status.trim() : ''
+          const name = typeof item.name === 'string' ? item.name.trim() : ''
+          if (!from || !status || !name || name.length > 80) throw new Error('invalid stop')
+          if (!normalizedNames.includes(from.toLocaleLowerCase('de-DE'))) throw new Error('unknown stop agent')
+          if (!normalizedStatusNames.includes(status.toLocaleLowerCase('de-DE'))) throw new Error('invalid stop status')
+          return { from, status, name }
+        })
+      : []
+    if (stops.length > 12) return null
+    const plannedPaths = [...connections, ...stops]
+    plannedPaths.forEach((path) => {
+      const source = agents.find((agent) => agent.name.toLocaleLowerCase('de-DE') === path.from.toLocaleLowerCase('de-DE'))
+      if (source && !source.workflowStatuses.some((status) => status.toLocaleLowerCase('de-DE') === path.status.toLocaleLowerCase('de-DE'))) {
+        source.workflowStatuses.push(path.status)
+      }
+    })
     const projectGoal = typeof raw.projectGoal === 'string' ? raw.projectGoal.trim() : ''
     const requestedStartAgent = typeof raw.startAgent === 'string' ? raw.startAgent.trim() : ''
     const startAgent = agents.find((agent) => agent.name.toLocaleLowerCase('de-DE') === requestedStartAgent.toLocaleLowerCase('de-DE'))?.name ?? agents[0].name
@@ -828,6 +875,7 @@ function parseManagementTeamPlan(text: string): { plan: ManagementTeamPlan; sign
       statusCommands,
       agents,
       connections,
+      stops,
     }
     return { plan, signature: JSON.stringify(plan) }
   } catch {
@@ -869,6 +917,9 @@ function buildHandoffMessage(
     '',
     'Rollenbezug des Ziel-Agenten:',
     target.role,
+    '',
+    'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
+    agentPromptInstruction(target),
     '',
     'Ergebnis / Auftrag:',
     source.lastResult || 'Kein Ergebnistext hinterlegt.',
@@ -984,6 +1035,9 @@ function buildMonitoringMessage(
 
   return [
     `Agentenüberwachung durch ${manager.name}`,
+    '',
+    'Verbindliche Arbeitsanweisung des Verwaltungsagenten:',
+    agentPromptInstruction(manager),
     '',
     'Prüfe den aktuellen Stand der dir zugewiesenen Agenten. Erkenne Blockaden, widersprüchliche Ergebnisse, unnötige Wiederholungen und fehlende nächste Schritte.',
     'Fasse anschließend knapp zusammen, ob eingegriffen werden muss und welche konkrete Aufgabe als Nächstes sinnvoll ist.',
@@ -1314,7 +1368,7 @@ function App() {
   const [teamPlanApplying, setTeamPlanApplying] = useState(false)
   const [teamPlanError, setTeamPlanError] = useState('')
   const [teamPlanProgress, setTeamPlanProgress] = useState('')
-  const [teamReadyNotice, setTeamReadyNotice] = useState<{ project: string; agents: number; statuses: number; connections: number } | null>(null)
+  const [teamReadyNotice, setTeamReadyNotice] = useState<{ project: string; agents: number; statuses: number; connections: number; stops: number } | null>(null)
   const [autoRun, setAutoRun] = useState(storedState.autoRun)
   const [projectFilter, setProjectFilter] = useState(storedState.selectedProjectId)
   const [hiddenThreadIds, setHiddenThreadIds] = useState<string[]>(storedState.hiddenThreadIds)
@@ -1646,9 +1700,10 @@ function App() {
       agent: projectAgentByName.get(specification.name.trim().toLocaleLowerCase('de-DE')),
     }))
     if (proposedAgents.some(({ agent }) => !agent)) return false
-    if (selectedTeamPlan.plan.statusCommands.some((command) =>
-      !statusByName.has(command.name.trim().toLocaleLowerCase('de-DE')),
-    )) return false
+    if (selectedTeamPlan.plan.statusCommands.some((command) => {
+      const status = statusByName.get(command.name.trim().toLocaleLowerCase('de-DE'))
+      return !status || normalizedInstructionText(status.description) !== normalizedInstructionText(command.meaning)
+    })) return false
     if (proposedAgents.some(({ specification, agent }) => specification.workflowStatuses.some((name) => {
       const statusId = statusByName.get(name.trim().toLocaleLowerCase('de-DE'))?.id
       return !statusId || !agent?.workflowStatusIds?.includes(statusId)
@@ -1686,6 +1741,26 @@ function App() {
     })
     if (!plannedConnectionsComplete) return false
 
+    if (selectedTeamPlan.plan.stops.length === 0) return false
+    const plannedStopsComplete = selectedTeamPlan.plan.stops.every((plannedStop) => {
+      const sourceId = projectAgentByName.get(plannedStop.from.trim().toLocaleLowerCase('de-DE'))?.id
+      const statusId = statusByName.get(plannedStop.status.trim().toLocaleLowerCase('de-DE'))?.id
+      const stop = workflowStops.find((item) =>
+        item.ownerAgentId === sourceId &&
+        samePath(item.projectPath, selectedAgent.projectPath) &&
+        item.name === plannedStop.name,
+      )
+      const filter = workflowStatusFilters.find((item) =>
+        item.ownerAgentId === sourceId &&
+        item.statusId === statusId &&
+        item.name === `${plannedStop.status}: ${plannedStop.from} -> ${plannedStop.name}`,
+      )
+      return Boolean(sourceId && statusId && stop && filter &&
+        routes.some((route) => route.ownerAgentId === sourceId && route.sourceId === sourceId && route.targetId === filter.id) &&
+        routes.some((route) => route.ownerAgentId === sourceId && route.sourceId === filter.id && route.targetId === stop.id))
+    })
+    if (!plannedStopsComplete) return false
+
     const errorStatusId = statusByName.get(MANAGEMENT_ERROR_STATUS_NAME.toLocaleLowerCase('de-DE'))?.id
     if (!errorStatusId) return false
     return proposedAgents.every(({ agent }) => {
@@ -1702,7 +1777,7 @@ function App() {
         routes.some((route) => route.ownerAgentId === agent.id && route.sourceId === agent.id && route.targetId === filter.id) &&
         routes.some((route) => route.ownerAgentId === agent.id && route.sourceId === filter.id && route.targetId === selectedAgent.id))
     })
-  }, [agents, routes, selectedAgent, selectedTeamPlan, workflowBoardAgentIds, workflowInitials, workflowStatusFilters, workflowStatuses])
+  }, [agents, routes, selectedAgent, selectedTeamPlan, workflowBoardAgentIds, workflowInitials, workflowStatusFilters, workflowStatuses, workflowStops])
   const selectedTeamPlanMalformed = Boolean(
     selectedAgent?.teamProvisioningEnabled &&
     /<orchestrator_team_plan>/i.test(selectedAgent.lastResult) &&
@@ -2586,6 +2661,13 @@ function App() {
     if (manager.assignment !== 'management' || !manager.teamProvisioningEnabled) return
 
     const { plan, signature } = selectedTeamPlan
+    if (plan.stops.length === 0) {
+      setTeamPlanError(tx(
+        'Der Team-Vorschlag benötigt mindestens einen Abschlussweg zu einem Stopp-Baustein.',
+        'The team proposal requires at least one completion path to a stop node.',
+      ))
+      return
+    }
     // Do not let a polling snapshot replace the team state while its agents,
     // status commands, and workflow routes are committed together.
     sharedStateDirty.current = true
@@ -2612,11 +2694,32 @@ function App() {
       ))
       return
     }
+    const invalidStop = plan.stops.find((stop) =>
+      !allowedNames.has(stop.from.toLocaleLowerCase('de-DE')),
+    )
+    if (invalidStop) {
+      setTeamPlanError(tx(
+        `Ungültiger Abschlussweg: ${invalidStop.from} -> ${invalidStop.name}.`,
+        `Invalid completion path: ${invalidStop.from} -> ${invalidStop.name}.`,
+      ))
+      return
+    }
 
     const nextWorkflowStatuses = [...workflowStatuses]
     const statusByName = new Map(
       projectWorkflowStatuses.map((status) => [status.name.trim().toLocaleLowerCase('de-DE'), status]),
     )
+    const conflictingStatus = plan.statusCommands.find((command) => {
+      const existing = statusByName.get(command.name.toLocaleLowerCase('de-DE'))
+      return existing && normalizedInstructionText(existing.description) !== normalizedInstructionText(command.meaning)
+    })
+    if (conflictingStatus) {
+      setTeamPlanError(tx(
+        `Der Statusbefehl „${conflictingStatus.name}“ existiert bereits mit einer anderen Bedeutung. Passe den Team-Vorschlag an die bestehende Statusliste an.`,
+        `The status command “${conflictingStatus.name}” already exists with a different meaning. Align the team proposal with the existing status list.`,
+      ))
+      return
+    }
     plan.statusCommands.forEach((command) => {
       const normalizedName = command.name.toLocaleLowerCase('de-DE')
       if (statusByName.has(normalizedName)) return
@@ -2791,6 +2894,39 @@ function App() {
           statusId: errorStatus.id,
         }
       })
+      const planStops = plan.stops.map((plannedStop) => {
+        const source = projectAgentMap.get(plannedStop.from.toLocaleLowerCase('de-DE'))!
+        const existing = workflowStops.find((item) =>
+          item.ownerAgentId === source.id &&
+          samePath(item.projectPath, selectedProject.path) &&
+          item.name === plannedStop.name,
+        )
+        return {
+          id: existing?.id ?? crypto.randomUUID(),
+          ownerAgentId: source.id,
+          projectPath: selectedProject.path,
+          name: plannedStop.name,
+        }
+      })
+      const stopFilters = plan.stops.map((plannedStop, index) => {
+        const source = projectAgentMap.get(plannedStop.from.toLocaleLowerCase('de-DE'))!
+        const status = statusByName.get(plannedStop.status.toLocaleLowerCase('de-DE'))
+        if (!status) throw new Error(`${tx('Statusbefehl fehlt', 'Missing status command')}: ${plannedStop.status}`)
+        const name = `${plannedStop.status}: ${plannedStop.from} -> ${plannedStop.name}`
+        const existing = workflowStatusFilters.find((item) =>
+          item.ownerAgentId === source.id &&
+          samePath(item.projectPath, selectedProject.path) &&
+          item.name === name,
+        )
+        return {
+          id: existing?.id ?? crypto.randomUUID(),
+          ownerAgentId: source.id,
+          projectPath: selectedProject.path,
+          name,
+          statusId: status.id,
+          stopId: planStops[index].id,
+        }
+      })
       const newRoutes: WorkflowRoute[] = [
         {
           id: crypto.randomUUID(),
@@ -2831,6 +2967,20 @@ function App() {
             },
           ]
         }),
+        ...plan.stops.flatMap((plannedStop, index) => {
+          const source = projectAgentMap.get(plannedStop.from.toLocaleLowerCase('de-DE'))!
+          const filter = stopFilters[index]
+          return [
+            {
+              id: crypto.randomUUID(), ownerAgentId: source.id, projectPath: selectedProject.path,
+              sourceId: source.id, targetId: filter.id, condition: 'Immer', prompt: '',
+            },
+            {
+              id: crypto.randomUUID(), ownerAgentId: source.id, projectPath: selectedProject.path,
+              sourceId: filter.id, targetId: filter.stopId, condition: 'Immer', prompt: '',
+            },
+          ]
+        }),
       ]
       setAgents(resolvedAgents.map((agent) => agent.id === manager.id
         ? { ...agent, lastAppliedTeamPlanSignature: signature, updatedAt: new Date().toISOString() }
@@ -2841,9 +2991,14 @@ function App() {
         configuredInitial,
       ])
       setWorkflowStatusFilters((current) => [
-        ...current.filter((item) => ![...planFilters, ...errorFilters].some((filter) => filter.id === item.id)),
+        ...current.filter((item) => ![...planFilters, ...errorFilters, ...stopFilters].some((filter) => filter.id === item.id)),
         ...planFilters,
         ...errorFilters,
+        ...stopFilters.map(({ stopId: _stopId, ...filter }) => filter),
+      ])
+      setWorkflowStops((current) => [
+        ...current.filter((item) => !planStops.some((stop) => stop.id === item.id)),
+        ...planStops,
       ])
       setCodexThreads((current) => [
         ...current.filter((thread) => !createdThreads.some((created) => created.id === thread.id)),
@@ -2865,7 +3020,7 @@ function App() {
         return next
       })
       setRoutes((current) => {
-        const planFilterIds = new Set([...planFilters, ...errorFilters].map((filter) => filter.id))
+        const planFilterIds = new Set([...planFilters, ...errorFilters, ...stopFilters].map((filter) => filter.id))
         const planSourceIds = new Set(plan.connections.map((connection) =>
           projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!.id,
         ))
@@ -2905,10 +3060,17 @@ function App() {
           [`${source.id}:${errorFilters[index].id}`, { x: 270, y: 300 }],
           [`${source.id}:${manager.id}`, { x: 500, y: 300 }],
         ])),
+        ...Object.fromEntries(plan.stops.flatMap((plannedStop, index) => {
+          const source = projectAgentMap.get(plannedStop.from.toLocaleLowerCase('de-DE'))!
+          return [
+            [`${source.id}:${stopFilters[index].id}`, { x: 270, y: 460 + index * 120 }],
+            [`${source.id}:${planStops[index].id}`, { x: 500, y: 460 + index * 120 }],
+          ]
+        })),
       }))
       addEvent(
         'Team-Vorschlag übernommen',
-        `${manager.name}: ${plan.agents.length} Agenten, ${plan.statusCommands.length} Statusbefehle, ${plan.connections.length} Verbindungen. Automatik bleibt gestoppt.`,
+        `${manager.name}: ${plan.agents.length} Agenten, ${plan.statusCommands.length} Statusbefehle, ${plan.connections.length} Verbindungen und ${plan.stops.length} Abschlusswege. Automatik bleibt gestoppt.`,
       )
       setTeamPlanProgress(tx('Team-Einrichtung abgeschlossen.', 'Team setup complete.'))
       setTeamReadyNotice({
@@ -2916,6 +3078,7 @@ function App() {
         agents: plan.agents.length,
         statuses: plan.statusCommands.length,
         connections: plan.connections.length,
+        stops: plan.stops.length,
       })
     } catch (error) {
       setAgents([...nextAgentMap.values()])
@@ -3406,6 +3569,25 @@ function App() {
       }
       addEvent('Workflow-Pfad beendet', `${agent.name} → ${stop?.name ?? 'Stopp'}`)
     })
+
+    if (stopDeliveries.length > 0) {
+      sharedStateDirty.current = true
+      autoRunRef.current = false
+      setAutoRun(false)
+      setTransmittingAgentIds([])
+      queuedSourceAgentIdsByTarget.current.clear()
+      activeDeliveryTargetIds.current.clear()
+      updateAgent(agent.id, {
+        status: 'fertig',
+        pendingTurnId: '',
+        runStartedAt: '',
+      })
+      addEvent(
+        'Automatik am Stopp beendet',
+        `${agent.name} hat einen Abschlussweg erreicht. Es werden keine weiteren Übergaben gestartet.`,
+      )
+      return
+    }
 
     if (agentDeliveries.length === 0) {
       updateAgent(agent.id, {
@@ -4242,6 +4424,9 @@ function App() {
               '',
               timer.task,
               '',
+              'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
+              agentPromptInstruction(target),
+              '',
               'Bearbeite diese Aufgabe selbst anhand deines Projektkontexts. Die weitere Übergabe übernimmt ausschließlich der Workflow-Orchestrator.',
               workflowStatusInstruction(workflowStatusesForAgent(target, workflowStatuses)),
             ].join('\n')
@@ -4317,6 +4502,9 @@ function App() {
           '',
           initial.instruction,
           '',
+          'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
+          agentPromptInstruction(target),
+          '',
           'Bearbeite diese Anfrage selbst anhand deines Projektkontexts. Kontaktiere keine anderen Codex-Chats; die Weitergabe übernimmt ausschließlich der Workflow-Orchestrator.',
           '',
           owner
@@ -4370,9 +4558,18 @@ function App() {
       return
     }
     sharedStateDirty.current = true
+    setRoutes((current) => current.map((route) =>
+      samePath(route.projectPath, selectedProject?.path ?? '')
+        ? { ...route, lastForwardedTask: undefined }
+        : route,
+    ))
+    setTransmittingAgentIds([])
+    queuedSourceAgentIdsByTarget.current.clear()
+    activeDeliveryTargetIds.current.clear()
+    resetInactiveAgentStatuses()
     autoRunRef.current = true
     setAutoRun(true)
-    addEvent('Automatik gestartet', 'Initial-Anfragen und automatische Weitergaben sind aktiviert.')
+    addEvent('Automatik gestartet', 'Initial-Anfragen und automatische Weitergaben sind aktiviert. Die Duplikat-Sperren des vorherigen Laufs wurden zurückgesetzt.')
     void startInitialWorkflows()
   }
 
@@ -4430,14 +4627,14 @@ function App() {
             </div>
             <p className="modalHint">
               {tx(
-                `„${teamReadyNotice.project}“ wurde mit ${teamReadyNotice.agents} Agenten, ${teamReadyNotice.statuses} ${teamReadyNotice.statuses === 1 ? 'Statusbefehl' : 'Statusbefehlen'} und ${teamReadyNotice.connections} Arbeitsverbindungen eingerichtet.`,
-                `“${teamReadyNotice.project}” was configured with ${teamReadyNotice.agents} agents, ${teamReadyNotice.statuses} status ${teamReadyNotice.statuses === 1 ? 'command' : 'commands'}, and ${teamReadyNotice.connections} workflow connections.`,
+                `„${teamReadyNotice.project}“ wurde mit ${teamReadyNotice.agents} Agenten, ${teamReadyNotice.statuses} ${teamReadyNotice.statuses === 1 ? 'Statusbefehl' : 'Statusbefehlen'}, ${teamReadyNotice.connections} Arbeitsverbindungen und ${teamReadyNotice.stops} ${teamReadyNotice.stops === 1 ? 'Abschlussweg' : 'Abschlusswegen'} eingerichtet.`,
+                `“${teamReadyNotice.project}” was configured with ${teamReadyNotice.agents} agents, ${teamReadyNotice.statuses} status ${teamReadyNotice.statuses === 1 ? 'command' : 'commands'}, ${teamReadyNotice.connections} workflow connections, and ${teamReadyNotice.stops} completion ${teamReadyNotice.stops === 1 ? 'path' : 'paths'}.`,
               )}
             </p>
             <p className="teamReadyNoticeText">
               {tx(
-                'Prompts und Rollen sind vergeben. Ein Initial-Baustein startet den ersten Agenten; die weiteren Übergaben laufen über Status-Filter. Die Automatik ist weiterhin aus.',
-                'Prompts and roles are assigned. An initial node starts the first agent; subsequent handoffs run through status filters. Automation remains off.',
+                'Prompts und Rollen sind vergeben. Ein Initial-Baustein startet den ersten Agenten; Übergaben laufen über Status-Filter und ein Abschlussstatus beendet die Automatik an einem Stopp-Baustein. Die Automatik ist weiterhin aus.',
+                'Prompts and roles are assigned. An initial node starts the first agent; handoffs use status filters, and a completion status stops automation at a stop node. Automation remains off.',
               )}
             </p>
             <div className="modalActions">
