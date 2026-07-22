@@ -415,8 +415,17 @@ function promptFileName(name: string) {
   return baseName.toLocaleLowerCase('de-DE').endsWith('.md') ? baseName : `${baseName}.md`
 }
 
+function defaultAgentRole(name: string) {
+  return `du bist ${name.trim() || 'Agent'}`
+}
+
+function isDefaultAgentRole(role: string, name: string) {
+  return !role.trim() || role === 'Rolle definieren' || role === defaultAgentRole(name)
+}
+
 function normalizeAgent(agent: Partial<Agent>): Agent {
   const legacyAgent = agent as Partial<Agent> & { handoffTo?: string }
+  const name = agent.name ?? 'Agent'
   const legacyPrompt = agent.prompt ?? ''
   const normalizedStatus =
     agent.status === 'laeuft' && !agent.pendingTurnId ? 'wartet' : agent.status ?? 'wartet'
@@ -440,8 +449,8 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
 
   return {
     id: agent.id ?? crypto.randomUUID(),
-    name: agent.name ?? 'Agent',
-    role: agent.role ?? 'Rolle definieren',
+    name,
+    role: isDefaultAgentRole(agent.role ?? '', name) ? defaultAgentRole(name) : agent.role as string,
     projectId: agent.projectId ?? '',
     projectPath: agent.projectPath ?? '',
     threadTitle: agent.threadTitle ?? '',
@@ -1801,6 +1810,9 @@ function App() {
         return [{
           ...agent,
           name: replacement.title,
+          role: isDefaultAgentRole(agent.role, agent.name)
+            ? defaultAgentRole(replacement.title)
+            : agent.role,
           threadTitle: replacement.title,
           threadId: replacement.id,
           updatedAt: new Date().toISOString(),
@@ -1826,9 +1838,15 @@ function App() {
         }
 
         hasChanges = true
+        const synchronizedName = hasExternalNameChange && !hasLocalNameEdit
+          ? thread.title
+          : agent.name
         return {
           ...agent,
-          name: hasExternalNameChange && !hasLocalNameEdit ? thread.title : agent.name,
+          name: synchronizedName,
+          role: synchronizedName !== agent.name && isDefaultAgentRole(agent.role, agent.name)
+            ? defaultAgentRole(synchronizedName)
+            : agent.role,
           threadTitle:
             hasExternalNameChange && !hasLocalNameEdit ? thread.title : agent.threadTitle,
           status: nextStatus as AgentStatus,
@@ -1847,7 +1865,7 @@ function App() {
           return {
           id: crypto.randomUUID(),
           name: thread.title,
-          role: 'Rolle definieren',
+          role: defaultAgentRole(thread.title),
           projectId: project?.id ?? `path:${thread.cwd}`,
           projectPath: thread.cwd,
           threadTitle: thread.title,
@@ -2222,7 +2240,7 @@ function App() {
     const agent: Agent = {
       id: crypto.randomUUID(),
       name: thread.title,
-      role: 'Rolle definieren',
+      role: defaultAgentRole(thread.title),
       projectId: project.id,
       projectPath: project.path,
       threadTitle: thread.title,
@@ -2326,7 +2344,7 @@ function App() {
       const agent: Agent = {
         id: crypto.randomUUID(),
         name,
-        role: 'Rolle definieren',
+        role: defaultAgentRole(name),
         projectId: selectedProject.id,
         projectPath: selectedProject.path,
         // The setup turn may create an automatic Codex title. Keep this empty
@@ -4369,7 +4387,15 @@ function App() {
                 Name
                 <input
                   value={selectedAgent.name}
-                  onChange={(event) => updateAgent(selectedAgent.id, { name: event.target.value })}
+                  onChange={(event) => {
+                    const name = event.target.value
+                    updateAgent(selectedAgent.id, {
+                      name,
+                      ...(isDefaultAgentRole(selectedAgent.role, selectedAgent.name)
+                        ? { role: defaultAgentRole(name) }
+                        : {}),
+                    })
+                  }}
                   onBlur={() => void renameCodexThread(selectedAgent)}
                 />
               </label>

@@ -28,6 +28,8 @@ Die Hauptansicht kombiniert Projektauswahl, Agentenliste, laufenden Codex-Chat u
 
 ### Agenten-Setup
 
+Neue und aus Codex übernommene Agenten erhalten automatisch die Rolle `du bist <Name>`. Solange diese Vorgabe nicht individuell bearbeitet wurde, folgt sie einer Umbenennung des Agenten.
+
 Im Setup werden Name, Rolle, Modell und die für den Agenten erlaubten Statusbefehle festgelegt. Die automatische Weitergabe kann pro Agent aktiviert oder deaktiviert werden. Über die Agenten-Zuweisung wird zusätzlich festgelegt, ob ein Agent normale Fachaufgaben übernimmt oder eine Verwaltungs-Erweiterung erhält.
 
 ![Agenten-Setup](bilder/Agenten_Setup.PNG)
