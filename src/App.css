@@ -2036,6 +2036,34 @@ label {
   max-width: 760px;
 }
 
+.agentDeleteModal {
+  max-width: 520px;
+}
+
+.agentDeleteQuestion {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.agentDeleteModal .deleteButton {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.modalError {
+  background: rgb(127 29 29 / 18%);
+  border-left: 3px solid #ef4444;
+  color: #fecdd3;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  padding: 9px 11px;
+}
+
 .promptEditorModal .promptLibrary {
   margin-top: 0;
 }

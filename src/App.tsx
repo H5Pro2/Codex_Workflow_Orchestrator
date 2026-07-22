@@ -1253,6 +1253,8 @@ function App() {
   const [dropTarget, setDropTarget] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
   const [dropEdge, setDropEdge] = useState<'start' | 'end' | null>(null)
   const [deletingAgentId, setDeletingAgentId] = useState('')
+  const [agentPendingDeletionId, setAgentPendingDeletionId] = useState('')
+  const [agentDeleteError, setAgentDeleteError] = useState('')
   const [agentCreationOpen, setAgentCreationOpen] = useState(false)
   const [newAgentName, setNewAgentName] = useState('')
   const [agentCreationBusy, setAgentCreationBusy] = useState(false)
@@ -2705,19 +2707,7 @@ function App() {
   }, [projectAgents, selectedId])
 
   const deleteAgent = async (agent: Agent) => {
-    const message = agent.threadId
-      ? tx(
-          `Möchten Sie den Agenten „${agent.name}“ wirklich löschen?\n\nDer zugehörige Codex-Chat wird archiviert und aus der aktiven Projektansicht entfernt.`,
-          `Do you really want to delete agent “${agent.name}”?\n\nThe linked Codex chat will be archived and removed from the active project view.`,
-        )
-      : tx(
-          `Möchten Sie den Agenten „${agent.name}“ wirklich aus dem Orchestrator entfernen?`,
-          `Do you really want to remove agent “${agent.name}” from the orchestrator?`,
-        )
-    if (!window.confirm(message)) {
-      return
-    }
-
+    setAgentDeleteError('')
     setDeletingAgentId(agent.id)
 
     if (agent.threadId) {
@@ -2758,10 +2748,15 @@ function App() {
         }
         setCodexThreads(verifiedThreads)
       } catch (error) {
+        const message = error instanceof Error ? error.message : tx(
+          'Der Codex-Connector ist nicht erreichbar.',
+          'The Codex connector is unavailable.',
+        )
         addEvent(
           'Agent konnte nicht gelöscht werden',
-          error instanceof Error ? error.message : 'Der Codex-Connector ist nicht erreichbar.',
+          message,
         )
+        setAgentDeleteError(message)
         setDeletingAgentId('')
         return
       }
@@ -2802,6 +2797,7 @@ function App() {
         : `${agent.name} wurde aus dem Orchestrator entfernt.`,
     )
     setDeletingAgentId('')
+    setAgentPendingDeletionId('')
   }
 
   const reorderAgent = (sourceId: string, targetId: string, position: 'before' | 'after') => {
@@ -4176,6 +4172,95 @@ function App() {
         </div>
       )}
 
+      {agentPendingDeletionId && (() => {
+        const agent = agents.find((item) => item.id === agentPendingDeletionId)
+        if (!agent) {
+          return null
+        }
+        const deleting = deletingAgentId === agent.id
+        return (
+          <div
+            className="modalBackdrop"
+            role="presentation"
+            onMouseDown={() => {
+              if (!deleting) {
+                setAgentPendingDeletionId('')
+                setAgentDeleteError('')
+              }
+            }}
+          >
+            <section
+              className="promptModal agentDeleteModal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="agent-delete-title"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="modalHeader">
+                <div>
+                  <p className="eyebrow">Codex Agent</p>
+                  <h2 id="agent-delete-title">{tx('Agent löschen', 'Delete agent')}</h2>
+                </div>
+                <button
+                  aria-label={tx('Fenster schließen', 'Close window')}
+                  disabled={deleting}
+                  title={tx('Fenster schließen', 'Close window')}
+                  onClick={() => {
+                    setAgentPendingDeletionId('')
+                    setAgentDeleteError('')
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <p className="agentDeleteQuestion">
+                {tx(
+                  `Möchten Sie den Agenten „${agent.name}“ wirklich löschen?`,
+                  `Do you really want to delete agent “${agent.name}”?`,
+                )}
+              </p>
+              <p className="modalHint">
+                {agent.threadId
+                  ? tx(
+                      'Der zugehörige Codex-Chat wird archiviert und aus der aktiven Projektansicht entfernt.',
+                      'The linked Codex chat will be archived and removed from the active project view.',
+                    )
+                  : tx(
+                      'Der Agent wird aus dem Orchestrator entfernt.',
+                      'The agent will be removed from the orchestrator.',
+                    )}
+              </p>
+              {agentDeleteError && (
+                <p className="modalError" role="alert">{agentDeleteError}</p>
+              )}
+              <div className="modalActions">
+                <button
+                  disabled={deleting}
+                  onClick={() => {
+                    setAgentPendingDeletionId('')
+                    setAgentDeleteError('')
+                  }}
+                >
+                  {tx('Abbrechen', 'Cancel')}
+                </button>
+                <button
+                  className="deleteButton"
+                  disabled={deleting}
+                  onClick={() => void deleteAgent(agent)}
+                >
+                  {deleting ? (
+                    <>
+                      <span className="activitySpinner" aria-hidden="true" />
+                      {tx('Wird archiviert…', 'Archiving…')}
+                    </>
+                  ) : tx('Löschen', 'Delete')}
+                </button>
+              </div>
+            </section>
+          </div>
+        )
+      })()}
+
       <section className="codexBrowser">
         <div>
           <p className="eyebrow">{copy.projects}</p>
@@ -4739,7 +4824,10 @@ function App() {
               <button
                 className="deleteButton"
                 disabled={deletingAgentId === selectedAgent.id}
-                onClick={() => void deleteAgent(selectedAgent)}
+                onClick={() => {
+                  setAgentDeleteError('')
+                  setAgentPendingDeletionId(selectedAgent.id)
+                }}
               >
                 {deletingAgentId === selectedAgent.id ? tx('Wird archiviert…', 'Archiving…') : tx('Agent löschen', 'Delete agent')}
               </button>
