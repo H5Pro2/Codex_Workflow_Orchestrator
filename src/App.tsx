@@ -4082,10 +4082,16 @@ function App() {
             </label>
             {agentCreationError && <p className="formError">{agentCreationError}</p>}
             {agentCreationBusy && (
-              <p aria-live="polite" className="agentCreationProgress">
-                <span className="activitySpinner" />
-                {tx('Codex-Chat wird eingerichtet…', 'Setting up Codex chat…')}
-              </p>
+              <div aria-live="polite" className="agentCreationProgress" role="status">
+                <span aria-hidden="true" className="activitySpinner" />
+                <span>
+                  <strong>{tx('Agent wird erstellt', 'Creating agent')}</strong>
+                  <small>{tx(
+                    'Codex-Chat wird eingerichtet und bestätigt…',
+                    'The Codex chat is being set up and confirmed…',
+                  )}</small>
+                </span>
+              </div>
             )}
             <div className="modalActions">
               <button disabled={agentCreationBusy} onClick={() => setAgentCreationOpen(false)}>{tx('Abbrechen', 'Cancel')}</button>
