@@ -3976,7 +3976,16 @@ function App() {
                   'Codex-Ausführung nicht abgeschlossen',
                   `${agent.name}: ${failureDetail}`,
                 )
-                if (autoRun && failedAgent.autoForward) {
+                if (autoRun && failedAgent.assignment === 'management') {
+                  sharedStateDirty.current = true
+                  autoRunRef.current = false
+                  setAutoRun(false)
+                  setTransmittingAgentIds([])
+                  addEvent(
+                    'Automatik gestoppt',
+                    `${failedAgent.name} benötigt nach einem fehlgeschlagenen Lauf eine Benutzerentscheidung.`,
+                  )
+                } else if (autoRun && failedAgent.autoForward) {
                   await handoff(failedAgent)
                 }
                 return
