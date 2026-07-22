@@ -721,11 +721,15 @@ const server = createServer(async (incoming, response) => {
       const threadId = decodeURIComponent(resultMatch[1])
       const requestedTurnId = url.searchParams.get('turnId')
       let turn = null
+      let threadStatusType = ''
       try {
         const result = await request('thread/read', {
           threadId,
           includeTurns: true,
         })
+        threadStatusType = typeof result.thread?.status === 'string'
+          ? result.thread.status
+          : result.thread?.status?.type ?? ''
         const turns = result.thread?.turns ?? []
         const protocolTurn = requestedTurnId
           ? turns.find((item) => item.id === requestedTurnId)
@@ -747,22 +751,54 @@ const server = createServer(async (incoming, response) => {
         // Manche Codex-Tasks erscheinen kurz nach dem Start noch nicht im Protokoll.
       }
 
+      try {
+        const inventoryStatus = (await listAllThreads()).find((item) => item.id === threadId)?.status ?? ''
+        threadStatusType = inventoryStatus || threadStatusType
+      } catch {
+        // Das Ergebnis-Fallback bleibt auch bei einem voruebergehend fehlenden Inventar nutzbar.
+      }
+
       if (!turn) {
         try {
           turn = await readThreadResultFromRollout(threadId, requestedTurnId)
         } catch (error) {
           const message = error instanceof Error ? error.message : ''
           if (requestedTurnId && message.includes('Historie nicht gefunden')) {
-            turn = {
-              turnId: requestedTurnId,
-              status: 'inProgress',
-              text: '',
-              durationMs: null,
-              error: null,
-            }
+            const threadIsIdle = ['idle', 'notLoaded', 'systemError'].includes(threadStatusType)
+            turn = threadIsIdle
+              ? {
+                  turnId: requestedTurnId,
+                  status: 'interrupted',
+                  text: '',
+                  durationMs: null,
+                  error: {
+                    message: 'Codex-Task ist inaktiv; der angeforderte Turn fehlt in der Historie.',
+                  },
+                }
+              : {
+                  turnId: requestedTurnId,
+                  status: 'inProgress',
+                  text: '',
+                  durationMs: null,
+                  error: null,
+                }
           } else {
             throw error
           }
+        }
+      }
+
+      if (
+        requestedTurnId &&
+        turn?.status === 'inProgress' &&
+        ['idle', 'notLoaded', 'systemError'].includes(threadStatusType)
+      ) {
+        turn = {
+          ...turn,
+          status: 'interrupted',
+          error: {
+            message: 'Codex-Task ist inaktiv; der angeforderte Turn wurde nicht abgeschlossen.',
+          },
         }
       }
 

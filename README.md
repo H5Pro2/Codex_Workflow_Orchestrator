@@ -146,6 +146,8 @@ Statusbefehle beschreiben die Route des Ergebnisses. Der technische Abschluss ei
 
 Ein Agent, der beim Stoppen bereits arbeitet, darf seinen laufenden Codex-Turn noch abschließen. Danach wird keine weitere Route gestartet. Direkte Chat-Nachrichten und manuelle Prompt-Übergaben bleiben auch bei ausgeschalteter Automatik verfügbar.
 
+Der Connector gleicht laufende Turn-IDs zusätzlich mit dem aktuellen Codex-Taskstatus ab. Fehlt der angeforderte Turn in der Historie und ist der Codex-Task bereits inaktiv, wird der Agent auf `Rückfrage` gesetzt. Dadurch bleiben verwaiste oder unterbrochene Turns nicht dauerhaft als aktive Agenten sichtbar.
+
 ## Zeitpläne
 
 Ein Zeitplan enthält eine Aufgabe und wird mit dem Zielagenten verbunden.
