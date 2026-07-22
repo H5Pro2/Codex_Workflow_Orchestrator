@@ -42,7 +42,7 @@ Die Überwachung startet keine eigenmächtigen Änderungen an Agenten, Prompt-Da
 
 #### Kontrollierter Team-Aufbau
 
-Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltungsagenten im Chat ausdrücklich mit der Zusammenstellung eines Teams beauftragen. Der Agent liefert Namen, Rollen, vollständige Arbeitsanweisungen, benötigte Statusbefehle samt Bedeutung, deren Zuweisung zu den Agenten und gewünschte Verbindungen in einem validierbaren Team-Vorschlag. Die Oberfläche zeigt einen erkannten Vorschlag direkt im Agenten-Chat zur Prüfung und kontrollierten Übernahme an.
+Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltungsagenten im Chat ausdrücklich mit der vollständigen Vorbereitung eines Projekts beauftragen. Der Agent plant Namen, Rollen, vollständige Arbeitsanweisungen, benötigte Statusbefehle samt Bedeutung, deren Zuweisung zu den Agenten, den ersten auszuführenden Agenten mit Startanweisung und die gewünschten Verbindungen. Die Oberfläche zeigt diesen validierbaren Team-Vorschlag direkt im Agenten-Chat zur Prüfung und kontrollierten Übernahme an.
 
 `Team übernehmen` führt ausschließlich bei `Auto Stop` folgende Schritte im aktuell ausgewählten Projekt aus:
 
@@ -50,9 +50,11 @@ Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltu
 - noch nicht vorhandene Statusbefehle projektweit anlegen
 - Rollen und Statusbefehle zuweisen
 - Arbeitsanweisungen als `Anweisung.md` speichern, ohne sie als Aufgabe zu starten
-- vorgeschlagene Agenten im Dashboard des Verwaltungsagenten anordnen und verbinden
+- einen Initial-Baustein mit der geplanten Startanweisung anlegen und mit dem vorgesehenen ersten Agenten verbinden
+- vorgeschlagene Agenten im Dashboard des Verwaltungsagenten anordnen
+- jede geplante Übergabe über einen passenden Statusfilter mit dem nächsten Agenten verbinden
 
-Während der Übernahme zeigt der Vorschlagsbereich den aktuell eingerichteten Agenten und einen rotierenden Fortschrittsindikator. Der Vorschlag verschwindet erst, wenn Agenten, Statusbefehle, Statuszuweisungen und Dashboard-Verbindungen vollständig vorhanden sind. Eine zuvor unterbrochene Übernahme kann ohne doppelte Agenten über `Einrichtung vervollständigen` repariert werden.
+Während der Übernahme zeigt der Vorschlagsbereich den aktuell eingerichteten Agenten und einen rotierenden Fortschrittsindikator. Der Vorschlag verschwindet erst, wenn Agenten, Statusbefehle, Statuszuweisungen, Initial-Baustein, Statusfilter und Dashboard-Verbindungen vollständig vorhanden sind. Der Abschluss wird aus diesen tatsächlich gespeicherten Daten geprüft und nicht nur aus einer flüchtigen Erfolgsmeldung abgeleitet. Danach bestätigt ein Dialog, dass das Projekt startbereit ist. Eine zuvor unterbrochene Übernahme kann ohne doppelte Agenten über `Einrichtung vervollständigen` repariert werden.
 
 Der neutrale Setup-Turn bestätigt ausschließlich die dauerhafte Registrierung eines neuen Codex-Chats und löst keine Workflow-Weitergabe aus. Der Orchestrator startet danach weder die Automatik noch eine fachliche Aufgabe. `Auto Start` bleibt eine bewusste Benutzeraktion. Ein neues Projektverzeichnis wird nicht automatisch erzeugt, weil dessen Speicherort vom Benutzer beziehungsweise von Codex festgelegt werden muss.
 

@@ -2107,6 +2107,18 @@ label {
   margin: 0;
 }
 
+.teamReadyModal {
+  max-width: 540px;
+}
+
+.teamReadyNoticeText {
+  border-left: 2px solid var(--accent);
+  color: #d4ddd9;
+  line-height: 1.55;
+  margin: 0;
+  padding: 8px 0 8px 12px;
+}
+
 .linkOverviewHeader {
   align-items: flex-start;
   display: flex;
