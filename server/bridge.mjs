@@ -229,6 +229,44 @@ async function waitForThreadListed(threadId, cwd) {
   throw new Error('Der neue Codex-Chat wurde erstellt, aber noch nicht im Projekt-Inventar bestätigt.')
 }
 
+async function readThreadTurnIds(threadId) {
+  try {
+    const result = await request('thread/read', {
+      threadId,
+      includeTurns: true,
+    })
+    return new Set((result.thread?.turns ?? []).map((turn) => turn.id).filter(Boolean))
+  } catch {
+    return new Set()
+  }
+}
+
+async function waitForStartedTurn(threadId, previousTurnIds, preferredTurnId = '') {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      const result = await request('thread/read', {
+        threadId,
+        includeTurns: true,
+      })
+      const turns = result.thread?.turns ?? []
+      const preferredTurn = preferredTurnId
+        ? turns.find((turn) => turn.id === preferredTurnId)
+        : null
+      if (preferredTurn) {
+        return preferredTurn
+      }
+      const newTurn = turns.findLast((turn) => turn.id && !previousTurnIds.has(turn.id))
+      if (newTurn) {
+        return newTurn
+      }
+    } catch {
+      // Der neue Turn kann kurz nach turn/start noch nicht im Protokoll stehen.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  return null
+}
+
 async function finalizeCreatedThreadName(threadId, turnId, name) {
   if (turnId) {
     for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -252,13 +290,20 @@ async function finalizeCreatedThreadName(threadId, turnId, name) {
 }
 
 async function startTurn(threadId, text, model = '') {
+  const previousTurnIds = await readThreadTurnIds(threadId)
   const turnParams = {
     threadId,
     input: [{ type: 'text', text, text_elements: [] }],
     ...(model ? { model } : {}),
   }
   try {
-    return await request('turn/start', turnParams)
+    const started = await request('turn/start', turnParams)
+    const persistedTurn = await waitForStartedTurn(
+      threadId,
+      previousTurnIds,
+      started.turn?.id ?? '',
+    )
+    return persistedTurn ? { ...started, turn: persistedTurn } : started
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes('thread not found')) {
       throw error
@@ -276,7 +321,13 @@ async function startTurn(threadId, text, model = '') {
       cwd: thread.cwd,
       persistExtendedHistory: true,
     })
-    return request('turn/start', turnParams)
+    const started = await request('turn/start', turnParams)
+    const persistedTurn = await waitForStartedTurn(
+      threadId,
+      previousTurnIds,
+      started.turn?.id ?? '',
+    )
+    return persistedTurn ? { ...started, turn: persistedTurn } : started
   } catch {
     return migrateLegacyThreadAndStart(thread, text, model)
   }
@@ -318,9 +369,14 @@ async function migrateLegacyThreadAndStart(thread, text, model = '') {
       text_elements: [],
     }],
   })
+  const persistedTurn = await waitForStartedTurn(
+    started.thread.id,
+    new Set(),
+    turn.turn?.id ?? '',
+  )
   const replacementThread = await waitForThreadListed(started.thread.id, thread.cwd)
   return {
-    turn: turn.turn,
+    turn: persistedTurn ?? turn.turn,
     replacementThread: {
       ...replacementThread,
       name: thread.name || thread.preview || 'Migrierter Agent',

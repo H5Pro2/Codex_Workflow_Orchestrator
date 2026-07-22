@@ -155,6 +155,8 @@ Ein Agent, der beim Stoppen bereits arbeitet, darf seinen laufenden Codex-Turn n
 
 Der Connector gleicht laufende Turn-IDs zusätzlich mit dem aktuellen Codex-Taskstatus ab. Fehlt der angeforderte Turn in der Historie und ist der Codex-Task bereits inaktiv, wird der Agent auf `Rückfrage` gesetzt. Dadurch bleiben verwaiste oder unterbrochene Turns nicht dauerhaft als aktive Agenten sichtbar.
 
+Nach `turn/start` gleicht der Connector die zunächst gemeldete Turn-ID mit der tatsächlich gespeicherten Codex-Historie ab. Falls Codex intern eine abweichende endgültige ID vergibt, überwacht der Orchestrator automatisch diese persistierte ID. Dadurch werden fertiggestellte Antworten nicht mehr fälschlich als fehlender oder unterbrochener Turn behandelt.
+
 ## Zeitpläne
 
 Ein Zeitplan enthält eine Aufgabe und wird mit dem Zielagenten verbunden.
