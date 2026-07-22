@@ -1259,6 +1259,7 @@ function App() {
   const [agentCreationError, setAgentCreationError] = useState('')
   const [teamPlanApplying, setTeamPlanApplying] = useState(false)
   const [teamPlanError, setTeamPlanError] = useState('')
+  const [teamPlanProgress, setTeamPlanProgress] = useState('')
   const [autoRun, setAutoRun] = useState(storedState.autoRun)
   const [projectFilter, setProjectFilter] = useState(storedState.selectedProjectId)
   const [hiddenThreadIds, setHiddenThreadIds] = useState<string[]>(storedState.hiddenThreadIds)
@@ -1568,6 +1569,48 @@ function App() {
       : null,
     [selectedAgent],
   )
+  const selectedTeamPlanComplete = useMemo(() => {
+    if (!selectedAgent || !selectedTeamPlan || !selectedAgent.projectPath) return false
+    if (selectedAgent.lastAppliedTeamPlanSignature !== selectedTeamPlan.signature) return false
+
+    const projectAgentByName = new Map(
+      agents
+        .filter((agent) => samePath(agent.projectPath, selectedAgent.projectPath))
+        .map((agent) => [agent.name.trim().toLocaleLowerCase('de-DE'), agent]),
+    )
+    const statusByName = new Map(
+      workflowStatuses
+        .filter((status) => samePath(status.projectPath, selectedAgent.projectPath))
+        .map((status) => [status.name.trim().toLocaleLowerCase('de-DE'), status]),
+    )
+    const proposedAgents = selectedTeamPlan.plan.agents.map((specification) => ({
+      specification,
+      agent: projectAgentByName.get(specification.name.trim().toLocaleLowerCase('de-DE')),
+    }))
+    if (proposedAgents.some(({ agent }) => !agent)) return false
+    if (selectedTeamPlan.plan.statusCommands.some((command) => {
+      const status = statusByName.get(command.name.trim().toLocaleLowerCase('de-DE'))
+      return !status || status.description.trim() !== command.meaning.trim()
+    })) return false
+    if (proposedAgents.some(({ specification, agent }) => specification.workflowStatuses.some((name) => {
+      const statusId = statusByName.get(name.trim().toLocaleLowerCase('de-DE'))?.id
+      return !statusId || !agent?.workflowStatusIds?.includes(statusId)
+    }))) return false
+
+    const expectedAgentIds = [selectedAgent.id, ...proposedAgents.map(({ agent }) => agent!.id)]
+    const dashboardAgentIds = workflowBoardAgentIds[selectedAgent.id] ?? []
+    if (expectedAgentIds.some((id) => !dashboardAgentIds.includes(id))) return false
+
+    return selectedTeamPlan.plan.connections.every((connection) => {
+      const sourceId = projectAgentByName.get(connection.from.trim().toLocaleLowerCase('de-DE'))?.id
+      const targetId = projectAgentByName.get(connection.to.trim().toLocaleLowerCase('de-DE'))?.id
+      return Boolean(sourceId && targetId && routes.some((route) =>
+        route.ownerAgentId === selectedAgent.id &&
+        route.sourceId === sourceId &&
+        route.targetId === targetId,
+      ))
+    })
+  }, [agents, routes, selectedAgent, selectedTeamPlan, workflowBoardAgentIds, workflowStatuses])
   const selectedTeamPlanMalformed = Boolean(
     selectedAgent?.teamProvisioningEnabled &&
     /<orchestrator_team_plan>/i.test(selectedAgent.lastResult) &&
@@ -2413,8 +2456,8 @@ function App() {
     if (manager.assignment !== 'management' || !manager.teamProvisioningEnabled) return
 
     const { plan, signature } = selectedTeamPlan
-    if (signature === manager.lastAppliedTeamPlanSignature) {
-      setTeamPlanError(tx('Dieser Team-Vorschlag wurde bereits übernommen.', 'This team proposal has already been applied.'))
+    if (selectedTeamPlanComplete) {
+      setTeamPlanError(tx('Dieser Team-Vorschlag ist bereits vollständig eingerichtet.', 'This team proposal is already fully configured.'))
       return
     }
 
@@ -2476,11 +2519,16 @@ function App() {
     }
 
     setTeamPlanApplying(true)
+    setTeamPlanProgress(tx('Team-Einrichtung wird vorbereitet…', 'Preparing team setup…'))
     setTeamPlanError('')
     const nextAgentMap = new Map(agents.map((agent) => [agent.id, agent]))
     const createdThreads: CodexThread[] = []
     try {
-      for (const specification of plan.agents) {
+      for (const [index, specification] of plan.agents.entries()) {
+        setTeamPlanProgress(tx(
+          `Agent ${index + 1} von ${plan.agents.length} wird eingerichtet: ${specification.name}`,
+          `Configuring agent ${index + 1} of ${plan.agents.length}: ${specification.name}`,
+        ))
         const normalizedName = specification.name.toLocaleLowerCase('de-DE')
         let agent = projectAgentMap.get(normalizedName)
         if (!agent) {
@@ -2574,6 +2622,7 @@ function App() {
       }
 
       const resolvedAgents = [...nextAgentMap.values()]
+      setTeamPlanProgress(tx('Statusbefehle und Verdrahtung werden eingerichtet…', 'Configuring status commands and workflow wiring…'))
       const teamAgentIds = plan.agents
         .map((item) => projectAgentMap.get(item.name.toLocaleLowerCase('de-DE'))?.id)
         .filter((id): id is string => Boolean(id))
@@ -2619,6 +2668,7 @@ function App() {
         'Team-Vorschlag übernommen',
         `${manager.name}: ${plan.agents.length} Agenten, ${plan.statusCommands.length} Statusbefehle, ${plan.connections.length} Verbindungen. Automatik bleibt gestoppt.`,
       )
+      setTeamPlanProgress(tx('Team-Einrichtung abgeschlossen.', 'Team setup complete.'))
     } catch (error) {
       setAgents([...nextAgentMap.values()])
       setWorkflowStatuses(nextWorkflowStatuses)
@@ -2630,6 +2680,7 @@ function App() {
       addEvent('Team-Aufbau fehlgeschlagen', error instanceof Error ? error.message : 'Unbekannter Fehler.')
     } finally {
       setTeamPlanApplying(false)
+      window.setTimeout(() => setTeamPlanProgress(''), 1200)
     }
   }
 
@@ -4602,7 +4653,7 @@ function App() {
                       )}</p>
                     )}
 
-                    {selectedAgent.teamProvisioningEnabled && selectedTeamPlan && (
+                    {selectedAgent.teamProvisioningEnabled && selectedTeamPlan && !selectedTeamPlanComplete && (
                       <div className="managementTeamPlan">
                         <div className="managementTeamPlanTitle">
                           <div>
@@ -4631,16 +4682,22 @@ function App() {
                           )}</small>
                           <button
                             className="primary"
-                            disabled={autoRun || teamPlanApplying || selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature}
+                            disabled={autoRun || teamPlanApplying}
                             onClick={() => void applyManagementTeamPlan(selectedAgent)}
                           >
                             {teamPlanApplying
                               ? tx('Team wird erstellt…', 'Creating team…')
                               : selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature
-                                ? tx('Bereits übernommen', 'Already applied')
+                                ? tx('Einrichtung vervollständigen', 'Complete setup')
                                 : tx('Team übernehmen', 'Apply team')}
                           </button>
                         </div>
+                        {teamPlanApplying && (
+                          <div className="teamPlanProgress" role="status">
+                            <span className="activitySpinner" aria-hidden="true" />
+                            <span>{teamPlanProgress}</span>
+                          </div>
+                        )}
                       </div>
                     )}
                     {selectedAgent.teamProvisioningEnabled && selectedTeamPlanMalformed && (
@@ -4700,7 +4757,7 @@ function App() {
                     {isAgentBusy(selectedAgent) ? tx('Antwort wird erstellt', 'Generating response') : tx('Aktuell', 'Current')}
                   </span>
                 </div>
-                {selectedAgent.teamProvisioningEnabled && selectedTeamPlan && (
+                {selectedAgent.teamProvisioningEnabled && selectedTeamPlan && !selectedTeamPlanComplete && (
                   <section className="chatTeamPlan" aria-live="polite">
                     <div>
                       <span>{tx('Team-Vorschlag bereit', 'Team proposal ready')}</span>
@@ -4713,20 +4770,25 @@ function App() {
                         'Review and apply safely while Auto Stop is active.',
                       )}</small>
                     </div>
-                    <button
-                      className="primary"
-                      disabled={autoRun || teamPlanApplying || selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature}
-                      onClick={() => void applyManagementTeamPlan(selectedAgent)}
-                      type="button"
-                    >
-                      {teamPlanApplying
-                        ? tx('Team wird erstellt…', 'Creating team…')
-                        : selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature
-                          ? tx('Bereits übernommen', 'Already applied')
+                    {teamPlanApplying ? (
+                      <div className="teamPlanProgress" role="status">
+                        <span className="activitySpinner" aria-hidden="true" />
+                        <span>{teamPlanProgress}</span>
+                      </div>
+                    ) : (
+                      <button
+                        className="primary"
+                        disabled={autoRun}
+                        onClick={() => void applyManagementTeamPlan(selectedAgent)}
+                        type="button"
+                      >
+                        {selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature
+                          ? tx('Einrichtung vervollständigen', 'Complete setup')
                           : autoRun
                             ? tx('Auto Stop erforderlich', 'Auto Stop required')
                             : tx('Team übernehmen', 'Apply team')}
-                    </button>
+                      </button>
+                    )}
                     {teamPlanError && <p className="formError">{teamPlanError}</p>}
                   </section>
                 )}

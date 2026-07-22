@@ -52,6 +52,8 @@ Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltu
 - Arbeitsanweisungen als `Anweisung.md` speichern, ohne sie als Aufgabe zu starten
 - vorgeschlagene Agenten im Dashboard des Verwaltungsagenten anordnen und verbinden
 
+Während der Übernahme zeigt der Vorschlagsbereich den aktuell eingerichteten Agenten und einen rotierenden Fortschrittsindikator. Der Vorschlag verschwindet erst, wenn Agenten, Statusbefehle, Statuszuweisungen und Dashboard-Verbindungen vollständig vorhanden sind. Eine zuvor unterbrochene Übernahme kann ohne doppelte Agenten über `Einrichtung vervollständigen` repariert werden.
+
 Der neutrale Setup-Turn bestätigt ausschließlich die dauerhafte Registrierung eines neuen Codex-Chats und löst keine Workflow-Weitergabe aus. Der Orchestrator startet danach weder die Automatik noch eine fachliche Aufgabe. `Auto Start` bleibt eine bewusste Benutzeraktion. Ein neues Projektverzeichnis wird nicht automatisch erzeugt, weil dessen Speicherort vom Benutzer beziehungsweise von Codex festgelegt werden muss.
 
 Während ein Agent erstellt wird, bleibt der Dialog geöffnet und zeigt einen deutlich sichtbaren, rotierenden Einrichtungsstatus. Eingabe und Schaltflächen sind bis zur Bestätigung des neuen Codex-Chats gesperrt, damit keine doppelten Erstellungsaufträge entstehen.

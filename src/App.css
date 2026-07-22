@@ -660,6 +660,23 @@ h2 {
   margin: 0;
 }
 
+.teamPlanProgress {
+  align-items: center;
+  color: var(--text);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 8px;
+  justify-self: end;
+  max-width: 310px;
+}
+
+.teamPlanProgress .activitySpinner {
+  flex: 0 0 auto;
+  height: 16px;
+  width: 16px;
+}
+
 .chatTeamPlanError {
   background: #241719;
   border-bottom: 1px solid #5d3035;
