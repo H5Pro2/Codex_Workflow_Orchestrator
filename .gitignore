@@ -16,6 +16,9 @@ server/orchestrator-state.json.tmp
 server/.thread-aliases/
 server/protocol/
 
+# Local project-external archives
+/bilder/06.18 v1 MCM_Trading_Brain.7z
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
