@@ -986,6 +986,82 @@ label {
   padding: 0 10px;
 }
 
+.managementTeamBuilder {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 11px;
+  margin-top: 14px;
+  padding-top: 13px;
+}
+
+.managementTeamHeader,
+.managementTeamPlanTitle,
+.managementTeamActions {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.managementTeamHeader > div,
+.managementTeamPlanTitle > div {
+  display: grid;
+  gap: 3px;
+}
+
+.managementTeamHeader small,
+.managementTeamPlanTitle small,
+.managementTeamActions small {
+  color: var(--muted);
+}
+
+.managementOfflineNotice {
+  border-left: 2px solid #d3a719;
+  color: #d8c987;
+  margin: 0;
+  padding: 3px 0 3px 9px;
+}
+
+.managementTeamPlan {
+  background: #14181a;
+  border: 1px solid #334247;
+  border-radius: 6px;
+  display: grid;
+  gap: 11px;
+  padding: 11px;
+}
+
+.managementTeamPlanTitle span {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.managementTeamAgents {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.managementTeamAgents article {
+  background: #1b1d20;
+  border: 1px solid #34383e;
+  border-radius: 5px;
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+}
+
+.managementTeamAgents article span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.managementTeamActions > small {
+  max-width: 560px;
+}
+
 .workflowStatusLibrary {
   background: #171719;
   border: 1px solid var(--line);
@@ -2317,7 +2393,10 @@ summary:focus-visible {
   }
 
   .managementHeader,
-  .managementMonitorHeader {
+  .managementMonitorHeader,
+  .managementTeamHeader,
+  .managementTeamPlanTitle,
+  .managementTeamActions {
     align-items: stretch;
     flex-direction: column;
   }
@@ -2329,7 +2408,8 @@ summary:focus-visible {
   }
 
   .managementMonitorGrid,
-  .managedAgentOptions {
+  .managedAgentOptions,
+  .managementTeamAgents {
     grid-template-columns: 1fr;
   }
 

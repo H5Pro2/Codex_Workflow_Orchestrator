@@ -11,6 +11,7 @@ Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der Codex-Ch
 - Rollen, Modelle und Statusfreigaben pro Agent konfigurieren
 - Agenten als Fach- oder Verwaltungsagenten einteilen
 - ausgewählte Agenten während der Automatik intervallgesteuert überwachen
+- kontrollierte Team-Vorschläge eines Verwaltungsagenten prüfen und übernehmen
 - mehrere Prompt-Dateien pro Agent verwalten
 - direkte Nachrichten an einzelne Codex-Chats senden
 - individuelle Workflows visuell aus Agenten und Werkzeugen aufbauen
@@ -35,7 +36,20 @@ Im Setup werden Name, Rolle, Modell und die für den Agenten erlaubten Workflow-
 
 Ein Verwaltungsagent kann andere Agenten desselben Projekts überwachen. Im Setup werden die zu prüfenden Agenten und ein Prüfintervall in Minuten ausgewählt. Solange die Automatik läuft, erhält der Verwaltungsagent regelmäßig eine kompakte Übersicht aus Laufstatus, Anzahl abgeschlossener Läufe und letztem Ergebnis. Er bewertet daraus Blockaden, Widersprüche, Wiederholungen und sinnvolle nächste Schritte.
 
-Die Überwachung startet keine eigenmächtigen Änderungen an Agenten, Prompt-Dateien oder Dashboard-Verbindungen. Der Verwaltungsagent liefert eine fachliche Bewertung und konkrete Empfehlungen; technische Änderungen bleiben beim Orchestrator. Damit ist die erste Stufe der Verwaltungsfunktion kontrollierbar, bevor später ein validiertes Befehlsformat für automatische Teamänderungen ergänzt wird.
+Die Überwachung startet keine eigenmächtigen Änderungen an Agenten, Prompt-Dateien oder Dashboard-Verbindungen. Der Verwaltungsagent liefert eine fachliche Bewertung und konkrete Empfehlungen; technische Änderungen bleiben beim Orchestrator und benötigen eine Benutzerfreigabe.
+
+#### Kontrollierter Team-Aufbau
+
+Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltungsagenten im Chat ausdrücklich mit der Zusammenstellung eines Teams beauftragen. Der Agent liefert Namen, Rollen, vollständige Arbeitsanweisungen, Statusfreigaben und gewünschte Verbindungen in einem validierbaren Team-Vorschlag. Die Oberfläche zeigt diesen Vorschlag anschließend zur Prüfung an.
+
+`Team übernehmen` führt ausschließlich bei `Auto Stop` folgende Schritte im aktuell ausgewählten Projekt aus:
+
+- fehlende Codex-Chats ohne initialen Turn erstellen
+- Rollen und Statusfreigaben zuweisen
+- Arbeitsanweisungen als `Anweisung.md` speichern, ohne sie als Aufgabe zu starten
+- vorgeschlagene Agenten im Dashboard des Verwaltungsagenten anordnen und verbinden
+
+Der Orchestrator startet danach weder einen Agenten noch die Automatik. `Auto Start` bleibt eine bewusste Benutzeraktion. Ein neues Projektverzeichnis wird nicht automatisch erzeugt, weil dessen Speicherort vom Benutzer beziehungsweise von Codex festgelegt werden muss.
 
 ### Prompt-Dateien
 
@@ -115,6 +129,7 @@ Statussignale beschreiben die Route des Ergebnisses. Der technische Abschluss ei
 - keine Ausführung fälliger Zeitpläne
 - keine neue automatische Weitergabe
 - ruhende Verbindungsanimationen
+- keine manuelle oder verwaltete Erstellung neuer Agenten
 
 Ein Agent, der beim Stoppen bereits arbeitet, darf seinen laufenden Codex-Turn noch abschließen. Danach wird keine weitere Route gestartet. Direkte Chat-Nachrichten und manuelle Prompt-Übergaben bleiben auch bei ausgeschalteter Automatik verfügbar.
 
