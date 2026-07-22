@@ -1379,8 +1379,12 @@ function App() {
   const sharedStateVersion = useRef('')
   const sharedStateDirty = useRef(false)
   const autoRunRef = useRef(autoRun)
+  const agentsRef = useRef(agents)
+  agentsRef.current = agents
   const pollingTurnIds = useRef(new Set<string>())
   const terminalResultObservations = useRef(new Map<string, number>())
+  const activeDeliveryTargetIds = useRef(new Set<string>())
+  const queuedSourceAgentIdsByTarget = useRef(new Map<string, string[]>())
   const timerDispatchIds = useRef(new Set<string>())
   const managementDispatchIds = useRef(new Set<string>())
   const chatStreamRef = useRef<HTMLDivElement>(null)
@@ -3389,9 +3393,30 @@ function App() {
       return
     }
 
+    const readyAgentDeliveries = agentDeliveries.filter(({ target }) => {
+      const targetBusy =
+        activeDeliveryTargetIds.current.has(target.id) ||
+        Boolean(target.pendingTurnId) ||
+        target.status === 'laeuft'
+      if (!targetBusy) {
+        activeDeliveryTargetIds.current.add(target.id)
+        return true
+      }
+      const queuedSourceIds = queuedSourceAgentIdsByTarget.current.get(target.id) ?? []
+      if (!queuedSourceIds.includes(agent.id)) {
+        queuedSourceAgentIdsByTarget.current.set(target.id, [...queuedSourceIds, agent.id])
+        addEvent(
+          'Weitergabe wartet',
+          `${agent.name} -> ${target.name}: Der Zielagent verarbeitet noch eine andere Übergabe.`,
+        )
+      }
+      return false
+    })
+    if (readyAgentDeliveries.length === 0) return
+
     updateAgent(agent.id, { status: 'weitergegeben' })
     const deliveredTargets: string[] = []
-    await Promise.all(agentDeliveries.map(async ({ target, route }) => {
+    await Promise.all(readyAgentDeliveries.map(async ({ target, route }) => {
       deliveredTargets.push(target.name)
       const message = buildHandoffMessage(
         agent,
@@ -3405,6 +3430,7 @@ function App() {
         runStartedAt: new Date().toISOString(),
       })
       if (!target.threadId) {
+        activeDeliveryTargetIds.current.delete(target.id)
         addEvent('Weitergabe nicht gesendet', `${target.name} ist mit keinem Codex-Chat verknüpft.`)
         return
       }
@@ -3437,6 +3463,7 @@ function App() {
           )
         }
       } catch (error) {
+        activeDeliveryTargetIds.current.delete(target.id)
         updateAgent(target.id, {
           status: 'rueckfrage',
           pendingTurnId: '',
@@ -3920,6 +3947,21 @@ function App() {
 
   useEffect(() => {
     const poll = async () => {
+      const forwardNextQueuedSource = async (targetId: string) => {
+        const queuedSourceIds = queuedSourceAgentIdsByTarget.current.get(targetId) ?? []
+        const [sourceId, ...remainingSourceIds] = queuedSourceIds
+        if (!sourceId) return
+        if (remainingSourceIds.length > 0) {
+          queuedSourceAgentIdsByTarget.current.set(targetId, remainingSourceIds)
+        } else {
+          queuedSourceAgentIdsByTarget.current.delete(targetId)
+        }
+        const source = agentsRef.current.find((item) => item.id === sourceId)
+        if (autoRunRef.current && source) {
+          await handoff(source)
+        }
+      }
+
       await Promise.all(
         agents
           .filter(
@@ -3971,12 +4013,14 @@ function App() {
                   runStartedAt: '',
                   updatedAt: new Date().toISOString(),
                 }
+                activeDeliveryTargetIds.current.delete(agent.id)
                 updateAgent(agent.id, failedAgent)
                 addEvent(
                   'Codex-Ausführung nicht abgeschlossen',
                   `${agent.name}: ${failureDetail}`,
                 )
                 if (autoRun && failedAgent.assignment === 'management') {
+                  queuedSourceAgentIdsByTarget.current.delete(failedAgent.id)
                   sharedStateDirty.current = true
                   autoRunRef.current = false
                   setAutoRun(false)
@@ -3987,6 +4031,7 @@ function App() {
                   )
                 } else if (autoRun && failedAgent.autoForward) {
                   await handoff(failedAgent)
+                  await forwardNextQueuedSource(failedAgent.id)
                 }
                 return
               }
@@ -4007,6 +4052,7 @@ function App() {
                 completedRuns: agent.completedRuns + 1,
                 updatedAt: new Date().toISOString(),
               }
+              activeDeliveryTargetIds.current.delete(agent.id)
               updateAgent(agent.id, completedAgent)
               addEvent('Codex-Ergebnis empfangen', `${agent.name} ist fertig.`)
               if (completedAgent.threadTitle !== completedAgent.name) {
@@ -4015,6 +4061,7 @@ function App() {
               if (autoRun && agent.autoForward) {
                 await handoff(completedAgent)
               }
+              await forwardNextQueuedSource(completedAgent.id)
             } catch (error) {
               const message = error instanceof Error ? error.message : 'Connector nicht erreichbar.'
               if (
