@@ -696,7 +696,13 @@ function managementInstruction(agent: Agent, monitoredAgents: Agent[]) {
   ].join('\n')
 }
 
-function managementTeamPlanInstruction() {
+function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinition[] = []) {
+  const existingStatusContext = existingStatuses.length > 0
+    ? [
+        'Bereits vorhandene projektweite Statusbefehle (unverändert wiederverwenden):',
+        ...existingStatuses.map((status) => `- ${status.name}: ${status.description}`),
+      ]
+    : ['Es sind noch keine projektweiten Statusbefehle vorhanden.']
   return [
     '',
     'Kontrollierter Team-Aufbau:',
@@ -719,6 +725,8 @@ function managementTeamPlanInstruction() {
     '}',
     '</orchestrator_team_plan>',
     'Definiere unter statusCommands alle Statusbefehle, die der Arbeitsablauf tatsächlich benötigt. Jeder Status braucht einen eindeutigen Namen und eine klare Bedeutung.',
+    ...existingStatusContext,
+    'Nimm wiederverwendete Statusbefehle mit exakt demselben Namen und exakt derselben Bedeutung in statusCommands auf. Erstelle nur dann einen neuen Statusbefehl, wenn keiner der vorhandenen Befehle den benötigten Zweck abdeckt.',
     'Jede Verbindung muss einen vorhandenen Statusbefehl nennen. Weise jedem Agenten unter workflowStatuses genau die Statusbefehle zu, die er verwenden darf.',
     'Wähle ein startAgent aus dem vorgeschlagenen Team und formuliere eine startInstruction, mit der die Arbeit bei Auto Start eindeutig beginnt.',
     'Verwende nur gültiges JSON. Erfinde keine Projektpfade. Der Orchestrator prüft den Vorschlag und ein Benutzer muss ihn übernehmen.',
@@ -1617,10 +1625,9 @@ function App() {
       agent: projectAgentByName.get(specification.name.trim().toLocaleLowerCase('de-DE')),
     }))
     if (proposedAgents.some(({ agent }) => !agent)) return false
-    if (selectedTeamPlan.plan.statusCommands.some((command) => {
-      const status = statusByName.get(command.name.trim().toLocaleLowerCase('de-DE'))
-      return !status || status.description.trim() !== command.meaning.trim()
-    })) return false
+    if (selectedTeamPlan.plan.statusCommands.some((command) =>
+      !statusByName.has(command.name.trim().toLocaleLowerCase('de-DE')),
+    )) return false
     if (proposedAgents.some(({ specification, agent }) => specification.workflowStatuses.some((name) => {
       const statusId = statusByName.get(name.trim().toLocaleLowerCase('de-DE'))?.id
       return !statusId || !agent?.workflowStatusIds?.includes(statusId)
@@ -2547,17 +2554,6 @@ function App() {
     const statusByName = new Map(
       projectWorkflowStatuses.map((status) => [status.name.trim().toLocaleLowerCase('de-DE'), status]),
     )
-    const conflictingStatus = plan.statusCommands.find((command) => {
-      const existing = statusByName.get(command.name.toLocaleLowerCase('de-DE'))
-      return existing && existing.description.trim() !== command.meaning.trim()
-    })
-    if (conflictingStatus) {
-      setTeamPlanError(tx(
-        `Der Statusbefehl „${conflictingStatus.name}“ existiert bereits mit einer anderen Bedeutung.`,
-        `The status command “${conflictingStatus.name}” already exists with a different meaning.`,
-      ))
-      return
-    }
     plan.statusCommands.forEach((command) => {
       const normalizedName = command.name.toLocaleLowerCase('de-DE')
       if (statusByName.has(normalizedName)) return
@@ -3108,7 +3104,7 @@ function App() {
       messageParts.push('', workflowStatusInstruction(workflowStatusesForAgent(agent, workflowStatuses)))
     }
     if (requestsTeamPlan) {
-      messageParts.push('', managementTeamPlanInstruction())
+      messageParts.push('', managementTeamPlanInstruction(projectWorkflowStatuses))
     }
     const message = messageParts.join('\n')
     try {
@@ -5015,17 +5011,26 @@ function App() {
                   </span>
                 </div>
                 {selectedAgent.teamProvisioningEnabled && selectedTeamPlan && !selectedTeamPlanComplete && (
-                  <section className="chatTeamPlan" aria-live="polite">
+                  <section
+                    aria-busy={teamPlanApplying}
+                    aria-live="polite"
+                    className={`chatTeamPlan ${teamPlanApplying ? 'processing' : teamPlanError ? 'blocked' : 'waiting'}`}
+                  >
                     <div>
-                      <span>{tx('Team-Vorschlag bereit', 'Team proposal ready')}</span>
+                      <span>{teamPlanApplying
+                        ? tx('Team-Einrichtung läuft', 'Team setup in progress')
+                        : teamPlanError
+                          ? tx('Übernahme angehalten', 'Setup paused')
+                          : tx('Team-Vorschlag bereit', 'Team proposal ready')}</span>
                       <strong>
                         {selectedTeamPlan.plan.agents.length} {tx('Agenten', 'agents')} ·{' '}
                         {selectedTeamPlan.plan.connections.length} {tx('Verbindungen', 'connections')}
                       </strong>
-                      <small>{tx(
-                        'Prüfen und bei Auto Stop kontrolliert übernehmen.',
-                        'Review and apply safely while Auto Stop is active.',
-                      )}</small>
+                      <small>{teamPlanApplying
+                        ? tx('Agenten, Prompts, Statusbefehle und Verdrahtung werden gespeichert.', 'Saving agents, prompts, status commands, and workflow wiring.')
+                        : teamPlanError
+                          ? tx('Der Vorgang wurde nicht abgeschlossen. Details stehen unten.', 'The operation did not complete. See details below.')
+                          : tx('Wartet auf Freigabe. Bei Auto Stop kontrolliert übernehmen.', 'Waiting for approval. Apply safely while Auto Stop is active.')}</small>
                     </div>
                     {teamPlanApplying ? (
                       <div className="teamPlanProgress" role="status">
@@ -5041,6 +5046,8 @@ function App() {
                       >
                         {selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature
                           ? tx('Einrichtung vervollständigen', 'Complete setup')
+                          : teamPlanError
+                            ? tx('Erneut versuchen', 'Try again')
                           : autoRun
                             ? tx('Auto Stop erforderlich', 'Auto Stop required')
                             : tx('Team übernehmen', 'Apply team')}

@@ -634,6 +634,18 @@ h2 {
   padding: 10px 13px;
 }
 
+.chatTeamPlan.processing {
+  border-left-color: #7dd3fc;
+}
+
+.chatTeamPlan.blocked {
+  border-left-color: #e5a65b;
+}
+
+.chatTeamPlan.blocked > div > span {
+  color: #f2bd7d;
+}
+
 .chatTeamPlan > div {
   display: grid;
   gap: 2px;
