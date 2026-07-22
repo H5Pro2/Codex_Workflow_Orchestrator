@@ -9,6 +9,8 @@ Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der Codex-Ch
 - die in Codex gespeicherten Projekte und ihre zugehörigen Chats über den lokalen Connector einlesen
 - Chats als Agenten übernehmen, erstellen, umbenennen, ausblenden und archivieren
 - Rollen, Modelle und Statusfreigaben pro Agent konfigurieren
+- Agenten als Fach- oder Verwaltungsagenten einteilen
+- ausgewählte Agenten während der Automatik intervallgesteuert überwachen
 - mehrere Prompt-Dateien pro Agent verwalten
 - direkte Nachrichten an einzelne Codex-Chats senden
 - individuelle Workflows visuell aus Agenten und Werkzeugen aufbauen
@@ -25,9 +27,15 @@ Die Hauptansicht kombiniert Projektauswahl, Agentenliste, laufenden Codex-Chat u
 
 ### Agenten-Setup
 
-Im Setup werden Name, Rolle, Modell und die für den Agenten erlaubten Workflow-Status festgelegt. Die automatische Weitergabe kann pro Agent aktiviert oder deaktiviert werden.
+Im Setup werden Name, Rolle, Modell und die für den Agenten erlaubten Workflow-Status festgelegt. Die automatische Weitergabe kann pro Agent aktiviert oder deaktiviert werden. Über die Agenten-Zuweisung wird zusätzlich festgelegt, ob ein Agent normale Fachaufgaben übernimmt oder eine Verwaltungs-Erweiterung erhält.
 
 ![Agenten-Setup](bilder/Agenten_Setup.PNG)
+
+### Verwaltungs-Erweiterung
+
+Ein Verwaltungsagent kann andere Agenten desselben Projekts überwachen. Im Setup werden die zu prüfenden Agenten und ein Prüfintervall in Minuten ausgewählt. Solange die Automatik läuft, erhält der Verwaltungsagent regelmäßig eine kompakte Übersicht aus Laufstatus, Anzahl abgeschlossener Läufe und letztem Ergebnis. Er bewertet daraus Blockaden, Widersprüche, Wiederholungen und sinnvolle nächste Schritte.
+
+Die Überwachung startet keine eigenmächtigen Änderungen an Agenten, Prompt-Dateien oder Dashboard-Verbindungen. Der Verwaltungsagent liefert eine fachliche Bewertung und konkrete Empfehlungen; technische Änderungen bleiben beim Orchestrator. Damit ist die erste Stufe der Verwaltungsfunktion kontrollierbar, bevor später ein validiertes Befehlsformat für automatische Teamänderungen ergänzt wird.
 
 ### Prompt-Dateien
 

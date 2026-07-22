@@ -871,6 +871,121 @@ label {
   padding: 0 10px;
 }
 
+.managementControl {
+  background: #171719;
+  border: 1px solid var(--line);
+  border-left: 3px solid #64748b;
+  border-radius: 6px;
+  margin-top: 14px;
+  padding: 12px;
+}
+
+.managementControl.enabled {
+  border-left-color: var(--accent);
+}
+
+.managementHeader,
+.managementMonitorHeader {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.managementHeader > div,
+.managementMonitorHeader > div {
+  display: grid;
+  gap: 3px;
+}
+
+.managementHeader > label {
+  min-width: 210px;
+}
+
+.managementSettings {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.managementMonitorHeader small,
+.managedAgentOption small {
+  color: var(--muted);
+}
+
+.managementEnabledToggle {
+  align-self: auto;
+  flex: 0 0 auto;
+  height: 34px;
+}
+
+.managementMonitorGrid {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  margin-top: 12px;
+}
+
+.managedAgentSelection {
+  display: grid;
+  gap: 7px;
+}
+
+.managedAgentSelection > span {
+  color: #a8b3c4;
+  font-size: 13px;
+}
+
+.managedAgentOptions {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.managedAgentOption {
+  align-items: center;
+  background: #1b1b1e;
+  border: 1px solid #353539;
+  border-radius: 5px;
+  flex-direction: row;
+  min-height: 42px;
+  padding: 7px 9px;
+}
+
+.managedAgentOption input {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.managedAgentOption > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.managementIntervalInput {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.managementIntervalInput input {
+  border-radius: 5px 0 0 5px;
+}
+
+.managementIntervalInput > span {
+  align-items: center;
+  align-self: stretch;
+  background: #222227;
+  border: 1px solid #3a3a40;
+  border-left: 0;
+  border-radius: 0 5px 5px 0;
+  color: var(--muted);
+  display: flex;
+  padding: 0 10px;
+}
+
 .workflowStatusLibrary {
   background: #171719;
   border: 1px solid var(--line);
@@ -2198,6 +2313,23 @@ summary:focus-visible {
   }
 
   .codexPicker {
+    grid-template-columns: 1fr;
+  }
+
+  .managementHeader,
+  .managementMonitorHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .managementHeader > label,
+  .managementMonitorGrid {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .managementMonitorGrid,
+  .managedAgentOptions {
     grid-template-columns: 1fr;
   }
 

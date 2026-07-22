@@ -17,6 +17,7 @@ import './App.css'
 
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
+type AgentAssignment = 'agent' | 'management'
 
 type PromptDocument = {
   id: string
@@ -43,6 +44,11 @@ type Agent = {
   status: AgentStatus
   talkTo: string[]
   autoForward: boolean
+  assignment: AgentAssignment
+  monitoredAgentIds: string[]
+  monitoringEnabled: boolean
+  monitoringIntervalMinutes: number
+  lastMonitoringAt: string
   workflowStatusIds: string[] | null
   workflowStatusUpdatedAt: string
   finishSignal: string
@@ -303,6 +309,8 @@ const eventTitleTranslations: Record<string, string> = {
   'Identische Aufgabe nicht weitergegeben': 'Duplicate task not forwarded',
   'Initial-Anfrage gesendet': 'Initial request sent',
   'Keine Status-Weitergabe': 'No status forwarding',
+  'Agentenüberwachung ausgeführt': 'Agent monitoring executed',
+  'Agentenüberwachung fehlgeschlagen': 'Agent monitoring failed',
   'Prompt an Codex übergeben': 'Prompt sent to Codex',
   'Prompt nicht gesendet': 'Prompt not sent',
   'Prompt nicht gespeichert': 'Prompt not saved',
@@ -420,6 +428,13 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
         ? [legacyAgent.handoffTo]
         : [],
     autoForward: agent.autoForward ?? true,
+    assignment: agent.assignment === 'management' ? 'management' : 'agent',
+    monitoredAgentIds: Array.isArray(agent.monitoredAgentIds)
+      ? Array.from(new Set(agent.monitoredAgentIds.filter((id): id is string => typeof id === 'string')))
+      : [],
+    monitoringEnabled: agent.monitoringEnabled === true,
+    monitoringIntervalMinutes: Math.max(1, Math.round(agent.monitoringIntervalMinutes ?? 30)),
+    lastMonitoringAt: agent.lastMonitoringAt ?? '',
     workflowStatusIds: Array.isArray(agent.workflowStatusIds)
       ? Array.from(new Set(agent.workflowStatusIds.filter((id): id is string => typeof id === 'string')))
       : null,
@@ -610,10 +625,30 @@ function samePath(left: string, right: string) {
   return left.localeCompare(right, undefined, { sensitivity: 'accent' }) === 0
 }
 
-function buildInstruction(agent: Agent, promptPath: string, statuses: WorkflowStatusDefinition[]) {
+function managementInstruction(agent: Agent, monitoredAgents: Agent[]) {
+  if (agent.assignment !== 'management') return ''
+
+  return [
+    'Verwaltungs-Erweiterung:',
+    'Du bist als Verwaltungsagent eingestuft. Du koordinierst und überwachst die dir zugewiesenen Agenten, ohne deren Facharbeit selbst zu übernehmen.',
+    monitoredAgents.length > 0
+      ? `Zugewiesene Agenten: ${monitoredAgents.map((item) => `${item.name} (${item.role})`).join(', ')}`
+      : 'Es sind aktuell keine Agenten zur Überwachung zugewiesen.',
+    'Bei einer Überwachungsanfrage bewertest du Fortschritt, Blockaden, widersprüchliche Ergebnisse und den sinnvollsten nächsten Schritt.',
+    'Du darfst Aufgaben und Rollen vorschlagen. Technische Änderungen an Agenten, Prompts und Verdrahtungen führt weiterhin ausschließlich der Workflow-Orchestrator aus.',
+  ].join('\n')
+}
+
+function buildInstruction(
+  agent: Agent,
+  promptPath: string,
+  statuses: WorkflowStatusDefinition[],
+  monitoredAgents: Agent[],
+) {
   return [
     `Rollen-Anweisung für: ${agent.name}`,
     `Rolle: ${agent.role}`,
+    managementInstruction(agent, monitoredAgents),
     '',
     `Verbindliche Prompt-Datei: \`${promptPath}\``,
     'Lies diese Datei zu Beginn vollständig und verwende sie als aktuelle Arbeitsanweisung. Bei Konflikten hat diese Datei Vorrang.',
@@ -735,6 +770,32 @@ function workflowStatusesForAgent(agent: Agent, statuses: WorkflowStatusDefiniti
   return selectedStatusIds === null
     ? projectStatuses
     : projectStatuses.filter((status) => selectedStatusIds.includes(status.id))
+}
+
+function buildMonitoringMessage(
+  manager: Agent,
+  monitoredAgents: Agent[],
+  statuses: WorkflowStatusDefinition[],
+) {
+  const snapshots = monitoredAgents.map((agent) => [
+    `Agent: ${agent.name}`,
+    `Rolle: ${agent.role}`,
+    `Laufstatus: ${agent.status}`,
+    `Abgeschlossene Läufe: ${agent.completedRuns}`,
+    'Letztes Ergebnis:',
+    agent.lastResult.trim().slice(-2400) || 'Noch kein Ergebnis vorhanden.',
+  ].join('\n'))
+
+  return [
+    `Agentenüberwachung durch ${manager.name}`,
+    '',
+    'Prüfe den aktuellen Stand der dir zugewiesenen Agenten. Erkenne Blockaden, widersprüchliche Ergebnisse, unnötige Wiederholungen und fehlende nächste Schritte.',
+    'Fasse anschließend knapp zusammen, ob eingegriffen werden muss und welche konkrete Aufgabe als Nächstes sinnvoll ist.',
+    '',
+    snapshots.join('\n\n---\n\n'),
+    '',
+    workflowStatusInstruction(statuses),
+  ].join('\n')
 }
 
 function routeConditionMatches(condition: string, result: string) {
@@ -1119,6 +1180,7 @@ function App() {
   const pollingTurnIds = useRef(new Set<string>())
   const terminalResultObservations = useRef(new Map<string, number>())
   const timerDispatchIds = useRef(new Set<string>())
+  const managementDispatchIds = useRef(new Set<string>())
   const chatStreamRef = useRef<HTMLDivElement>(null)
   const tx = useCallback(
     (de: string, en: string) => language === 'de' ? de : en,
@@ -1649,6 +1711,11 @@ function App() {
            status: 'wartet',
            talkTo: [],
            autoForward: true,
+           assignment: 'agent',
+           monitoredAgentIds: [],
+           monitoringEnabled: false,
+           monitoringIntervalMinutes: 30,
+           lastMonitoringAt: '',
            workflowStatusIds: null,
            workflowStatusUpdatedAt: '',
            finishSignal: '"status":"fertig"',
@@ -2016,6 +2083,11 @@ function App() {
       status: thread.status === 'active' ? 'laeuft' : 'wartet',
       talkTo: [],
       autoForward: true,
+      assignment: 'agent',
+      monitoredAgentIds: [],
+      monitoringEnabled: false,
+      monitoringIntervalMinutes: 30,
+      lastMonitoringAt: '',
       workflowStatusIds: null,
       workflowStatusUpdatedAt: '',
       finishSignal: '"status":"fertig"',
@@ -2090,6 +2162,11 @@ function App() {
         status: 'wartet',
         talkTo: [],
         autoForward: true,
+        assignment: 'agent',
+        monitoredAgentIds: [],
+        monitoringEnabled: false,
+        monitoringIntervalMinutes: 30,
+        lastMonitoringAt: '',
         workflowStatusIds: null,
         workflowStatusUpdatedAt: '',
         finishSignal: '"status":"fertig"',
@@ -2207,15 +2284,13 @@ function App() {
 
     const remaining = agents.filter((item) => item.id !== agent.id)
     setAgents(
-      remaining.map((item) =>
-        item.talkTo.includes(agent.id)
-          ? {
-              ...item,
-              talkTo: item.talkTo.filter((targetId) => targetId !== agent.id),
-              updatedAt: new Date().toISOString(),
-            }
-          : item,
-      ),
+      remaining.map((item) => {
+        const talkTo = item.talkTo.filter((targetId) => targetId !== agent.id)
+        const monitoredAgentIds = item.monitoredAgentIds.filter((targetId) => targetId !== agent.id)
+        return talkTo.length !== item.talkTo.length || monitoredAgentIds.length !== item.monitoredAgentIds.length
+          ? { ...item, talkTo, monitoredAgentIds, updatedAt: new Date().toISOString() }
+          : item
+      }),
     )
     setRoutes((current) =>
       current.filter((route) => route.sourceId !== agent.id && route.targetId !== agent.id),
@@ -2346,6 +2421,7 @@ function App() {
       agent,
       filePath,
       workflowStatusesForAgent(agent, workflowStatuses),
+      agents.filter((item) => agent.monitoredAgentIds.includes(item.id)),
     )
     let startedTurnId = ''
     try {
@@ -3241,6 +3317,83 @@ function App() {
   useEffect(() => {
     if (!autoRun) return
 
+    const dispatchManagementReviews = async () => {
+      const now = Date.now()
+      const managers = agents.filter((agent) => {
+        if (
+          agent.assignment !== 'management' ||
+          !agent.monitoringEnabled ||
+          !agent.threadId ||
+          agent.pendingTurnId ||
+          agent.status === 'laeuft' ||
+          managementDispatchIds.current.has(agent.id) ||
+          !samePath(agent.projectPath, selectedProject?.path ?? '')
+        ) {
+          return false
+        }
+        const lastRun = new Date(agent.lastMonitoringAt).getTime()
+        const intervalMs = Math.max(1, agent.monitoringIntervalMinutes) * 60_000
+        return !Number.isFinite(lastRun) || lastRun + intervalMs <= now
+      })
+
+      await Promise.all(managers.map(async (manager) => {
+        const monitoredAgents = agents.filter((agent) =>
+          manager.monitoredAgentIds.includes(agent.id) &&
+          agent.id !== manager.id &&
+          samePath(agent.projectPath, manager.projectPath),
+        )
+        if (monitoredAgents.length === 0) return
+
+        managementDispatchIds.current.add(manager.id)
+        setAgentTransmission(manager.id, true)
+        const dispatchedAt = new Date().toISOString()
+        updateAgent(manager.id, { lastMonitoringAt: dispatchedAt })
+        try {
+          const message = buildMonitoringMessage(
+            manager,
+            monitoredAgents,
+            workflowStatusesForAgent(manager, workflowStatuses),
+          )
+          const response = await fetch(`/api/threads/${encodeURIComponent(manager.threadId)}/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: message, model: manager.model || undefined }),
+          })
+          const data = await response.json()
+          if (!response.ok) {
+            throw new Error(data.error || 'Agentenüberwachung konnte nicht gesendet werden.')
+          }
+          applyThreadReplacement(manager, data.replacementThread)
+          updateAgent(manager.id, {
+            status: 'laeuft',
+            runStartedAt: dispatchedAt,
+            pendingTurnId: data.turn?.id ?? '',
+            lastMonitoringAt: dispatchedAt,
+          })
+          addEvent(
+            'Agentenüberwachung ausgeführt',
+            `${manager.name} → ${monitoredAgents.map((agent) => agent.name).join(', ')}`,
+          )
+        } catch (error) {
+          addEvent(
+            'Agentenüberwachung fehlgeschlagen',
+            `${manager.name}: ${error instanceof Error ? error.message : 'Connector nicht erreichbar.'}`,
+          )
+        } finally {
+          setAgentTransmission(manager.id, false)
+          managementDispatchIds.current.delete(manager.id)
+        }
+      }))
+    }
+
+    void dispatchManagementReviews()
+    const timer = window.setInterval(() => void dispatchManagementReviews(), 10_000)
+    return () => window.clearInterval(timer)
+  }, [addEvent, agents, applyThreadReplacement, autoRun, selectedProject?.path, setAgentTransmission, updateAgent, workflowStatuses])
+
+  useEffect(() => {
+    if (!autoRun) return
+
     const dispatchDueTimers = async () => {
       const now = Date.now()
       const dueTimers = workflowTimers.filter((timer) =>
@@ -3843,6 +3996,96 @@ function App() {
                 </details>
               </div>
             </div>
+
+            <section className={`managementControl ${selectedAgent.assignment === 'management' ? 'enabled' : ''}`}>
+              <div className="managementHeader">
+                <div>
+                  <p className="eyebrow">{tx('Agenten-Zuweisung', 'Agent assignment')}</p>
+                  <strong>{tx('Verwaltungs-Erweiterung', 'Management extension')}</strong>
+                </div>
+                <label>
+                  {tx('Einteilung', 'Assignment')}
+                  <select
+                    value={selectedAgent.assignment}
+                    onChange={(event) => updateAgent(selectedAgent.id, {
+                      assignment: event.target.value as AgentAssignment,
+                      monitoringEnabled: event.target.value === 'management'
+                        ? selectedAgent.monitoringEnabled
+                        : false,
+                    })}
+                  >
+                    <option value="agent">{tx('Agent', 'Agent')}</option>
+                    <option value="management">{tx('Verwaltung', 'Management')}</option>
+                  </select>
+                </label>
+              </div>
+
+              {selectedAgent.assignment === 'management' && (
+                <div className="managementSettings">
+                  <div className="managementMonitorHeader">
+                    <div>
+                      <strong>{tx('Agentenüberwachung', 'Agent monitoring')}</strong>
+                      <small>{tx(
+                        'Der Verwaltungsagent prüft den Stand der ausgewählten Agenten während der Automatik.',
+                        'The management agent reviews the selected agents while automation is running.',
+                      )}</small>
+                    </div>
+                    <label className="checkbox managementEnabledToggle">
+                      <input
+                        checked={selectedAgent.monitoringEnabled}
+                        type="checkbox"
+                        onChange={(event) => updateAgent(selectedAgent.id, { monitoringEnabled: event.target.checked })}
+                      />
+                      {tx('Aktiv', 'Active')}
+                    </label>
+                  </div>
+
+                  <div className="managementMonitorGrid">
+                    <div className="managedAgentSelection">
+                      <span>{tx('Agenten auswählen', 'Select agents')}</span>
+                      <div className="managedAgentOptions">
+                        {projectAgents.filter((agent) => agent.id !== selectedAgent.id).length === 0 ? (
+                          <small className="empty">{tx('Keine weiteren Agenten im Projekt.', 'No other agents in this project.')}</small>
+                        ) : projectAgents
+                          .filter((agent) => agent.id !== selectedAgent.id)
+                          .map((agent) => (
+                            <label className="managedAgentOption" key={agent.id}>
+                              <input
+                                checked={selectedAgent.monitoredAgentIds.includes(agent.id)}
+                                type="checkbox"
+                                onChange={(event) => updateAgent(selectedAgent.id, {
+                                  monitoredAgentIds: event.target.checked
+                                    ? Array.from(new Set([...selectedAgent.monitoredAgentIds, agent.id]))
+                                    : selectedAgent.monitoredAgentIds.filter((id) => id !== agent.id),
+                                })}
+                              />
+                              <span>
+                                <strong>{agent.name}</strong>
+                                <small>{agent.role}</small>
+                              </span>
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+                    <label>
+                      {tx('Prüfintervall', 'Review interval')}
+                      <span className="managementIntervalInput">
+                        <input
+                          min="1"
+                          step="1"
+                          type="number"
+                          value={selectedAgent.monitoringIntervalMinutes}
+                          onChange={(event) => updateAgent(selectedAgent.id, {
+                            monitoringIntervalMinutes: Math.max(1, Number(event.target.value) || 1),
+                          })}
+                        />
+                        <span>{tx('Minuten', 'minutes')}</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              )}
+            </section>
 
             <section className="autoForwardControl" aria-label={tx('Automatische Weitergabe', 'Automatic forwarding')}>
               <div>
