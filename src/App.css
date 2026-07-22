@@ -932,6 +932,17 @@ label {
   gap: 7px;
 }
 
+.managementScopeSelect {
+  display: grid;
+  gap: 6px;
+}
+
+.managementScopeHint {
+  color: var(--muted);
+  line-height: 1.45;
+  padding: 2px 1px;
+}
+
 .managedAgentSelection > span {
   color: #a8b3c4;
   font-size: 13px;

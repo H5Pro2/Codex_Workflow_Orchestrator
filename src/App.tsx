@@ -69,6 +69,7 @@ type Agent = {
   talkTo: string[]
   autoForward: boolean
   assignment: AgentAssignment
+  monitoringScope: 'all' | 'selected'
   monitoredAgentIds: string[]
   monitoringEnabled: boolean
   monitoringIntervalMinutes: number
@@ -457,6 +458,11 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
         : [],
     autoForward: agent.autoForward ?? true,
     assignment: agent.assignment === 'management' ? 'management' : 'agent',
+    monitoringScope: agent.monitoringScope === 'selected'
+      ? 'selected'
+      : agent.monitoringScope === 'all' || !agent.monitoredAgentIds?.length
+        ? 'all'
+        : 'selected',
     monitoredAgentIds: Array.isArray(agent.monitoredAgentIds)
       ? Array.from(new Set(agent.monitoredAgentIds.filter((id): id is string => typeof id === 'string')))
       : [],
@@ -653,6 +659,14 @@ function nextTimerRun(timer: WorkflowTimer, after = Date.now()) {
 
 function samePath(left: string, right: string) {
   return left.localeCompare(right, undefined, { sensitivity: 'accent' }) === 0
+}
+
+function monitoredAgentsFor(manager: Agent, agents: Agent[]) {
+  return agents.filter((agent) =>
+    agent.id !== manager.id &&
+    samePath(agent.projectPath, manager.projectPath) &&
+    (manager.monitoringScope === 'all' || manager.monitoredAgentIds.includes(agent.id)),
+  )
 }
 
 function managementInstruction(agent: Agent, monitoredAgents: Agent[]) {
@@ -1846,6 +1860,7 @@ function App() {
            talkTo: [],
            autoForward: true,
            assignment: 'agent',
+           monitoringScope: 'all',
            monitoredAgentIds: [],
            monitoringEnabled: false,
            monitoringIntervalMinutes: 30,
@@ -2220,6 +2235,7 @@ function App() {
       talkTo: [],
       autoForward: true,
       assignment: 'agent',
+      monitoringScope: 'all',
       monitoredAgentIds: [],
       monitoringEnabled: false,
       monitoringIntervalMinutes: 30,
@@ -2325,6 +2341,7 @@ function App() {
         talkTo: [],
         autoForward: true,
         assignment: 'agent',
+        monitoringScope: 'all',
         monitoredAgentIds: [],
         monitoringEnabled: false,
         monitoringIntervalMinutes: 30,
@@ -2820,7 +2837,7 @@ function App() {
       agent,
       filePath,
       workflowStatusesForAgent(agent, workflowStatuses),
-      agents.filter((item) => agent.monitoredAgentIds.includes(item.id)),
+      monitoredAgentsFor(agent, agents),
     )
     let startedTurnId = ''
     try {
@@ -3744,11 +3761,7 @@ function App() {
       })
 
       await Promise.all(managers.map(async (manager) => {
-        const monitoredAgents = agents.filter((agent) =>
-          manager.monitoredAgentIds.includes(agent.id) &&
-          agent.id !== manager.id &&
-          samePath(agent.projectPath, manager.projectPath),
-        )
+        const monitoredAgents = monitoredAgentsFor(manager, agents)
         if (monitoredAgents.length === 0) return
 
         managementDispatchIds.current.add(manager.id)
@@ -4464,30 +4477,51 @@ function App() {
 
                   <div className="managementMonitorGrid">
                     <div className="managedAgentSelection">
-                      <span>{tx('Agenten auswählen', 'Select agents')}</span>
-                      <div className="managedAgentOptions">
-                        {projectAgents.filter((agent) => agent.id !== selectedAgent.id).length === 0 ? (
-                          <small className="empty">{tx('Keine weiteren Agenten im Projekt.', 'No other agents in this project.')}</small>
-                        ) : projectAgents
-                          .filter((agent) => agent.id !== selectedAgent.id)
-                          .map((agent) => (
-                            <label className="managedAgentOption" key={agent.id}>
-                              <input
-                                checked={selectedAgent.monitoredAgentIds.includes(agent.id)}
-                                type="checkbox"
-                                onChange={(event) => updateAgent(selectedAgent.id, {
-                                  monitoredAgentIds: event.target.checked
-                                    ? Array.from(new Set([...selectedAgent.monitoredAgentIds, agent.id]))
-                                    : selectedAgent.monitoredAgentIds.filter((id) => id !== agent.id),
-                                })}
-                              />
-                              <span>
-                                <strong>{agent.name}</strong>
-                                <small>{agent.role}</small>
-                              </span>
-                            </label>
-                          ))}
-                      </div>
+                      <label className="managementScopeSelect">
+                        {tx('Überwachungsbereich', 'Monitoring scope')}
+                        <select
+                          value={selectedAgent.monitoringScope}
+                          onChange={(event) => updateAgent(selectedAgent.id, {
+                            monitoringScope: event.target.value as Agent['monitoringScope'],
+                          })}
+                        >
+                          <option value="all">{tx('Ganzes Team', 'Entire team')}</option>
+                          <option value="selected">{tx('Ausgewählte Agenten', 'Selected agents')}</option>
+                        </select>
+                      </label>
+                      {selectedAgent.monitoringScope === 'selected' && (
+                        <div className="managedAgentOptions">
+                          {projectAgents.filter((agent) => agent.id !== selectedAgent.id).length === 0 ? (
+                            <small className="empty">{tx('Keine weiteren Agenten im Projekt.', 'No other agents in this project.')}</small>
+                          ) : projectAgents
+                            .filter((agent) => agent.id !== selectedAgent.id)
+                            .map((agent) => (
+                              <label className="managedAgentOption" key={agent.id}>
+                                <input
+                                  checked={selectedAgent.monitoredAgentIds.includes(agent.id)}
+                                  type="checkbox"
+                                  onChange={(event) => updateAgent(selectedAgent.id, {
+                                    monitoredAgentIds: event.target.checked
+                                      ? Array.from(new Set([...selectedAgent.monitoredAgentIds, agent.id]))
+                                      : selectedAgent.monitoredAgentIds.filter((id) => id !== agent.id),
+                                  })}
+                                />
+                                <span>
+                                  <strong>{agent.name}</strong>
+                                  <small>{agent.role}</small>
+                                </span>
+                              </label>
+                            ))}
+                        </div>
+                      )}
+                      {selectedAgent.monitoringScope === 'all' && (
+                        <small className="managementScopeHint">
+                          {tx(
+                            'Alle anderen Agenten dieses Projekts werden automatisch einbezogen.',
+                            'All other agents in this project are included automatically.',
+                          )}
+                        </small>
+                      )}
                     </div>
                     <label>
                       {tx('Prüfintervall', 'Review interval')}
