@@ -728,6 +728,22 @@ const server = createServer(async (incoming, response) => {
       return
     }
 
+    if (incoming.method === 'GET' && url.pathname === '/api/account') {
+      await ready
+      const result = await request('account/read', { refreshToken: false })
+      const account = result.account ?? null
+      const email = account?.type === 'chatgpt' && typeof account.email === 'string'
+        ? account.email.trim()
+        : ''
+      const suggestedName = email.includes('@') ? email.slice(0, email.indexOf('@')) : ''
+      sendJson(response, 200, {
+        accountType: account?.type ?? '',
+        suggestedName,
+        planType: account?.type === 'chatgpt' ? account.planType ?? null : null,
+      })
+      return
+    }
+
     const conversationMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/conversation$/)
     if (incoming.method === 'GET' && conversationMatch) {
       await ready

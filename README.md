@@ -19,8 +19,26 @@ Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der Codex-Ch
 - zeitgesteuerte Aufgaben einmalig oder wiederkehrend auslösen
 - Laufstatus, Dauer, Chatverlauf und Ereignisprotokoll verfolgen
 - die Bedienoberfläche zwischen Deutsch und Englisch umschalten
+- globale Programmeinstellungen über den Profilbereich öffnen
+- Designmodus, Oberflächenfarben, Schriftarten und Kontrast anpassen
 
 ## Oberfläche
+
+### Profil und Programmeinstellungen
+
+Am unteren Ende der Agentenleiste befindet sich der globale Profilzugang. Wenn der lokale Codex-Connector einen Kontohinweis bereitstellt, verwendet die Oberfläche dessen vorgeschlagenen Anzeigenamen; andernfalls wird neutral `Codex` angezeigt. Der Anzeigename kann ausschließlich lokal überschrieben werden. Die vollständige E-Mail-Adresse oder andere Kontodaten werden nicht an die Weboberfläche übertragen.
+
+Ein Klick auf das Profil öffnet eine eigenständige Einstellungsansicht mit einem direkten Rücksprung über `Zurück zur App`. Diese Einstellungen gelten für die gesamte Anwendung und sind von den Setups einzelner Agenten getrennt.
+
+Unter `Aussehen` stehen zur Verfügung:
+
+- Design nach Systemeinstellung sowie ein heller und ein dunkler Modus
+- frei wählbare Akzent-, Hintergrund- und Vordergrundfarben
+- Auswahl der UI- und Code-Schriftart
+- regelbarer Oberflächenkontrast
+- Rücksetzen auf das Standarddesign
+
+Die gewählten Programmeinstellungen werden lokal im Browser gespeichert.
 
 ### Agenten-Chat
 

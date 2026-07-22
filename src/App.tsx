@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   Controls,
   Handle,
@@ -18,6 +18,19 @@ import './App.css'
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
 type AgentAssignment = 'agent' | 'management'
+type ThemeMode = 'system' | 'light' | 'dark'
+type SettingsSection = 'general' | 'profile' | 'appearance'
+
+type ProgramSettings = {
+  displayName: string
+  theme: ThemeMode
+  accentColor: string
+  backgroundColor: string
+  foregroundColor: string
+  uiFont: string
+  codeFont: string
+  contrast: number
+}
 
 const MANAGEMENT_ERROR_STATUS_NAME = 'Fehler'
 const MANAGEMENT_ERROR_STATUS_MEANING =
@@ -274,7 +287,61 @@ const workflowNodeTypes = { workflow: WorkflowNode }
 
 const STORAGE_KEY = 'codex-workflow-orchestrator'
 const LANGUAGE_STORAGE_KEY = 'codex-workflow-orchestrator-language'
+const PROGRAM_SETTINGS_STORAGE_KEY = 'codex-workflow-orchestrator-program-settings'
 const PROMPT_NODES_ENABLED = false
+
+const defaultProgramSettings: ProgramSettings = {
+  displayName: '',
+  theme: 'dark',
+  accentColor: '#72d6c9',
+  backgroundColor: '#0b0b0c',
+  foregroundColor: '#f2f2f3',
+  uiFont: 'Segoe UI Variable Text',
+  codeFont: 'Cascadia Code',
+  contrast: 60,
+}
+
+function loadProgramSettings(): ProgramSettings {
+  try {
+    const stored = window.localStorage.getItem(PROGRAM_SETTINGS_STORAGE_KEY)
+    if (!stored) {
+      return defaultProgramSettings
+    }
+    const parsed = JSON.parse(stored) as Partial<ProgramSettings>
+    return {
+      ...defaultProgramSettings,
+      ...parsed,
+      contrast: Math.min(100, Math.max(0, Number(parsed.contrast ?? defaultProgramSettings.contrast))),
+    }
+  } catch {
+    return defaultProgramSettings
+  }
+}
+
+function isHexColor(value: string) {
+  return /^#[0-9a-f]{6}$/i.test(value)
+}
+
+function mixHexColors(background: string, foreground: string, foregroundWeight: number) {
+  if (!isHexColor(background) || !isHexColor(foreground)) {
+    return background
+  }
+  const weight = Math.min(1, Math.max(0, foregroundWeight))
+  const channel = (start: number) => {
+    const from = Number.parseInt(background.slice(start, start + 2), 16)
+    const to = Number.parseInt(foreground.slice(start, start + 2), 16)
+    return Math.round(from + (to - from) * weight).toString(16).padStart(2, '0')
+  }
+  return `#${channel(1)}${channel(3)}${channel(5)}`
+}
+
+function getProfileInitials(name: string) {
+  const parts = name.trim().split(/[\s._-]+/).filter(Boolean)
+  if (parts.length > 1) {
+    return `${parts[0][0]}${parts[1][0]}`.toLocaleUpperCase()
+  }
+  return (parts[0] ?? 'C').slice(0, 2).toLocaleUpperCase()
+}
 
 const languageCopy: Record<UiLanguage, {
   week: string
@@ -1344,6 +1411,12 @@ function WorkflowDashboard({
 
 function App() {
   const [storedState] = useState(loadStoredState)
+  const [programSettings, setProgramSettings] = useState(loadProgramSettings)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
+  const [settingsSearch, setSettingsSearch] = useState('')
+  const [accountSuggestedName, setAccountSuggestedName] = useState('')
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [agents, setAgents] = useState<Agent[]>(storedState.agents)
   const [events, setEvents] = useState<EventLog[]>(storedState.events)
   const [codexProjects, setCodexProjects] = useState<CodexProject[]>(initialCodexProjects)
@@ -1413,11 +1486,71 @@ function App() {
   const [transmittingAgentIds, setTransmittingAgentIds] = useState<string[]>([])
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const copy = languageCopy[language]
+  const effectiveTheme: Exclude<ThemeMode, 'system'> = programSettings.theme === 'system'
+    ? systemDark ? 'dark' : 'light'
+    : programSettings.theme
+  const profileName = programSettings.displayName.trim() || accountSuggestedName || 'Codex'
+  const profileInitials = getProfileInitials(profileName)
+  const themeVariables = useMemo(() => {
+    const background = isHexColor(programSettings.backgroundColor)
+      ? programSettings.backgroundColor
+      : defaultProgramSettings.backgroundColor
+    const foreground = isHexColor(programSettings.foregroundColor)
+      ? programSettings.foregroundColor
+      : defaultProgramSettings.foregroundColor
+    const accent = isHexColor(programSettings.accentColor)
+      ? programSettings.accentColor
+      : defaultProgramSettings.accentColor
+    const contrast = programSettings.contrast / 100
+    return {
+      '--canvas': background,
+      '--surface': mixHexColors(background, foreground, 0.035 + contrast * 0.045),
+      '--surface-raised': mixHexColors(background, foreground, 0.06 + contrast * 0.065),
+      '--surface-hover': mixHexColors(background, foreground, 0.09 + contrast * 0.08),
+      '--line': mixHexColors(background, foreground, 0.11 + contrast * 0.1),
+      '--line-strong': mixHexColors(background, foreground, 0.17 + contrast * 0.12),
+      '--text': foreground,
+      '--muted': mixHexColors(background, foreground, 0.54 + contrast * 0.12),
+      '--accent': accent,
+      '--ui-font': `"${programSettings.uiFont}", "Segoe UI", sans-serif`,
+      '--code-font': `"${programSettings.codeFont}", ui-monospace, monospace`,
+    } as CSSProperties
+  }, [programSettings])
 
   useEffect(() => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
     document.documentElement.lang = language
   }, [language])
+
+  useEffect(() => {
+    window.localStorage.setItem(PROGRAM_SETTINGS_STORAGE_KEY, JSON.stringify(programSettings))
+  }, [programSettings])
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const updateSystemTheme = () => setSystemDark(media.matches)
+    media.addEventListener('change', updateSystemTheme)
+    return () => media.removeEventListener('change', updateSystemTheme)
+  }, [])
+
+  useEffect(() => {
+    document.documentElement.style.colorScheme = effectiveTheme
+    document.body.style.background = programSettings.backgroundColor
+  }, [effectiveTheme, programSettings.backgroundColor])
+
+  useEffect(() => {
+    if (programSettings.theme !== 'system') {
+      return
+    }
+    const backgroundColor = systemDark ? '#0b0b0c' : '#f7f7f8'
+    const foregroundColor = systemDark ? '#f2f2f3' : '#18181b'
+    setProgramSettings((current) => {
+      if (current.backgroundColor === backgroundColor && current.foregroundColor === foregroundColor) {
+        return current
+      }
+      return { ...current, backgroundColor, foregroundColor }
+    })
+  }, [programSettings.theme, systemDark])
   const [chatError, setChatError] = useState('')
   const [chatPinnedToBottom, setChatPinnedToBottom] = useState(true)
   const [chatDraft, setChatDraft] = useState('')
@@ -2428,9 +2561,10 @@ function App() {
     let active = true
     const loadCodexMeta = async () => {
       try {
-        const [modelsResponse, usageResponse] = await Promise.all([
+        const [modelsResponse, usageResponse, accountResponse] = await Promise.all([
           fetch('/api/models'),
           fetch('/api/usage'),
+          fetch('/api/account'),
         ])
         if (modelsResponse.ok) {
           const data = await modelsResponse.json()
@@ -2457,6 +2591,12 @@ function App() {
                 : null,
               unlimited: Boolean(rateLimits?.credits?.unlimited),
             })
+          }
+        }
+        if (accountResponse.ok) {
+          const data = await accountResponse.json()
+          if (active && typeof data.suggestedName === 'string') {
+            setAccountSuggestedName(data.suggestedName.trim())
           }
         }
       } catch {
@@ -4573,8 +4713,228 @@ function App() {
     void startInitialWorkflows()
   }
 
+  const applyThemePreset = (theme: ThemeMode) => {
+    const resolved = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme
+    setProgramSettings((current) => ({
+      ...current,
+      theme,
+      backgroundColor: resolved === 'light' ? '#f7f7f8' : '#0b0b0c',
+      foregroundColor: resolved === 'light' ? '#18181b' : '#f2f2f3',
+    }))
+  }
+
+  const updateProgramColor = (
+    key: 'accentColor' | 'backgroundColor' | 'foregroundColor',
+    value: string,
+  ) => {
+    if (isHexColor(value)) {
+      setProgramSettings((current) => ({ ...current, [key]: value.toLowerCase() }))
+    }
+  }
+
+  const settingsNavigation = [
+    { id: 'general' as const, label: tx('Allgemein', 'General'), symbol: '⚙' },
+    { id: 'profile' as const, label: tx('Profil', 'Profile'), symbol: '○' },
+    { id: 'appearance' as const, label: tx('Aussehen', 'Appearance'), symbol: '◐' },
+  ].filter((item) => item.label.toLocaleLowerCase().includes(settingsSearch.trim().toLocaleLowerCase()))
+
+  if (settingsOpen) {
+    return (
+      <main className="shell settingsShell" data-theme={effectiveTheme} style={themeVariables}>
+        <section className="settingsPage">
+          <aside className="settingsNavigation" aria-label={tx('Einstellungsbereiche', 'Settings sections')}>
+            <button className="settingsBack" onClick={() => setSettingsOpen(false)} type="button">
+              <span aria-hidden="true">←</span>
+              {tx('Zurück zur App', 'Back to app')}
+            </button>
+            <input
+              aria-label={tx('Einstellungen durchsuchen', 'Search settings')}
+              className="settingsSearch"
+              onChange={(event) => setSettingsSearch(event.target.value)}
+              placeholder={tx('Einstellungen durchsuchen…', 'Search settings…')}
+              value={settingsSearch}
+            />
+            <p className="settingsGroupLabel">{tx('Persönlich', 'Personal')}</p>
+            <nav className="settingsNavList">
+              {settingsNavigation.map((item) => (
+                <button
+                  className={settingsSection === item.id ? 'active' : ''}
+                  key={item.id}
+                  onClick={() => setSettingsSection(item.id)}
+                  type="button"
+                >
+                  <span aria-hidden="true">{item.symbol}</span>
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+            <button
+              className="settingsProfileSummary"
+              onClick={() => setSettingsSection('profile')}
+              type="button"
+            >
+              <span className="profileAvatar">{profileInitials}</span>
+              <span>{profileName}</span>
+            </button>
+          </aside>
+
+          <section className="settingsContent">
+            {settingsSection === 'general' && (
+              <div className="settingsPanel">
+                <header className="settingsTitle">
+                  <p className="eyebrow">{tx('Programmeinstellungen', 'Application settings')}</p>
+                  <h1>{tx('Allgemein', 'General')}</h1>
+                </header>
+                <section className="settingsRows">
+                  <div className="settingsRow">
+                    <div>
+                      <strong>{tx('Sprache', 'Language')}</strong>
+                      <small>{tx('Sprache der gesamten Oberfläche.', 'Language used throughout the interface.')}</small>
+                    </div>
+                    <div className="settingsSegmented" aria-label={tx('Sprache auswählen', 'Select language')}>
+                      <button className={language === 'de' ? 'active' : ''} onClick={() => setLanguage('de')} type="button">DE</button>
+                      <button className={language === 'en' ? 'active' : ''} onClick={() => setLanguage('en')} type="button">EN</button>
+                    </div>
+                  </div>
+                  <div className="settingsRow">
+                    <div>
+                      <strong>{tx('Codex-Konto', 'Codex account')}</strong>
+                      <small>{tx('Der Profilname wird vom verbundenen Konto vorgeschlagen.', 'The profile name is suggested by the connected account.')}</small>
+                    </div>
+                    <span className={`settingsConnection ${connectorOnline ? 'online' : ''}`}>
+                      <span className="stateDot" aria-hidden="true" />
+                      {connectorOnline ? tx('Verbunden', 'Connected') : tx('Offline', 'Offline')}
+                    </span>
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {settingsSection === 'profile' && (
+              <div className="settingsPanel">
+                <header className="settingsTitle">
+                  <p className="eyebrow">{tx('Programmeinstellungen', 'Application settings')}</p>
+                  <h1>{tx('Profil', 'Profile')}</h1>
+                </header>
+                <section className="profileSettingsCard">
+                  <span className="profileAvatar large">{profileInitials}</span>
+                  <label>
+                    {tx('Anzeigename', 'Display name')}
+                    <input
+                      onChange={(event) => setProgramSettings((current) => ({ ...current, displayName: event.target.value }))}
+                      placeholder={accountSuggestedName || 'Codex'}
+                      value={programSettings.displayName}
+                    />
+                  </label>
+                  <small>
+                    {programSettings.displayName.trim()
+                      ? tx('Lokal festgelegter Name.', 'Locally defined name.')
+                      : tx('Automatischer Vorschlag aus dem verbundenen Codex-Konto.', 'Automatic suggestion from the connected Codex account.')}
+                  </small>
+                </section>
+              </div>
+            )}
+
+            {settingsSection === 'appearance' && (
+              <div className="settingsPanel appearanceSettings">
+                <header className="settingsTitle">
+                  <p className="eyebrow">{tx('Programmeinstellungen', 'Application settings')}</p>
+                  <h1>{tx('Aussehen', 'Appearance')}</h1>
+                </header>
+                <section>
+                  <h2>{tx('Design', 'Design')}</h2>
+                  <div className="themeChoices">
+                    {(['system', 'light', 'dark'] as ThemeMode[]).map((theme) => (
+                      <button
+                        aria-pressed={programSettings.theme === theme}
+                        className={programSettings.theme === theme ? 'active' : ''}
+                        key={theme}
+                        onClick={() => applyThemePreset(theme)}
+                        type="button"
+                      >
+                        <span className={`themePreview ${theme}`} aria-hidden="true">
+                          <span className="themePreviewSidebar" />
+                          <span className="themePreviewMain"><i /><i /><i /></span>
+                        </span>
+                        <span>{theme === 'system' ? 'System' : theme === 'light' ? tx('Hell', 'Light') : tx('Dunkel', 'Dark')}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="appearanceControls">
+                  <div className="appearanceControlHeader">
+                    <h2>{effectiveTheme === 'dark' ? tx('Dunkles Design', 'Dark design') : tx('Helles Design', 'Light design')}</h2>
+                    <button
+                      className="compact"
+                      onClick={() => setProgramSettings((current) => ({ ...defaultProgramSettings, displayName: current.displayName }))}
+                      type="button"
+                    >
+                      {tx('Zurücksetzen', 'Reset')}
+                    </button>
+                  </div>
+                  {([
+                    ['accentColor', tx('Akzent', 'Accent')],
+                    ['backgroundColor', tx('Hintergrund', 'Background')],
+                    ['foregroundColor', tx('Vordergrund', 'Foreground')],
+                  ] as const).map(([key, label]) => (
+                    <label className="colorSetting" key={key}>
+                      <span>{label}</span>
+                      <span className="colorValue">
+                        <input
+                          aria-label={label}
+                          onChange={(event) => updateProgramColor(key, event.target.value)}
+                          type="color"
+                          value={programSettings[key]}
+                        />
+                        <code>{programSettings[key].toUpperCase()}</code>
+                      </span>
+                    </label>
+                  ))}
+                  <label className="appearanceSelect">
+                    <span>{tx('UI-Schriftart', 'UI font')}</span>
+                    <select
+                      onChange={(event) => setProgramSettings((current) => ({ ...current, uiFont: event.target.value }))}
+                      value={programSettings.uiFont}
+                    >
+                      <option value="Segoe UI Variable Text">Segoe UI</option>
+                      <option value="Inter">Inter</option>
+                      <option value="system-ui">System</option>
+                    </select>
+                  </label>
+                  <label className="appearanceSelect">
+                    <span>{tx('Code-Schriftart', 'Code font')}</span>
+                    <select
+                      onChange={(event) => setProgramSettings((current) => ({ ...current, codeFont: event.target.value }))}
+                      value={programSettings.codeFont}
+                    >
+                      <option value="Cascadia Code">Cascadia Code</option>
+                      <option value="Consolas">Consolas</option>
+                      <option value="ui-monospace">System Mono</option>
+                    </select>
+                  </label>
+                  <label className="contrastSetting">
+                    <span>{tx('Kontrast', 'Contrast')}</span>
+                    <input
+                      max="100"
+                      min="0"
+                      onChange={(event) => setProgramSettings((current) => ({ ...current, contrast: Number(event.target.value) }))}
+                      type="range"
+                      value={programSettings.contrast}
+                    />
+                    <output>{programSettings.contrast}</output>
+                  </label>
+                </section>
+              </div>
+            )}
+          </section>
+        </section>
+      </main>
+    )
+  }
+
   return (
-    <main className="shell">
+    <main className="shell" data-theme={effectiveTheme} style={themeVariables}>
       <section className="topbar">
         <div>
           <h1>Codex Workflow Orchestrator</h1>
@@ -5013,6 +5373,20 @@ function App() {
               }}
             />
           )}
+          <button
+            className="profileLauncher"
+            onClick={() => {
+              setSettingsSection('general')
+              setSettingsSearch('')
+              setSettingsOpen(true)
+            }}
+            title={tx('Programmeinstellungen öffnen', 'Open application settings')}
+            type="button"
+          >
+            <span className="profileAvatar">{profileInitials}</span>
+            <span className="profileLauncherName">{profileName}</span>
+            <span aria-hidden="true" className="profileLauncherArrow">›</span>
+          </button>
         </aside>
 
         {selectedAgent ? (

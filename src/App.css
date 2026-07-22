@@ -17,6 +17,15 @@
   padding: 20px 24px;
   width: 100%;
   zoom: 0.9;
+  font-family: var(--ui-font, "Segoe UI Variable Text", "Segoe UI", sans-serif);
+}
+
+.shell code,
+.shell pre,
+.shell .monospace,
+.shell .eventLog time,
+.shell .eventLog pre {
+  font-family: var(--code-font, "Cascadia Code", ui-monospace, monospace);
 }
 
 .topbar {
@@ -280,6 +289,76 @@ h2 {
   gap: 4px;
   overflow-y: auto;
   padding: 11px;
+}
+
+.profileLauncher {
+  align-items: center;
+  background: var(--surface);
+  border: 0;
+  border-radius: 4px;
+  bottom: -1px;
+  color: var(--text);
+  display: grid;
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 500;
+  gap: 10px;
+  grid-template-columns: 30px minmax(0, 1fr) 18px;
+  margin-top: auto;
+  min-height: 48px;
+  padding: 8px 6px;
+  position: sticky;
+  text-align: left;
+  width: 100%;
+  z-index: 4;
+}
+
+.profileLauncher::before {
+  background: var(--line);
+  content: "";
+  height: 1px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.profileLauncher:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+}
+
+.profileAvatar {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface-raised));
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--line));
+  border-radius: 50%;
+  color: var(--text);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.profileAvatar.large {
+  font-size: 18px;
+  height: 52px;
+  width: 52px;
+}
+
+.profileLauncherName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileLauncherArrow {
+  color: var(--muted);
+  font-size: 20px;
+  text-align: center;
 }
 
 .railHeader {
@@ -2019,6 +2098,387 @@ label {
   padding: 7px 10px;
 }
 
+.settingsShell {
+  max-width: none;
+  padding: 0;
+  zoom: 1;
+}
+
+.settingsPage {
+  display: grid;
+  grid-template-columns: 292px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.settingsNavigation {
+  background: color-mix(in srgb, var(--canvas) 97%, var(--text) 3%);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 100vh;
+  padding: 14px 10px;
+}
+
+.settingsBack {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  display: flex;
+  font-size: 15px;
+  font-weight: 500;
+  gap: 10px;
+  justify-content: flex-start;
+  min-height: 38px;
+  padding: 7px 6px;
+}
+
+.settingsBack:hover {
+  background: var(--surface-hover);
+  border-color: transparent;
+  color: var(--text);
+}
+
+.settingsBack > span {
+  font-size: 20px;
+}
+
+.settingsSearch {
+  background: var(--surface);
+  border-radius: 6px;
+  min-height: 38px;
+  padding-block: 8px;
+}
+
+.settingsGroupLabel {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  margin: 12px 8px 2px;
+}
+
+.settingsNavList {
+  display: grid;
+  gap: 2px;
+}
+
+.settingsNavList button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  display: grid;
+  font-size: 15px;
+  font-weight: 500;
+  gap: 10px;
+  grid-template-columns: 22px 1fr;
+  justify-items: start;
+  min-height: 40px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.settingsNavList button:hover,
+.settingsNavList button.active {
+  background: var(--surface-hover);
+  border-color: transparent;
+}
+
+.settingsNavList button > span {
+  color: var(--muted);
+  font-size: 17px;
+  text-align: center;
+  width: 22px;
+}
+
+.settingsProfileSummary {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--text);
+  display: grid;
+  font-size: 14px;
+  font-weight: 500;
+  gap: 10px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  margin-top: auto;
+  min-height: 54px;
+  padding: 10px 6px 0;
+  text-align: left;
+}
+
+.settingsProfileSummary:hover {
+  background: transparent;
+  border-color: var(--line);
+}
+
+.settingsContent {
+  background: var(--canvas);
+  min-width: 0;
+  overflow-y: auto;
+  padding: 72px clamp(30px, 7vw, 120px);
+}
+
+.settingsPanel {
+  display: grid;
+  gap: 28px;
+  margin: 0 auto;
+  max-width: 960px;
+}
+
+.settingsTitle {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 18px;
+}
+
+.settingsTitle h1 {
+  font-size: 28px;
+  margin-top: 5px;
+}
+
+.settingsRows,
+.appearanceControls,
+.profileSettingsCard {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.settingsRow {
+  align-items: center;
+  display: flex;
+  gap: 28px;
+  justify-content: space-between;
+  min-height: 74px;
+  padding: 15px 18px;
+}
+
+.settingsRow + .settingsRow {
+  border-top: 1px solid var(--line);
+}
+
+.settingsRow > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.settingsRow small,
+.profileSettingsCard small {
+  color: var(--muted);
+}
+
+.settingsSegmented {
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: flex;
+  padding: 3px;
+}
+
+.settingsSegmented button {
+  background: transparent;
+  border: 0;
+  min-height: 30px;
+  padding: 4px 12px;
+}
+
+.settingsSegmented button:hover,
+.settingsSegmented button.active {
+  background: var(--surface-hover);
+  border-color: transparent;
+}
+
+.settingsConnection {
+  align-items: center;
+  color: var(--muted);
+  display: inline-flex;
+  gap: 9px;
+  white-space: nowrap;
+}
+
+.settingsConnection.online .stateDot {
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgb(34 197 94 / 12%);
+}
+
+.profileSettingsCard {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 52px minmax(260px, 1fr);
+  padding: 20px;
+}
+
+.profileSettingsCard label {
+  display: grid;
+  gap: 7px;
+}
+
+.profileSettingsCard small {
+  grid-column: 2;
+}
+
+.appearanceSettings > section > h2,
+.appearanceControlHeader h2 {
+  font-size: 16px;
+  margin: 0 0 14px;
+}
+
+.themeChoices {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+}
+
+.themeChoices > button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  display: grid;
+  font-size: 14px;
+  font-weight: 500;
+  gap: 8px;
+  padding: 0;
+}
+
+.themeChoices > button:hover,
+.themeChoices > button.active {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+}
+
+.themePreview {
+  background: #f3f4f6;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: 34% 1fr;
+  height: 142px;
+  overflow: hidden;
+  padding: 10px;
+  width: 100%;
+}
+
+.themeChoices > button.active .themePreview {
+  border-color: var(--accent);
+}
+
+.themePreview.dark {
+  background: #4b4b4e;
+}
+
+.themePreview.system {
+  background: linear-gradient(90deg, #efeff0 50%, #4b4b4e 50%);
+}
+
+.themePreviewSidebar {
+  background: rgb(120 120 124 / 38%);
+  border-radius: 5px 0 0 5px;
+}
+
+.themePreviewMain {
+  align-content: start;
+  background: rgb(255 255 255 / 82%);
+  border-radius: 0 5px 5px 0;
+  display: grid;
+  gap: 8px;
+  padding: 24px 12px;
+}
+
+.themePreview.dark .themePreviewMain {
+  background: #f7f7f7;
+}
+
+.themePreviewMain i {
+  background: #d4d4d7;
+  border-radius: 3px;
+  display: block;
+  height: 7px;
+}
+
+.themePreviewMain i:nth-child(2) {
+  width: 72%;
+}
+
+.themePreviewMain i:nth-child(3) {
+  width: 48%;
+}
+
+.appearanceControls {
+  overflow: hidden;
+}
+
+.appearanceControlHeader,
+.colorSetting,
+.appearanceSelect,
+.contrastSetting {
+  align-items: center;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(160px, 1fr) minmax(200px, 260px);
+  min-height: 60px;
+  padding: 12px 18px;
+}
+
+.appearanceControlHeader {
+  grid-template-columns: minmax(160px, 1fr) auto;
+}
+
+.appearanceControlHeader h2 {
+  margin: 0;
+}
+
+.colorSetting,
+.appearanceSelect,
+.contrastSetting {
+  border-top: 1px solid var(--line);
+}
+
+.colorValue {
+  align-items: center;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: flex;
+  gap: 9px;
+  padding: 5px 9px;
+}
+
+.colorValue input[type="color"] {
+  background: transparent;
+  border: 0;
+  height: 28px;
+  padding: 0;
+  width: 34px;
+}
+
+.colorValue code {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.appearanceSelect select {
+  min-width: 0;
+}
+
+.contrastSetting {
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) 34px;
+}
+
+.contrastSetting input {
+  accent-color: var(--accent);
+  padding: 0;
+}
+
+.contrastSetting output {
+  color: var(--muted);
+  text-align: right;
+}
+
 .modalBackdrop {
   align-items: center;
   background: rgb(0 0 0 / 68%);
@@ -2031,7 +2491,7 @@ label {
 }
 
 .promptModal {
-  background: #18181b;
+  background: var(--surface-raised);
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   box-shadow: 0 24px 80px rgb(0 0 0 / 58%);
@@ -2225,8 +2685,8 @@ label {
 input,
 select,
 textarea {
-  background: #1a1a1e;
-  border: 1px solid #393940;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
   color: var(--text);
   font: inherit;
@@ -2257,8 +2717,8 @@ textarea {
 }
 
 button {
-  background: #242428;
-  border: 1px solid #404046;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
   color: var(--text);
   cursor: pointer;
@@ -2267,8 +2727,8 @@ button {
 }
 
 button:hover {
-  background: #2d2d33;
-  border-color: #5a5a63;
+  background: var(--surface-hover);
+  border-color: color-mix(in srgb, var(--line-strong) 70%, var(--text) 30%);
 }
 
 .primary {
@@ -2547,6 +3007,50 @@ summary:focus-visible {
 }
 
 @media (max-width: 680px) {
+  .settingsPage {
+    grid-template-columns: 1fr;
+  }
+
+  .settingsNavigation {
+    border-bottom: 1px solid var(--line);
+    border-right: 0;
+    min-height: auto;
+  }
+
+  .settingsProfileSummary {
+    display: none;
+  }
+
+  .settingsContent {
+    min-height: 0;
+    overflow: visible;
+    padding: 28px 16px;
+  }
+
+  .themeChoices {
+    grid-template-columns: 1fr;
+  }
+
+  .appearanceControlHeader,
+  .colorSetting,
+  .appearanceSelect,
+  .contrastSetting {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .contrastSetting {
+    grid-template-columns: 1fr 42px;
+  }
+
+  .contrastSetting > span {
+    grid-column: 1 / -1;
+  }
+
+  .profileSettingsCard {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
   .shell {
     padding: 16px;
     width: 100%;
