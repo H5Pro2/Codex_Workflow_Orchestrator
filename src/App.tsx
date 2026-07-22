@@ -4700,6 +4700,42 @@ function App() {
                     {isAgentBusy(selectedAgent) ? tx('Antwort wird erstellt', 'Generating response') : tx('Aktuell', 'Current')}
                   </span>
                 </div>
+                {selectedAgent.teamProvisioningEnabled && selectedTeamPlan && (
+                  <section className="chatTeamPlan" aria-live="polite">
+                    <div>
+                      <span>{tx('Team-Vorschlag bereit', 'Team proposal ready')}</span>
+                      <strong>
+                        {selectedTeamPlan.plan.agents.length} {tx('Agenten', 'agents')} ·{' '}
+                        {selectedTeamPlan.plan.connections.length} {tx('Verbindungen', 'connections')}
+                      </strong>
+                      <small>{tx(
+                        'Prüfen und bei Auto Stop kontrolliert übernehmen.',
+                        'Review and apply safely while Auto Stop is active.',
+                      )}</small>
+                    </div>
+                    <button
+                      className="primary"
+                      disabled={autoRun || teamPlanApplying || selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature}
+                      onClick={() => void applyManagementTeamPlan(selectedAgent)}
+                      type="button"
+                    >
+                      {teamPlanApplying
+                        ? tx('Team wird erstellt…', 'Creating team…')
+                        : selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature
+                          ? tx('Bereits übernommen', 'Already applied')
+                          : autoRun
+                            ? tx('Auto Stop erforderlich', 'Auto Stop required')
+                            : tx('Team übernehmen', 'Apply team')}
+                    </button>
+                    {teamPlanError && <p className="formError">{teamPlanError}</p>}
+                  </section>
+                )}
+                {selectedAgent.teamProvisioningEnabled && selectedTeamPlanMalformed && (
+                  <p className="chatTeamPlanError">{tx(
+                    'Der Team-Vorschlag konnte nicht gelesen werden. Öffne das Setup für Details.',
+                    'The team proposal could not be read. Open setup for details.',
+                  )}</p>
+                )}
                 <div className="chatBody">
                   <div
                     className="chatStream"

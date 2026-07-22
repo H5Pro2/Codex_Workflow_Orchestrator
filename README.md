@@ -42,7 +42,7 @@ Die Überwachung startet keine eigenmächtigen Änderungen an Agenten, Prompt-Da
 
 #### Kontrollierter Team-Aufbau
 
-Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltungsagenten im Chat ausdrücklich mit der Zusammenstellung eines Teams beauftragen. Der Agent liefert Namen, Rollen, vollständige Arbeitsanweisungen, benötigte Statusbefehle samt Bedeutung, deren Zuweisung zu den Agenten und gewünschte Verbindungen in einem validierbaren Team-Vorschlag. Die Oberfläche zeigt diesen Vorschlag anschließend zur Prüfung an.
+Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltungsagenten im Chat ausdrücklich mit der Zusammenstellung eines Teams beauftragen. Der Agent liefert Namen, Rollen, vollständige Arbeitsanweisungen, benötigte Statusbefehle samt Bedeutung, deren Zuweisung zu den Agenten und gewünschte Verbindungen in einem validierbaren Team-Vorschlag. Die Oberfläche zeigt einen erkannten Vorschlag direkt im Agenten-Chat zur Prüfung und kontrollierten Übernahme an.
 
 `Team übernehmen` führt ausschließlich bei `Auto Stop` folgende Schritte im aktuell ausgewählten Projekt aus:
 
