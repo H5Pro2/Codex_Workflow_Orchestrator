@@ -8,14 +8,14 @@ Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der Codex-Ch
 
 - die in Codex gespeicherten Projekte und ihre zugehörigen Chats über den lokalen Connector einlesen
 - Chats als Agenten übernehmen, erstellen, umbenennen, ausblenden und archivieren
-- Rollen, Modelle und Statusfreigaben pro Agent konfigurieren
+- Rollen, Modelle und erlaubte Statusbefehle pro Agent konfigurieren
 - Agenten als Fach- oder Verwaltungsagenten einteilen
 - ausgewählte Agenten während der Automatik intervallgesteuert überwachen
 - kontrollierte Team-Vorschläge eines Verwaltungsagenten prüfen und übernehmen
 - mehrere Prompt-Dateien pro Agent verwalten
 - direkte Nachrichten an einzelne Codex-Chats senden
 - individuelle Workflows visuell aus Agenten und Werkzeugen aufbauen
-- Ergebnisse anhand frei definierbarer Workflow-Status weiterleiten
+- Ergebnisse anhand frei definierbarer Statusbefehle weiterleiten
 - zeitgesteuerte Aufgaben einmalig oder wiederkehrend auslösen
 - Laufstatus, Dauer, Chatverlauf und Ereignisprotokoll verfolgen
 - die Bedienoberfläche zwischen Deutsch und Englisch umschalten
@@ -28,7 +28,7 @@ Die Hauptansicht kombiniert Projektauswahl, Agentenliste, laufenden Codex-Chat u
 
 ### Agenten-Setup
 
-Im Setup werden Name, Rolle, Modell und die für den Agenten erlaubten Workflow-Status festgelegt. Die automatische Weitergabe kann pro Agent aktiviert oder deaktiviert werden. Über die Agenten-Zuweisung wird zusätzlich festgelegt, ob ein Agent normale Fachaufgaben übernimmt oder eine Verwaltungs-Erweiterung erhält.
+Im Setup werden Name, Rolle, Modell und die für den Agenten erlaubten Statusbefehle festgelegt. Die automatische Weitergabe kann pro Agent aktiviert oder deaktiviert werden. Über die Agenten-Zuweisung wird zusätzlich festgelegt, ob ein Agent normale Fachaufgaben übernimmt oder eine Verwaltungs-Erweiterung erhält.
 
 ![Agenten-Setup](bilder/Agenten_Setup.PNG)
 
@@ -40,12 +40,13 @@ Die Überwachung startet keine eigenmächtigen Änderungen an Agenten, Prompt-Da
 
 #### Kontrollierter Team-Aufbau
 
-Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltungsagenten im Chat ausdrücklich mit der Zusammenstellung eines Teams beauftragen. Der Agent liefert Namen, Rollen, vollständige Arbeitsanweisungen, Statusfreigaben und gewünschte Verbindungen in einem validierbaren Team-Vorschlag. Die Oberfläche zeigt diesen Vorschlag anschließend zur Prüfung an.
+Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltungsagenten im Chat ausdrücklich mit der Zusammenstellung eines Teams beauftragen. Der Agent liefert Namen, Rollen, vollständige Arbeitsanweisungen, benötigte Statusbefehle samt Bedeutung, deren Zuweisung zu den Agenten und gewünschte Verbindungen in einem validierbaren Team-Vorschlag. Die Oberfläche zeigt diesen Vorschlag anschließend zur Prüfung an.
 
 `Team übernehmen` führt ausschließlich bei `Auto Stop` folgende Schritte im aktuell ausgewählten Projekt aus:
 
 - fehlende Codex-Chats ohne initialen Turn erstellen
-- Rollen und Statusfreigaben zuweisen
+- noch nicht vorhandene Statusbefehle projektweit anlegen
+- Rollen und Statusbefehle zuweisen
 - Arbeitsanweisungen als `Anweisung.md` speichern, ohne sie als Aufgabe zu starten
 - vorgeschlagene Agenten im Dashboard des Verwaltungsagenten anordnen und verbinden
 
@@ -74,12 +75,12 @@ Jeder Agent besitzt eine eigene gespeicherte Verdrahtung. Verbindungen verlaufen
 Die kompakten Aktionen im Dashboard sind:
 
 - `A`: Bausteine automatisch anordnen
-- `S`: Statusfreigaben des Agenten bearbeiten
+- `S`: Statusbefehle des Agenten bearbeiten
 - `T`: Werkzeugpalette öffnen
 
 ### Statusauswahl
 
-Über `S` werden die Status festgelegt, die der jeweilige Agent verwenden darf. Name und Bedeutung stammen aus dem projektweiten Status-Setup.
+Über `S` werden die Statusbefehle festgelegt, die der jeweilige Agent verwenden darf. Name und Bedeutung stammen aus den projektweiten Statusbefehlen.
 
 ![Statusauswahl eines Agenten](bilder/Statusliste.PNG)
 
@@ -90,17 +91,17 @@ Die kompakten Aktionen im Dashboard sind:
 | Werkzeug | Aufgabe |
 | --- | --- |
 | Initial | Sendet beim Start eine Anfangsanweisung an den verbundenen Agenten. |
-| Status | Lässt nur Ergebnisse mit dem ausgewählten Workflow-Status passieren. |
+| Status | Lässt nur Ergebnisse mit dem ausgewählten Statusbefehl passieren. |
 | Stop | Beendet den Workflow-Pfad an dieser Stelle. |
 | Zeitplan | Sendet eine Aufgabe einmalig, in einem Intervall oder zu einer festen Uhrzeit. |
 
 Bausteine werden per Doppelklick konfiguriert. Ein einfacher Klick wählt einen Baustein oder eine Verbindung aus. Konfigurationsdialoge enthalten auch die jeweilige Löschfunktion.
 
-## Workflow-Status
+## Statusbefehle
 
-Status werden projektweit im `Status-Setup` angelegt. Jeder Eintrag besteht aus einem Namen und einer eindeutigen Bedeutung. Im Agenten-Setup wird ausgewählt, welche Status der Agent verwenden darf. Dadurch erhält der Agent die erlaubten Status samt Beschreibung automatisch als Arbeitskontext.
+Statusbefehle werden projektweit unter `Statusbefehle` angelegt. Jeder Eintrag besteht aus einem Namen und einer eindeutigen Bedeutung. Im Agenten-Setup wird ausgewählt, welche Statusbefehle der Agent verwenden darf. Dadurch erhält der Agent die erlaubten Statusbefehle samt Beschreibung automatisch als Arbeitskontext.
 
-![Status Setup mit projektweiter Statusliste](bilder/Status_Setup.PNG)
+![Projektweite Statusbefehle](bilder/Status_Setup.PNG)
 
 Beispiel:
 
@@ -116,7 +117,7 @@ Agent -> Statusfilter "Weiterleitung" -> nächster Agent
       -> Statusfilter "Überarbeiten"  -> Prüfung oder Rückgabe
 ```
 
-Statussignale beschreiben die Route des Ergebnisses. Der technische Abschluss eines einzelnen Codex-Laufs wird davon getrennt behandelt.
+Statusbefehle beschreiben die Route des Ergebnisses. Der technische Abschluss eines einzelnen Codex-Laufs wird davon getrennt behandelt.
 
 ## Automatik
 
@@ -154,7 +155,7 @@ Zeitpläne werden nur ausgeführt, wenn der Baustein aktiviert ist und die Autom
 
 1. Ein Codex-Projekt auswählen.
 2. Vorhandene Chats in der Agenten-Übersicht aktivieren oder einen Agenten erstellen.
-3. Rolle, Modell und erlaubte Workflow-Status im Agenten-Setup festlegen.
+3. Rolle, Modell und erlaubte Statusbefehle im Agenten-Setup festlegen.
 4. Über `P` eine oder mehrere Prompt-Dateien einrichten und übergeben.
 5. Über `D` das Dashboard öffnen.
 6. Agenten und Werkzeuge von `Out` nach `In` verbinden.
@@ -227,5 +228,5 @@ Die Produktionsausgabe wird unter `dist/` erzeugt.
 ## Bekannte Grenzen
 
 - Bereits geöffnete Codex-Ansichten können eine eigene Aktualisierung benötigen, obwohl der Connector eine Änderung bereits verarbeitet hat.
-- Automatische Routen benötigen ein auswertbares Ergebnis, einen passenden Workflow-Status und eine gültige Verbindung.
+- Automatische Routen benötigen ein auswertbares Ergebnis, einen passenden Statusbefehl und eine gültige Verbindung.
 - Rollen, Arbeitsanweisungen und Statusbedeutungen müssen für den jeweiligen Ablauf eindeutig formuliert sein.

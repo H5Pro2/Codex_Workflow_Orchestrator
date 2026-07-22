@@ -31,8 +31,14 @@ type ManagementTeamPlanConnection = {
   to: string
 }
 
+type ManagementTeamPlanStatusCommand = {
+  name: string
+  meaning: string
+}
+
 type ManagementTeamPlan = {
   projectGoal: string
+  statusCommands: ManagementTeamPlanStatusCommand[]
   agents: ManagementTeamPlanAgent[]
   connections: ManagementTeamPlanConnection[]
 }
@@ -672,6 +678,9 @@ function managementTeamPlanInstruction() {
     '<orchestrator_team_plan>',
     '{',
     '  "projectGoal": "Kurze Zielbeschreibung",',
+    '  "statusCommands": [',
+    '    { "name": "Weiterleitung", "meaning": "Das Ergebnis soll an den nächsten Agenten weitergegeben werden." }',
+    '  ],',
     '  "agents": [',
     '    { "name": "Agentenname", "role": "Klare Rolle", "prompt": "Vollständige Arbeitsanweisung", "workflowStatuses": ["Weiterleitung"] }',
     '  ],',
@@ -680,6 +689,7 @@ function managementTeamPlanInstruction() {
     '  ]',
     '}',
     '</orchestrator_team_plan>',
+    'Definiere unter statusCommands nur Statusbefehle, die das Team tatsächlich benötigt. Jeder Status braucht einen eindeutigen Namen und eine klare Bedeutung.',
     'Verwende nur gültiges JSON. Erfinde keine Projektpfade. Der Orchestrator prüft den Vorschlag und ein Benutzer muss ihn übernehmen.',
   ].join('\n')
 }
@@ -712,6 +722,22 @@ function parseManagementTeamPlan(text: string): { plan: ManagementTeamPlan; sign
     const normalizedNames = agents.map((agent) => agent.name.toLocaleLowerCase('de-DE'))
     if (new Set(normalizedNames).size !== normalizedNames.length) return null
 
+    const statusCommands = Array.isArray(raw.statusCommands)
+      ? raw.statusCommands.map((entry) => {
+          if (!entry || typeof entry !== 'object') throw new Error('invalid status command')
+          const item = entry as Record<string, unknown>
+          const name = typeof item.name === 'string' ? item.name.trim() : ''
+          const meaning = typeof item.meaning === 'string' ? item.meaning.trim() : ''
+          if (!name || !meaning || name.length > 80 || meaning.length > 500) {
+            throw new Error('invalid status command')
+          }
+          return { name, meaning }
+        })
+      : []
+    if (statusCommands.length > 20) return null
+    const normalizedStatusNames = statusCommands.map((status) => status.name.toLocaleLowerCase('de-DE'))
+    if (new Set(normalizedStatusNames).size !== normalizedStatusNames.length) return null
+
     const connections = Array.isArray(raw.connections)
       ? raw.connections.map((entry) => {
           if (!entry || typeof entry !== 'object') throw new Error('invalid connection')
@@ -724,6 +750,7 @@ function parseManagementTeamPlan(text: string): { plan: ManagementTeamPlan; sign
       : []
     const plan: ManagementTeamPlan = {
       projectGoal: typeof raw.projectGoal === 'string' ? raw.projectGoal.trim() : '',
+      statusCommands,
       agents,
       connections,
     }
@@ -2355,16 +2382,40 @@ function App() {
       return
     }
 
+    const nextWorkflowStatuses = [...workflowStatuses]
     const statusByName = new Map(
       projectWorkflowStatuses.map((status) => [status.name.trim().toLocaleLowerCase('de-DE'), status]),
     )
+    const conflictingStatus = plan.statusCommands.find((command) => {
+      const existing = statusByName.get(command.name.toLocaleLowerCase('de-DE'))
+      return existing && existing.description.trim() !== command.meaning.trim()
+    })
+    if (conflictingStatus) {
+      setTeamPlanError(tx(
+        `Der Statusbefehl „${conflictingStatus.name}“ existiert bereits mit einer anderen Bedeutung.`,
+        `The status command “${conflictingStatus.name}” already exists with a different meaning.`,
+      ))
+      return
+    }
+    plan.statusCommands.forEach((command) => {
+      const normalizedName = command.name.toLocaleLowerCase('de-DE')
+      if (statusByName.has(normalizedName)) return
+      const status: WorkflowStatusDefinition = {
+        id: crypto.randomUUID(),
+        projectPath: selectedProject.path,
+        name: command.name,
+        description: command.meaning,
+      }
+      statusByName.set(normalizedName, status)
+      nextWorkflowStatuses.push(status)
+    })
     const unknownStatus = plan.agents
       .flatMap((agent) => agent.workflowStatuses)
       .find((status) => !statusByName.has(status.toLocaleLowerCase('de-DE')))
     if (unknownStatus) {
       setTeamPlanError(tx(
-        `Der Workflow-Status „${unknownStatus}“ ist im Status-Setup nicht angelegt.`,
-        `The workflow status “${unknownStatus}” does not exist in Status Setup.`,
+        `Der Statusbefehl „${unknownStatus}“ ist weder vorhanden noch im Team-Vorschlag definiert.`,
+        `The status command “${unknownStatus}” neither exists nor is defined in the team proposal.`,
       ))
       return
     }
@@ -2476,6 +2527,7 @@ function App() {
       setAgents(resolvedAgents.map((agent) => agent.id === manager.id
         ? { ...agent, lastAppliedTeamPlanSignature: signature, updatedAt: new Date().toISOString() }
         : agent))
+      setWorkflowStatuses(nextWorkflowStatuses)
       setCodexThreads((current) => [
         ...current.filter((thread) => !createdThreads.some((created) => created.id === thread.id)),
         ...createdThreads,
@@ -2503,10 +2555,11 @@ function App() {
       }))
       addEvent(
         'Team-Vorschlag übernommen',
-        `${manager.name}: ${plan.agents.length} Agenten, ${plan.connections.length} Verbindungen. Automatik bleibt gestoppt.`,
+        `${manager.name}: ${plan.agents.length} Agenten, ${plan.statusCommands.length} Statusbefehle, ${plan.connections.length} Verbindungen. Automatik bleibt gestoppt.`,
       )
     } catch (error) {
       setAgents([...nextAgentMap.values()])
+      setWorkflowStatuses(nextWorkflowStatuses)
       setCodexThreads((current) => [
         ...current.filter((thread) => !createdThreads.some((created) => created.id === thread.id)),
         ...createdThreads,
@@ -4036,7 +4089,7 @@ function App() {
               title={tx('Projektweite Status konfigurieren', 'Configure project statuses')}
               type="button"
             >
-              {tx('Status-Setup', 'Status setup')}
+              {tx('Statusbefehle', 'Status commands')}
             </button>
           </div>
         </div>
@@ -4451,7 +4504,11 @@ function App() {
                             <span>{tx('Geprüfter Vorschlag', 'Validated proposal')}</span>
                             <strong>{selectedTeamPlan.plan.projectGoal || tx('Team für das aktuelle Projekt', 'Team for the current project')}</strong>
                           </div>
-                          <small>{selectedTeamPlan.plan.agents.length} {tx('Agenten', 'agents')} · {selectedTeamPlan.plan.connections.length} {tx('Verbindungen', 'connections')}</small>
+                          <small>
+                            {selectedTeamPlan.plan.agents.length} {tx('Agenten', 'agents')} ·{' '}
+                            {selectedTeamPlan.plan.statusCommands.length} {tx('Statusbefehle', 'status commands')} ·{' '}
+                            {selectedTeamPlan.plan.connections.length} {tx('Verbindungen', 'connections')}
+                          </small>
                         </div>
                         <div className="managementTeamAgents">
                           {selectedTeamPlan.plan.agents.map((agent) => (
@@ -4464,8 +4521,8 @@ function App() {
                         {teamPlanError && <p className="formError">{teamPlanError}</p>}
                         <div className="managementTeamActions">
                           <small>{tx(
-                            'Erstellt fehlende Codex-Chats, speichert Prompt-Dateien und übernimmt Verbindungen. Die Automatik bleibt aus.',
-                            'Creates missing Codex chats, saves prompt files, and applies connections. Automation remains off.',
+                            'Erstellt fehlende Codex-Chats und Statusbefehle, speichert Prompt-Dateien und übernimmt Verbindungen. Die Automatik bleibt aus.',
+                            'Creates missing Codex chats and status commands, saves prompt files, and applies connections. Automation remains off.',
                           )}</small>
                           <button
                             className="primary"
@@ -4675,7 +4732,7 @@ function App() {
           onMouseDown={() => setStatusLibraryOpen(false)}
         >
           <section
-            aria-label={tx('Projektweite Status konfigurieren', 'Configure project statuses')}
+            aria-label={tx('Statusbefehle konfigurieren', 'Configure status commands')}
             aria-modal="true"
             className="promptModal statusLibraryModal"
             onMouseDown={(event) => event.stopPropagation()}
@@ -4684,7 +4741,7 @@ function App() {
             <div className="modalHeader">
               <div>
                 <p className="eyebrow">Workflow-Status</p>
-                <h2>{tx('Status Setup', 'Status Setup')}</h2>
+                <h2>{tx('Statusbefehle', 'Status commands')}</h2>
               </div>
               <button
                 aria-label={tx('Status-Fenster schließen', 'Close status window')}
@@ -4698,7 +4755,7 @@ function App() {
             <section className="workflowStatusLibrary" aria-label={tx('Workflow-Status', 'Workflow statuses')}>
               <div className="workflowStatusHeader">
                 <div>
-                  <strong>{tx('Statusliste', 'Status list')}</strong>
+                  <strong>{tx('Befehlsliste', 'Command list')}</strong>
                   <small>{tx('Namen und Bedeutungen gelten für das ausgewählte Projekt.', 'Names and meanings apply to the selected project.')}</small>
                 </div>
                 <small>{projectWorkflowStatuses.length} {tx('Status', 'statuses')}</small>
@@ -5711,7 +5768,7 @@ function App() {
               })()}
             </section>
             <p className="modalHint statusFilterInfo">
-              {tx('Der Status wird in der projektweiten Statusliste verwaltet. Dieser Baustein leitet nur passende Ergebnisse weiter.', 'The status is managed in the project status list. This node forwards matching results only.')}
+              {tx('Der Statusbefehl wird in den projektweiten Statusbefehlen verwaltet. Dieser Baustein leitet nur passende Ergebnisse weiter.', 'The status command is managed in the project status commands. This node forwards matching results only.')}
             </p>
             <div className="modalActions">
               <button
