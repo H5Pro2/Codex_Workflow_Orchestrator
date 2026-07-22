@@ -2079,6 +2079,29 @@ function App() {
     )
   }, [])
 
+  const resetInactiveAgentStatuses = useCallback(() => {
+    sharedStateDirty.current = true
+    setAgents((current) =>
+      current.map((agent) => {
+        if (agent.pendingTurnId || agent.status === 'wartet') {
+          return agent
+        }
+        return {
+          ...agent,
+          status: 'wartet',
+          runStartedAt: '',
+          updatedAt: new Date().toISOString(),
+        }
+      }),
+    )
+  }, [])
+
+  useEffect(() => {
+    if (!autoRun) {
+      resetInactiveAgentStatuses()
+    }
+  }, [autoRun, resetInactiveAgentStatuses])
+
   useEffect(() => {
     if (
       !selectedAgent ||
@@ -4000,7 +4023,7 @@ function App() {
                 const failureDetail = data.error?.message ?? data.status
                 const failedAgent: Agent = {
                   ...agent,
-                  status: 'rueckfrage',
+                  status: autoRunRef.current ? 'rueckfrage' : 'wartet',
                   lastResult: [
                     'Der Codex-Lauf wurde nicht abgeschlossen.',
                     `Agent: ${agent.name}`,
@@ -4025,6 +4048,8 @@ function App() {
                   autoRunRef.current = false
                   setAutoRun(false)
                   setTransmittingAgentIds([])
+                  queuedSourceAgentIdsByTarget.current.clear()
+                  resetInactiveAgentStatuses()
                   addEvent(
                     'Automatik gestoppt',
                     `${failedAgent.name} benötigt nach einem fehlgeschlagenen Lauf eine Benutzerentscheidung.`,
@@ -4039,7 +4064,7 @@ function App() {
               terminalResultObservations.current.delete(agent.pendingTurnId)
               const completedAgent: Agent = {
                 ...agent,
-                status: 'fertig',
+                status: autoRunRef.current ? 'fertig' : 'wartet',
                 lastResult: data.text ?? '',
                 pendingTurnId: '',
                 lastCompletedTurnId: data.turnId ?? agent.pendingTurnId,
@@ -4061,7 +4086,9 @@ function App() {
               if (autoRun && agent.autoForward) {
                 await handoff(completedAgent)
               }
-              await forwardNextQueuedSource(completedAgent.id)
+              if (autoRunRef.current) {
+                await forwardNextQueuedSource(completedAgent.id)
+              }
             } catch (error) {
               const message = error instanceof Error ? error.message : 'Connector nicht erreichbar.'
               if (
@@ -4069,7 +4096,7 @@ function App() {
                 message.includes('thread not found')
               ) {
                 updateAgent(agent.id, {
-                  status: 'rueckfrage',
+                  status: autoRunRef.current ? 'rueckfrage' : 'wartet',
                   pendingTurnId: '',
                   runStartedAt: '',
                   lastCompletedTurnId: agent.pendingTurnId,
@@ -4089,7 +4116,7 @@ function App() {
     void poll()
     const timer = window.setInterval(() => void poll(), 2500)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, autoRun, handoff, renameCodexThread, updateAgent])
+  }, [addEvent, agents, autoRun, handoff, renameCodexThread, resetInactiveAgentStatuses, updateAgent])
 
   useEffect(() => {
     if (!autoRun) return
@@ -4337,6 +4364,8 @@ function App() {
       autoRunRef.current = false
       setAutoRun(false)
       setTransmittingAgentIds([])
+      queuedSourceAgentIdsByTarget.current.clear()
+      resetInactiveAgentStatuses()
       addEvent('Automatik gestoppt', 'Weitere fertige Ergebnisse werden nicht automatisch weitergegeben.')
       return
     }
