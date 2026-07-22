@@ -2846,9 +2846,16 @@ button:hover {
 }
 
 .deleteButton {
-  border-color: #7f1d1d;
-  color: #fda4af;
+  background: #e98282;
+  border-color: #bd5b5b;
+  color: #211111;
   flex: 0 0 auto;
+}
+
+.deleteButton:hover:not(:disabled) {
+  background: #ef9696;
+  border-color: #a94444;
+  color: #160909;
 }
 
 .adapter {
