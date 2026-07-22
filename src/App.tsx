@@ -308,9 +308,27 @@ function loadProgramSettings(): ProgramSettings {
       return defaultProgramSettings
     }
     const parsed = JSON.parse(stored) as Partial<ProgramSettings>
+    const storedBackground = parsed.backgroundColor?.toLowerCase()
+    const storedForeground = parsed.foregroundColor?.toLowerCase()
+    const hasStaleLightPalette = parsed.theme === 'light'
+      && storedBackground === defaultProgramSettings.backgroundColor
+      && storedForeground === defaultProgramSettings.foregroundColor
+    const hasStaleDarkPalette = parsed.theme === 'dark'
+      && storedBackground === '#f7f7f8'
+      && storedForeground === '#18181b'
     return {
       ...defaultProgramSettings,
       ...parsed,
+      backgroundColor: hasStaleLightPalette
+        ? '#f7f7f8'
+        : hasStaleDarkPalette
+          ? defaultProgramSettings.backgroundColor
+          : parsed.backgroundColor ?? defaultProgramSettings.backgroundColor,
+      foregroundColor: hasStaleLightPalette
+        ? '#18181b'
+        : hasStaleDarkPalette
+          ? defaultProgramSettings.foregroundColor
+          : parsed.foregroundColor ?? defaultProgramSettings.foregroundColor,
       contrast: Math.min(100, Math.max(0, Number(parsed.contrast ?? defaultProgramSettings.contrast))),
     }
   } catch {

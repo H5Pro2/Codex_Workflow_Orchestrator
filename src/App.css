@@ -1010,11 +1010,11 @@ label {
 .checkbox {
   align-items: center;
   align-self: end;
-  background: #18181a;
-  border: 1px solid #353539;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
   border-radius: 5px;
   box-sizing: border-box;
-  color: #e7edf7;
+  color: var(--text);
   flex-direction: row;
   height: 39px;
   padding: 0 12px;
@@ -1027,7 +1027,7 @@ label {
 
 .autoForwardControl {
   align-items: center;
-  background: #171719;
+  background: var(--surface-raised);
   border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
   border-radius: 6px;
@@ -1043,13 +1043,13 @@ label {
 
 .autoForwardControl .checkbox {
   align-self: auto;
-  background: #202024;
+  background: var(--surface-hover);
   height: 34px;
   padding: 0 10px;
 }
 
 .managementControl {
-  background: #171719;
+  background: var(--surface-raised);
   border: 1px solid var(--line);
   border-left: 3px solid #64748b;
   border-radius: 6px;
@@ -1370,7 +1370,7 @@ label {
 }
 
 .workflowDashboard {
-  background: #121214;
+  background: var(--surface-raised);
   border: 1px solid var(--line);
   border-radius: 8px;
   margin-top: 16px;
@@ -1450,8 +1450,8 @@ label {
 .dashboardActions .compactAction,
 .dashboardStatusMenu > summary,
 .dashboardTools > summary {
-  background: #242428;
-  border: 1px solid #404046;
+  background: var(--surface-hover);
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
   box-sizing: border-box;
   color: var(--text);
@@ -1487,10 +1487,10 @@ label {
 
 .dashboardClose {
   align-items: center;
-  background: #242428;
-  border: 1px solid #404046;
+  background: var(--surface-hover);
+  border: 1px solid var(--line-strong);
   border-radius: 5px;
-  color: #e5e7eb;
+  color: var(--text);
   display: inline-flex;
   font-size: 19px;
   height: 34px;
@@ -1501,23 +1501,23 @@ label {
 }
 
 .dashboardClose:hover {
-  background: #313136;
-  border-color: #5a5a63;
+  background: color-mix(in srgb, var(--surface-hover) 88%, var(--text) 12%);
+  border-color: color-mix(in srgb, var(--line-strong) 70%, var(--accent) 30%);
 }
 
 .dashboardActions .compactAction:hover,
 .dashboardStatusMenu > summary:hover,
 .dashboardTools > summary:hover {
-  background: #2d2d33;
-  border-color: #5a5a63;
+  background: color-mix(in srgb, var(--surface-hover) 88%, var(--text) 12%);
+  border-color: color-mix(in srgb, var(--line-strong) 70%, var(--accent) 30%);
 }
 
 .dashboardStatusMenu[open] > summary,
 .dashboardTools[open] > summary {
-  background: #173b39;
-  border-color: #63cbbf;
-  box-shadow: 0 0 0 1px rgb(114 214 201 / 20%);
-  color: #d9fffa;
+  background: var(--surface-accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--text);
 }
 
 .dashboardStatusOptions {
@@ -1530,10 +1530,10 @@ label {
 }
 
 .dashboardToolMenu {
-  background: #151a1c;
-  border: 1px solid #3f706b;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--line-strong) 65%, var(--accent) 35%);
   border-radius: 6px;
-  box-shadow: 0 14px 36px rgb(0 0 0 / 48%);
+  box-shadow: 0 14px 36px var(--shadow-color);
   display: grid;
   gap: 4px;
   min-width: 220px;
@@ -1557,7 +1557,7 @@ label {
 }
 
 .dashboardToolMenu button:hover {
-  background: #29292f;
+  background: var(--surface-hover);
 }
 
 .dashboardToolMenu button > span:last-child {
@@ -1576,8 +1576,8 @@ label {
 
 .toolSymbol {
   align-items: center;
-  background: #243533;
-  border: 1px solid #4b817a;
+  background: var(--surface-accent);
+  border: 1px solid color-mix(in srgb, var(--line-strong) 58%, var(--accent) 42%);
   border-radius: 4px;
   color: var(--accent);
   display: inline-flex;
@@ -1604,14 +1604,14 @@ label {
 }
 
 .workflowCanvas .react-flow__pane {
-  background: #0e0e10;
+  background: var(--surface-inset);
 }
 
 .workflowCanvas .react-flow__node {
-  background: #1b1b1e;
-  border: 1px solid #424248;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
   border-radius: 5px;
-  color: #e7edf7;
+  color: var(--text);
   font-size: 13px;
   font-weight: 750;
   padding: 0;
@@ -1630,15 +1630,15 @@ label {
 
 .workflowCanvas .react-flow__node.selected,
 .workflowCanvas .react-flow__node.nodeSelected {
-  background: #29292d;
-  border-color: #a1a1aa;
+  background: var(--surface-hover);
+  border-color: var(--accent);
   box-shadow: 0 0 0 2px rgb(161 161 170 / 24%);
   transform-origin: center;
 }
 
 .workflowCanvas .react-flow__handle {
   background: var(--accent);
-  border: 2px solid #0f1011;
+  border: 2px solid var(--surface-inset);
   height: 10px;
   top: 50%;
   width: 10px;
@@ -1782,8 +1782,8 @@ label {
 
 .timerEnabled {
   align-items: center;
-  background: #151719;
-  border: 1px solid #34363a;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
   border-radius: 5px;
   display: flex;
   flex-direction: row;
@@ -1828,8 +1828,8 @@ label {
 
 .statusFilterEditor {
   align-items: end;
-  background: #121820;
-  border-top: 1px solid #2c425b;
+  background: var(--surface-raised);
+  border-top: 1px solid var(--line-strong);
   display: grid;
   gap: 10px;
   grid-template-columns: minmax(170px, 1fr) minmax(150px, 0.8fr) minmax(150px, 0.8fr) auto;
@@ -1842,15 +1842,15 @@ label {
 
 .statusFilterInfo {
   background: transparent;
-  border-left: 2px solid #3d6f74;
-  color: #aebdca;
+  border-left: 2px solid var(--accent);
+  color: var(--muted);
   margin-top: 12px;
   padding: 9px 10px;
 }
 
 .statusFilterSummary {
   background: transparent;
-  border: 1px solid #34414b;
+  border: 1px solid var(--line-strong);
   border-radius: 5px;
   display: grid;
   gap: 10px;
@@ -1858,14 +1858,14 @@ label {
 }
 
 .statusFilterSummary > label {
-  color: #b6c2cc;
+  color: var(--muted);
   display: grid;
   font-size: 12px;
   gap: 6px;
 }
 
 .statusFilterDescription {
-  border-top: 1px solid #2e3942;
+  border-top: 1px solid var(--line);
   display: grid;
   gap: 5px;
   margin: 0;
@@ -1873,13 +1873,13 @@ label {
 }
 
 .statusFilterDescription > span {
-  color: #9eafb9;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 700;
 }
 
 .statusFilterDescription > p {
-  color: #e1eaf2;
+  color: var(--text);
   font-size: 14px;
   line-height: 1.5;
   margin: 0;
@@ -1903,27 +1903,27 @@ label {
 }
 
 .workflowCanvas .react-flow__edge-text {
-  fill: #dce8f8;
+  fill: var(--text);
   font-size: 11px;
 }
 
 .workflowCanvas .react-flow__edge-textbg {
-  fill: #111925;
+  fill: var(--surface-raised);
   fill-opacity: 1;
 }
 
 .workflowCanvas .react-flow__controls,
 .workflowCanvas .react-flow__minimap {
-  background: #111925;
-  border: 1px solid #2a3a51;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
 }
 
 .workflowCanvas .react-flow__controls button {
-  background: #111925;
+  background: var(--surface-raised);
   border: 0;
-  border-bottom: 1px solid #2a3a51;
+  border-bottom: 1px solid var(--line-strong);
   border-radius: 0;
-  color: #dce8f8;
+  color: var(--text);
 }
 
 .selectedConnection {
@@ -1935,12 +1935,12 @@ label {
 }
 
 .selectedConnection span {
-  color: #a8b3c4;
+  color: var(--muted);
   font-size: 12px;
 }
 
 .promptLibrary {
-  background: #1a1a1d;
+  background: var(--surface-raised);
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   display: grid;
@@ -1988,10 +1988,10 @@ label {
 }
 
 .promptFilePath {
-  background: #141416;
-  border: 1px solid #303036;
+  background: var(--surface-inset);
+  border: 1px solid var(--line-strong);
   border-radius: 4px;
-  color: #b6b6bd;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
   margin: 0;
@@ -2010,7 +2010,7 @@ label {
 }
 
 .agentStatusField {
-  color: #a8b3c4;
+  color: var(--muted);
   display: flex;
   flex-direction: column;
   font-size: 13px;
@@ -2029,7 +2029,7 @@ label {
 
 .promptStatusMenu > summary {
   align-items: center;
-  background: #202025;
+  background: var(--surface-raised);
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   color: var(--text);
@@ -2055,21 +2055,21 @@ label {
 }
 
 .promptStatusMenu > summary:hover {
-  background: #29292f;
-  border-color: #5a5a63;
+  background: var(--surface-hover);
+  border-color: color-mix(in srgb, var(--line-strong) 70%, var(--accent) 30%);
 }
 
 .promptStatusMenu[open] > summary {
-  background: #173b39;
-  border-color: #63cbbf;
-  color: #d9fffa;
+  background: var(--surface-accent);
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .promptStatusOptions {
-  background: #171719;
-  border: 1px solid #3f706b;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--line-strong) 65%, var(--accent) 35%);
   border-radius: 6px;
-  box-shadow: 0 14px 36px rgb(0 0 0 / 48%);
+  box-shadow: 0 14px 36px var(--shadow-color);
   display: grid;
   gap: 5px;
   margin-top: 6px;
@@ -2085,8 +2085,8 @@ label {
 
 .promptStatusOption {
   align-items: flex-start;
-  background: #202025;
-  border: 1px solid #36363c;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
   border-radius: 5px;
   cursor: pointer;
   display: flex;
@@ -2095,8 +2095,8 @@ label {
 }
 
 .promptStatusOption:hover {
-  background: #28282d;
-  border-color: #53535c;
+  background: var(--surface-hover);
+  border-color: color-mix(in srgb, var(--line-strong) 70%, var(--accent) 30%);
 }
 
 .promptStatusOption input {
@@ -2852,10 +2852,10 @@ button:hover {
 }
 
 .adapter {
-  background: #111113;
-  border: 1px solid #2c2c30;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
   border-radius: 6px;
-  color: #a8b3c4;
+  color: var(--muted);
   margin-top: 18px;
   padding: 14px;
 }
