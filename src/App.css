@@ -2840,9 +2840,15 @@ button:hover {
 }
 
 .danger {
-  background: #be123c;
-  border-color: #fb7185;
-  color: #fff1f2;
+  background: #e98282;
+  border-color: #bd5b5b;
+  color: #211111;
+}
+
+.danger:hover:not(:disabled) {
+  background: #ef9696;
+  border-color: #a94444;
+  color: #160909;
 }
 
 .deleteButton {
@@ -3065,6 +3071,18 @@ summary:focus-visible {
   border-color: var(--line-strong);
   box-shadow: 0 14px 36px var(--shadow-color);
   color: var(--text);
+}
+
+.shell[data-theme="light"] .agentCreationProgress {
+  background: var(--surface-raised);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong) 55%);
+  color: var(--text);
+}
+
+.shell[data-theme="light"] .modalError {
+  background: #fde9ec;
+  border-color: #c94f64;
+  color: #81263a;
 }
 
 .shell[data-theme="light"] .threadOption:hover,
