@@ -30,6 +30,8 @@ Am unteren Ende der Agentenleiste befindet sich der globale Profilzugang. Wenn d
 
 Ein Klick auf das Profil öffnet eine eigenständige Einstellungsansicht mit einem direkten Rücksprung über `Zurück zur App`. Diese Einstellungen gelten für die gesamte Anwendung und sind von den Setups einzelner Agenten getrennt.
 
+Die kompakte Einstellungsansicht trennt Navigation und Inhalt klar voneinander und verwendet in allen Bereichen einheitliche Abstände, Feldhöhen und Bediengrößen.
+
 Unter `Aussehen` stehen zur Verfügung:
 
 - Design nach Systemeinstellung sowie ein heller und ein dunkler Modus
