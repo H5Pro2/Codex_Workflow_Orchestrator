@@ -19,6 +19,10 @@ type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegebe
 type UiLanguage = 'de' | 'en'
 type AgentAssignment = 'agent' | 'management'
 
+const MANAGEMENT_ERROR_STATUS_NAME = 'Fehler'
+const MANAGEMENT_ERROR_STATUS_MEANING =
+  'Der Agent konnte seinen Codex-Lauf nicht abschließen und benötigt eine Entscheidung oder neue Anweisung.'
+
 type ManagementTeamPlanAgent = {
   name: string
   role: string
@@ -728,6 +732,7 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
     ...existingStatusContext,
     'Nimm wiederverwendete Statusbefehle mit exakt demselben Namen und exakt derselben Bedeutung in statusCommands auf. Erstelle nur dann einen neuen Statusbefehl, wenn keiner der vorhandenen Befehle den benötigten Zweck abdeckt.',
     'Jede Verbindung muss einen vorhandenen Statusbefehl nennen. Weise jedem Agenten unter workflowStatuses genau die Statusbefehle zu, die er verwenden darf.',
+    `Der Systemstatus "${MANAGEMENT_ERROR_STATUS_NAME}" ist verpflichtend. Verwende ihn mit der Bedeutung: "${MANAGEMENT_ERROR_STATUS_MEANING}". Weise ihn jedem vorgeschlagenen Agenten zu. Der Orchestrator verdrahtet diesen Status automatisch zurück zum Verwaltungsagenten.`,
     'Wähle ein startAgent aus dem vorgeschlagenen Team und formuliere eine startInstruction, mit der die Arbeit bei Auto Start eindeutig beginnt.',
     'Verwende nur gültiges JSON. Erfinde keine Projektpfade. Der Orchestrator prüft den Vorschlag und ein Benutzer muss ihn übernehmen.',
   ].join('\n')
@@ -773,6 +778,18 @@ function parseManagementTeamPlan(text: string): { plan: ManagementTeamPlan; sign
           return { name, meaning }
         })
       : []
+    if (statusCommands.length > 20) return null
+    if (!statusCommands.some((status) => status.name.toLocaleLowerCase('de-DE') === MANAGEMENT_ERROR_STATUS_NAME.toLocaleLowerCase('de-DE'))) {
+      statusCommands.push({
+        name: MANAGEMENT_ERROR_STATUS_NAME,
+        meaning: MANAGEMENT_ERROR_STATUS_MEANING,
+      })
+    }
+    agents.forEach((agent) => {
+      if (!agent.workflowStatuses.some((status) => status.toLocaleLowerCase('de-DE') === MANAGEMENT_ERROR_STATUS_NAME.toLocaleLowerCase('de-DE'))) {
+        agent.workflowStatuses.push(MANAGEMENT_ERROR_STATUS_NAME)
+      }
+    })
     if (statusCommands.length > 20) return null
     const normalizedStatusNames = statusCommands.map((status) => status.name.toLocaleLowerCase('de-DE'))
     if (new Set(normalizedStatusNames).size !== normalizedStatusNames.length) return null
@@ -1647,7 +1664,7 @@ function App() {
     const managerDashboardAgentIds = workflowBoardAgentIds[selectedAgent.id] ?? []
     if (!managerDashboardAgentIds.includes(selectedAgent.id) || !managerDashboardAgentIds.includes(startAgentId)) return false
 
-    return selectedTeamPlan.plan.connections.every((connection) => {
+    const plannedConnectionsComplete = selectedTeamPlan.plan.connections.every((connection) => {
       const sourceId = projectAgentByName.get(connection.from.trim().toLocaleLowerCase('de-DE'))?.id
       const targetId = projectAgentByName.get(connection.to.trim().toLocaleLowerCase('de-DE'))?.id
       const statusId = statusByName.get(connection.status.trim().toLocaleLowerCase('de-DE'))?.id
@@ -1662,6 +1679,24 @@ function App() {
         sourceDashboardAgentIds.includes(targetId) &&
         routes.some((route) => route.ownerAgentId === sourceId && route.sourceId === sourceId && route.targetId === filter.id) &&
         routes.some((route) => route.ownerAgentId === sourceId && route.sourceId === filter.id && route.targetId === targetId))
+    })
+    if (!plannedConnectionsComplete) return false
+
+    const errorStatusId = statusByName.get(MANAGEMENT_ERROR_STATUS_NAME.toLocaleLowerCase('de-DE'))?.id
+    if (!errorStatusId) return false
+    return proposedAgents.every(({ agent }) => {
+      if (!agent) return false
+      const filter = workflowStatusFilters.find((item) =>
+        item.ownerAgentId === agent.id &&
+        item.statusId === errorStatusId &&
+        item.name.startsWith(`${MANAGEMENT_ERROR_STATUS_NAME}: ${agent.name}`),
+      )
+      const boardAgentIds = workflowBoardAgentIds[agent.id] ?? []
+      return Boolean(filter &&
+        boardAgentIds.includes(agent.id) &&
+        boardAgentIds.includes(selectedAgent.id) &&
+        routes.some((route) => route.ownerAgentId === agent.id && route.sourceId === agent.id && route.targetId === filter.id) &&
+        routes.some((route) => route.ownerAgentId === agent.id && route.sourceId === filter.id && route.targetId === selectedAgent.id))
     })
   }, [agents, routes, selectedAgent, selectedTeamPlan, workflowBoardAgentIds, workflowInitials, workflowStatusFilters, workflowStatuses])
   const selectedTeamPlanMalformed = Boolean(
@@ -2711,6 +2746,24 @@ function App() {
           statusId: status.id,
         }
       })
+      const errorStatus = statusByName.get(MANAGEMENT_ERROR_STATUS_NAME.toLocaleLowerCase('de-DE'))
+      if (!errorStatus) throw new Error(`${tx('Statusbefehl fehlt', 'Missing status command')}: ${MANAGEMENT_ERROR_STATUS_NAME}`)
+      const managedAgents = plan.agents.map((specification) =>
+        projectAgentMap.get(specification.name.toLocaleLowerCase('de-DE'))!,
+      )
+      const errorFilters = managedAgents.map((source) => {
+        const name = `${MANAGEMENT_ERROR_STATUS_NAME}: ${source.name} -> ${manager.name}`
+        const existing = workflowStatusFilters.find((item) =>
+          samePath(item.projectPath, selectedProject.path) && item.name === name,
+        )
+        return {
+          id: existing?.id ?? crypto.randomUUID(),
+          ownerAgentId: source.id,
+          projectPath: selectedProject.path,
+          name,
+          statusId: errorStatus.id,
+        }
+      })
       const newRoutes: WorkflowRoute[] = [
         {
           id: crypto.randomUUID(),
@@ -2737,6 +2790,20 @@ function App() {
             },
           ]
         }),
+        ...managedAgents.flatMap((source, index) => {
+          const filter = errorFilters[index]
+          return [
+            {
+              id: crypto.randomUUID(), ownerAgentId: source.id, projectPath: selectedProject.path,
+              sourceId: source.id, targetId: filter.id, condition: 'Immer', prompt: '',
+            },
+            {
+              id: crypto.randomUUID(), ownerAgentId: source.id, projectPath: selectedProject.path,
+              sourceId: filter.id, targetId: manager.id, condition: 'Immer',
+              prompt: 'Prüfe den fehlgeschlagenen Lauf, entscheide über den nächsten Schritt und gib dem Benutzer eine klare Rückmeldung.',
+            },
+          ]
+        }),
       ]
       setAgents(resolvedAgents.map((agent) => agent.id === manager.id
         ? { ...agent, lastAppliedTeamPlanSignature: signature, updatedAt: new Date().toISOString() }
@@ -2747,8 +2814,9 @@ function App() {
         configuredInitial,
       ])
       setWorkflowStatusFilters((current) => [
-        ...current.filter((item) => !planFilters.some((filter) => filter.id === item.id)),
+        ...current.filter((item) => ![...planFilters, ...errorFilters].some((filter) => filter.id === item.id)),
         ...planFilters,
+        ...errorFilters,
       ])
       setCodexThreads((current) => [
         ...current.filter((thread) => !createdThreads.some((created) => created.id === thread.id)),
@@ -2764,10 +2832,13 @@ function App() {
           const target = projectAgentMap.get(connection.to.toLocaleLowerCase('de-DE'))!
           next[source.id] = Array.from(new Set([source.id, ...(next[source.id] ?? []), target.id]))
         })
+        managedAgents.forEach((source) => {
+          next[source.id] = Array.from(new Set([source.id, ...(next[source.id] ?? []), manager.id]))
+        })
         return next
       })
       setRoutes((current) => {
-        const planFilterIds = new Set(planFilters.map((filter) => filter.id))
+        const planFilterIds = new Set([...planFilters, ...errorFilters].map((filter) => filter.id))
         const planSourceIds = new Set(plan.connections.map((connection) =>
           projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!.id,
         ))
@@ -2803,6 +2874,10 @@ function App() {
             [`${source.id}:${target.id}`, { x: 500, y }],
           ]
         })),
+        ...Object.fromEntries(managedAgents.flatMap((source, index) => [
+          [`${source.id}:${errorFilters[index].id}`, { x: 270, y: 300 }],
+          [`${source.id}:${manager.id}`, { x: 500, y: 300 }],
+        ])),
       }))
       addEvent(
         'Team-Vorschlag übernommen',
@@ -3880,15 +3955,30 @@ function App() {
                   return
                 }
                 terminalResultObservations.current.delete(agent.pendingTurnId)
-                updateAgent(agent.id, {
+                const failureDetail = data.error?.message ?? data.status
+                const failedAgent: Agent = {
+                  ...agent,
                   status: 'rueckfrage',
+                  lastResult: [
+                    'Der Codex-Lauf wurde nicht abgeschlossen.',
+                    `Agent: ${agent.name}`,
+                    `Fehler: ${failureDetail}`,
+                    '',
+                    `[Workflow-Status: ${MANAGEMENT_ERROR_STATUS_NAME}]`,
+                  ].join('\n'),
                   pendingTurnId: '',
                   lastCompletedTurnId: data.turnId ?? agent.pendingTurnId,
-                })
+                  runStartedAt: '',
+                  updatedAt: new Date().toISOString(),
+                }
+                updateAgent(agent.id, failedAgent)
                 addEvent(
                   'Codex-Ausführung nicht abgeschlossen',
-                  `${agent.name}: ${data.error?.message ?? data.status}`,
+                  `${agent.name}: ${failureDetail}`,
                 )
+                if (autoRun && failedAgent.autoForward) {
+                  await handoff(failedAgent)
+                }
                 return
               }
 
