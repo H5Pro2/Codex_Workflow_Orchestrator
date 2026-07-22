@@ -1502,20 +1502,31 @@ function App() {
       ? programSettings.accentColor
       : defaultProgramSettings.accentColor
     const contrast = programSettings.contrast / 100
+    const isLightTheme = effectiveTheme === 'light'
     return {
       '--canvas': background,
       '--surface': mixHexColors(background, foreground, 0.035 + contrast * 0.045),
       '--surface-raised': mixHexColors(background, foreground, 0.06 + contrast * 0.065),
       '--surface-hover': mixHexColors(background, foreground, 0.09 + contrast * 0.08),
+      '--surface-inset': mixHexColors(background, foreground, isLightTheme ? 0.018 : 0.025),
+      '--surface-accent': mixHexColors(background, accent, isLightTheme ? 0.11 : 0.16),
+      '--message-user': mixHexColors(background, foreground, isLightTheme ? 0.045 : 0.095),
+      '--message-agent': mixHexColors(background, accent, isLightTheme ? 0.1 : 0.14),
       '--line': mixHexColors(background, foreground, 0.11 + contrast * 0.1),
       '--line-strong': mixHexColors(background, foreground, 0.17 + contrast * 0.12),
       '--text': foreground,
-      '--muted': mixHexColors(background, foreground, 0.54 + contrast * 0.12),
+      '--muted': mixHexColors(
+        background,
+        foreground,
+        isLightTheme ? 0.68 + contrast * 0.06 : 0.54 + contrast * 0.12,
+      ),
       '--accent': accent,
+      '--accent-strong': isLightTheme ? mixHexColors(accent, foreground, 0.62) : accent,
+      '--shadow-color': isLightTheme ? 'rgb(15 23 42 / 16%)' : 'rgb(0 0 0 / 45%)',
       '--ui-font': `"${programSettings.uiFont}", "Segoe UI", sans-serif`,
       '--code-font': `"${programSettings.codeFont}", ui-monospace, monospace`,
     } as CSSProperties
-  }, [programSettings])
+  }, [effectiveTheme, programSettings])
 
   useEffect(() => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)

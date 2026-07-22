@@ -35,6 +35,7 @@ Die kompakte Einstellungsansicht trennt Navigation und Inhalt klar voneinander u
 Unter `Aussehen` stehen zur Verfügung:
 
 - Design nach Systemeinstellung sowie ein heller und ein dunkler Modus
+- kontrastoptimierte Oberflächen für Chat, Agentenliste, Protokoll und Workflow-Dashboard in beiden Modi
 - frei wählbare Akzent-, Hintergrund- und Vordergrundfarben
 - Auswahl der UI- und Code-Schriftart
 - regelbarer Oberflächenkontrast

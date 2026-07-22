@@ -3,11 +3,17 @@
   --surface: #131315;
   --surface-raised: #19191b;
   --surface-hover: #222225;
+  --surface-inset: #101012;
+  --surface-accent: #172725;
+  --message-user: #1c1c20;
+  --message-agent: #162725;
   --line: #2b2b2f;
   --line-strong: #3a3a40;
   --text: #f2f2f3;
   --muted: #a1a1aa;
   --accent: #72d6c9;
+  --accent-strong: #72d6c9;
+  --shadow-color: rgb(0 0 0 / 45%);
   --main-panel-height: clamp(800px, calc(100vh - 108px), 1120px);
   min-height: 100vh;
   background: var(--canvas);
@@ -976,7 +982,7 @@ h2 {
 }
 
 label {
-  color: #a8b3c4;
+  color: var(--muted);
   display: flex;
   flex-direction: column;
   font-size: 13px;
@@ -3006,6 +3012,232 @@ summary:focus-visible {
 
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Legacy workflow surfaces use semantic colors in light mode as well. */
+.shell[data-theme="light"] .threadManager summary,
+.shell[data-theme="light"] .agentButton,
+.shell[data-theme="light"] .checkbox,
+.shell[data-theme="light"] .autoForwardControl,
+.shell[data-theme="light"] .managementControl,
+.shell[data-theme="light"] .managedAgentOption,
+.shell[data-theme="light"] .managementTeamPlan,
+.shell[data-theme="light"] .managementTeamAgents article,
+.shell[data-theme="light"] .workflowStatusLibrary,
+.shell[data-theme="light"] .workflowStatusItem,
+.shell[data-theme="light"] .workflowDashboard,
+.shell[data-theme="light"] .eventLogToggle,
+.shell[data-theme="light"] .graph,
+.shell[data-theme="light"] .collapsibleText.monospace {
+  background: var(--surface-raised);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.shell[data-theme="light"] .threadOptions,
+.shell[data-theme="light"] .dashboardToolMenu {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  box-shadow: 0 14px 36px var(--shadow-color);
+  color: var(--text);
+}
+
+.shell[data-theme="light"] .threadOption:hover,
+.shell[data-theme="light"] .agentButton:hover,
+.shell[data-theme="light"] .agentButton.active,
+.shell[data-theme="light"] .dashboardToolMenu button:hover,
+.shell[data-theme="light"] .eventLogToggle:hover {
+  background: var(--surface-hover);
+  border-color: color-mix(in srgb, var(--line-strong) 65%, var(--accent) 35%);
+}
+
+.shell[data-theme="light"] .agentButton.active {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--line) 30%);
+}
+
+.shell[data-theme="light"] .threadOption,
+.shell[data-theme="light"] .threadOption small,
+.shell[data-theme="light"] .threadOptions > p,
+.shell[data-theme="light"] .agentButton small,
+.shell[data-theme="light"] .railHeader small,
+.shell[data-theme="light"] .workflowStatusItem span,
+.shell[data-theme="light"] .workflowNodeContent .nodeKind {
+  color: var(--muted);
+}
+
+.shell[data-theme="light"] .connectorState small,
+.shell[data-theme="light"] .languageSwitch button,
+.shell[data-theme="light"] .usageSummary small,
+.shell[data-theme="light"] .eventLog time,
+.shell[data-theme="light"] .workflowStatusHeader small,
+.shell[data-theme="light"] .dashboardMetric strong,
+.shell[data-theme="light"] .linkOverviewHeader small,
+.shell[data-theme="light"] .talkToOptions > p,
+.shell[data-theme="light"] .noLinks {
+  color: var(--muted);
+}
+
+.shell[data-theme="light"] .usageSummary strong,
+.shell[data-theme="light"] .setupToggle,
+.shell[data-theme="light"] .setupToggle.active {
+  color: var(--text);
+}
+
+.shell[data-theme="light"] .setupToggle:hover,
+.shell[data-theme="light"] .setupToggle.active {
+  background: var(--surface-hover);
+  border-color: color-mix(in srgb, var(--line-strong) 65%, var(--accent) 35%);
+}
+
+.shell[data-theme="light"] .eyebrow,
+.shell[data-theme="light"] .collapsibleText summary,
+.shell[data-theme="light"] .showMore,
+.shell[data-theme="light"] .showLess {
+  color: var(--accent-strong);
+}
+
+.shell[data-theme="light"] .railAddAgent {
+  background: var(--surface-accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line) 45%);
+  color: var(--text);
+}
+
+.shell[data-theme="light"] .railAddAgent:hover,
+.shell[data-theme="light"] .languageSwitch button.active,
+.shell[data-theme="light"] .languageSwitch button:hover {
+  background: color-mix(in srgb, var(--surface-accent) 70%, var(--accent) 30%);
+  color: var(--text);
+}
+
+.shell[data-theme="light"] .agentChat {
+  background: var(--surface-inset);
+}
+
+.shell[data-theme="light"] .chatTeamPlan,
+.shell[data-theme="light"] .agentCreationProgress {
+  background: var(--surface-accent);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line) 52%);
+  color: var(--text);
+}
+
+.shell[data-theme="light"] .chatComposer {
+  background: var(--surface-raised);
+}
+
+.shell[data-theme="light"] .chatComposer textarea {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.shell[data-theme="light"] .chatComposer textarea::placeholder {
+  color: var(--muted);
+}
+
+.shell[data-theme="light"] .chatMessage {
+  border-color: var(--line-strong);
+  box-shadow: none;
+}
+
+.shell[data-theme="light"] .chatMessage.user {
+  background: var(--message-user);
+  border-color: var(--line-strong);
+}
+
+.shell[data-theme="light"] .chatMessage.assistant {
+  background: var(--message-agent);
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--line) 38%);
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+.shell[data-theme="light"] .chatMessage p,
+.shell[data-theme="light"] .chatMessageMeta strong,
+.shell[data-theme="light"] .workflowStatusItem strong,
+.shell[data-theme="light"] .graph,
+.shell[data-theme="light"] .collapsibleText.monospace {
+  color: var(--text);
+}
+
+.shell[data-theme="light"] .chatMessageMeta small,
+.shell[data-theme="light"] .chatMessage.assistant .chatMessageMeta small {
+  color: var(--muted);
+}
+
+.shell[data-theme="light"] .jumpToLatest {
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--line) 38%);
+  box-shadow: 0 5px 18px var(--shadow-color);
+}
+
+.shell[data-theme="light"] .jumpToLatest:hover {
+  background: var(--surface-hover);
+}
+
+.shell[data-theme="light"] .autoForwardControl .checkbox,
+.shell[data-theme="light"] .managementIntervalInput > span {
+  background: var(--surface-hover);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.shell[data-theme="light"] .workflowCanvas .react-flow__pane {
+  background: var(--surface-inset);
+}
+
+.shell[data-theme="light"] .workflowCanvas .react-flow__node {
+  background: var(--surface-raised);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.shell[data-theme="light"] .workflowCanvas .react-flow__node.selected,
+.shell[data-theme="light"] .workflowCanvas .react-flow__node.nodeSelected {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.shell[data-theme="light"] .workflowCanvas .react-flow__node.prompt,
+.shell[data-theme="light"] .workflowCanvas .react-flow__node.initial,
+.shell[data-theme="light"] .workflowCanvas .react-flow__node.statusFilter,
+.shell[data-theme="light"] .workflowCanvas .react-flow__node.stop {
+  background: var(--surface-raised);
+}
+
+.shell[data-theme="light"] .workflowCanvas .react-flow__handle {
+  border-color: var(--surface-inset);
+}
+
+.shell[data-theme="light"] .status.wartet {
+  background: #fff7d6;
+  border-color: #d6b64c;
+  color: #684f00;
+}
+
+.shell[data-theme="light"] .status.laeuft {
+  background: #dff7f3;
+  border-color: #55a79e;
+  color: #155f58;
+}
+
+.shell[data-theme="light"] .status.fertig,
+.shell[data-theme="light"] .status.weitergegeben {
+  background: #e4f6e9;
+  border-color: #68a879;
+  color: #28623a;
+}
+
+.shell[data-theme="light"] .status.rueckfrage {
+  background: #fde8ec;
+  border-color: #d47b8c;
+  color: #8c2f43;
+}
+
+.shell[data-theme="light"] * {
+  scrollbar-color: color-mix(in srgb, var(--muted) 58%, transparent) transparent;
+}
+
+.shell[data-theme="light"] *::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 58%, transparent);
 }
 
 @media (max-width: 1100px) {
