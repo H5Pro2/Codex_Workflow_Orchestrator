@@ -21,6 +21,7 @@ import {
   parseManagementTeamPlan,
 } from './team-plan.ts'
 import { runProvisioningTransaction } from './provisioning-transaction.ts'
+import { findCompletedConversationTurn } from './codex-turn.ts'
 
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
@@ -29,6 +30,26 @@ type ThemeMode = 'system' | 'light' | 'dark'
 type SettingsSection = 'general' | 'profile' | 'appearance'
 
 const INVENTORY_RECONCILIATION_GRACE_MS = 5 * 60 * 1000
+const AUTOMATION_LEASE_KEY = 'codex-orchestrator-automation-lease-v1'
+const AUTOMATION_LEASE_DURATION_MS = 7_000
+
+type AutomationLease = {
+  ownerId: string
+  expiresAt: number
+}
+
+const readAutomationLease = (): AutomationLease | null => {
+  try {
+    const value = window.localStorage.getItem(AUTOMATION_LEASE_KEY)
+    if (!value) return null
+    const parsed = JSON.parse(value) as Partial<AutomationLease>
+    return typeof parsed.ownerId === 'string' && typeof parsed.expiresAt === 'number'
+      ? { ownerId: parsed.ownerId, expiresAt: parsed.expiresAt }
+      : null
+  } catch {
+    return null
+  }
+}
 
 type ProgramSettings = {
   displayName: string
@@ -1483,6 +1504,9 @@ function App() {
   const sharedStateDirty = useRef(false)
   const teamPlanApplyingRef = useRef(false)
   const autoRunRef = useRef(autoRun)
+  const automationTabId = useRef(crypto.randomUUID())
+  const automationLeaderRef = useRef(false)
+  const [automationLeader, setAutomationLeader] = useState(false)
   const agentsRef = useRef(agents)
   agentsRef.current = agents
   const pollingTurnIds = useRef(new Set<string>())
@@ -1517,6 +1541,54 @@ function App() {
   useEffect(() => {
     autoRunRef.current = autoRun
   }, [autoRun])
+
+  const claimAutomationLease = useCallback(() => {
+    const now = Date.now()
+    const current = readAutomationLease()
+    if (current && current.ownerId !== automationTabId.current && current.expiresAt > now) {
+      automationLeaderRef.current = false
+      setAutomationLeader(false)
+      return false
+    }
+    const nextLease: AutomationLease = {
+      ownerId: automationTabId.current,
+      expiresAt: now + AUTOMATION_LEASE_DURATION_MS,
+    }
+    window.localStorage.setItem(AUTOMATION_LEASE_KEY, JSON.stringify(nextLease))
+    const confirmed = readAutomationLease()?.ownerId === automationTabId.current
+    automationLeaderRef.current = confirmed
+    setAutomationLeader(confirmed)
+    return confirmed
+  }, [])
+
+  const releaseAutomationLease = useCallback(() => {
+    if (readAutomationLease()?.ownerId === automationTabId.current) {
+      window.localStorage.removeItem(AUTOMATION_LEASE_KEY)
+    }
+    automationLeaderRef.current = false
+    setAutomationLeader(false)
+  }, [])
+
+  useEffect(() => {
+    if (!autoRun) {
+      releaseAutomationLease()
+      return
+    }
+
+    const refreshLease = () => claimAutomationLease()
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === AUTOMATION_LEASE_KEY) refreshLease()
+    }
+
+    refreshLease()
+    const timer = window.setInterval(refreshLease, 2_000)
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('storage', handleStorage)
+      releaseAutomationLease()
+    }
+  }, [autoRun, claimAutomationLease, releaseAutomationLease])
 
   useEffect(() => {
     setAgents((current) => {
@@ -3637,6 +3709,9 @@ function App() {
       addEvent('Weitergabe blockiert', `${agent.name}: Die Automatik ist ausgeschaltet.`)
       return
     }
+    if (!automationLeaderRef.current) {
+      return
+    }
     const activeRoutes = routes.filter(
       (route) => route.sourceId === agent.id,
     )
@@ -4328,6 +4403,7 @@ function App() {
 
   useEffect(() => {
     const poll = async () => {
+      if (autoRunRef.current && !automationLeaderRef.current) return
       const forwardNextQueuedSource = async (targetId: string) => {
         const queuedSourceIds = queuedSourceAgentIdsByTarget.current.get(targetId) ?? []
         const [sourceId, ...remainingSourceIds] = queuedSourceIds
@@ -4359,13 +4435,40 @@ function App() {
               const response = await fetch(
                 `/api/threads/${encodeURIComponent(agent.threadId)}/result?turnId=${encodeURIComponent(agent.pendingTurnId)}`,
               )
-              const data = await response.json()
+              let data = await response.json()
               if (!response.ok) {
                 throw new Error(data.error || 'Codex-Ergebnis konnte nicht gelesen werden.')
               }
               if (data.status === 'inProgress') {
-                terminalResultObservations.current.delete(agent.pendingTurnId)
-                return
+                const runAgeMs = agent.runStartedAt
+                  ? Date.now() - new Date(agent.runStartedAt).getTime()
+                  : 0
+                if (runAgeMs >= 8000) {
+                  const conversationResponse = await fetch(
+                    `/api/threads/${encodeURIComponent(agent.threadId)}/conversation`,
+                  )
+                  if (conversationResponse.ok) {
+                    const conversation = await conversationResponse.json()
+                    const completedMessage = findCompletedConversationTurn(
+                      conversation.messages ?? [],
+                      agent.lastResult,
+                      agent.lastCompletedTurnId,
+                    )
+                    if (completedMessage) {
+                      data = {
+                        turnId: completedMessage.turnId,
+                        status: 'completed',
+                        text: completedMessage.text,
+                        durationMs: runAgeMs,
+                        error: null,
+                      }
+                    }
+                  }
+                }
+                if (data.status === 'inProgress') {
+                  terminalResultObservations.current.delete(agent.pendingTurnId)
+                  return
+                }
               }
               if (data.status !== 'completed') {
                 const runAgeMs = agent.runStartedAt
@@ -4477,7 +4580,7 @@ function App() {
   }, [addEvent, agents, autoRun, handoff, renameCodexThread, resetInactiveAgentStatuses, updateAgent])
 
   useEffect(() => {
-    if (!autoRun) return
+    if (!autoRun || !automationLeader) return
 
     const dispatchManagementReviews = async () => {
       const now = Date.now()
@@ -4547,10 +4650,10 @@ function App() {
     void dispatchManagementReviews()
     const timer = window.setInterval(() => void dispatchManagementReviews(), 10_000)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, applyThreadReplacement, autoRun, selectedProject?.path, setAgentTransmission, updateAgent, workflowStatuses])
+  }, [addEvent, agents, applyThreadReplacement, automationLeader, autoRun, selectedProject?.path, setAgentTransmission, updateAgent, workflowStatuses])
 
   useEffect(() => {
-    if (!autoRun) return
+    if (!autoRun || !automationLeader) return
 
     const dispatchDueTimers = async () => {
       const now = Date.now()
@@ -4634,7 +4737,7 @@ function App() {
     void dispatchDueTimers()
     const timer = window.setInterval(() => void dispatchDueTimers(), 10_000)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, applyThreadReplacement, autoRun, routes, selectedProject?.path, updateAgent, workflowStatuses, workflowTimers])
+  }, [addEvent, agents, applyThreadReplacement, automationLeader, autoRun, routes, selectedProject?.path, updateAgent, workflowStatuses, workflowTimers])
 
   const startInitialWorkflows = useCallback(async () => {
     const activeProjectPath = selectedProject?.path ?? ''
@@ -4730,7 +4833,12 @@ function App() {
       setTransmittingAgentIds([])
       queuedSourceAgentIdsByTarget.current.clear()
       resetInactiveAgentStatuses()
+      releaseAutomationLease()
       addEvent('Automatik gestoppt', 'Weitere fertige Ergebnisse werden nicht automatisch weitergegeben.')
+      return
+    }
+    if (!claimAutomationLease()) {
+      addEvent('Automatik bereits aktiv', 'Ein anderes geöffnetes Fenster steuert diesen Workflow bereits.')
       return
     }
     sharedStateDirty.current = true

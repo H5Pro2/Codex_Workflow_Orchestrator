@@ -236,7 +236,24 @@ async function readThreadTurnIds(threadId) {
   }
 }
 
-async function waitForStartedTurn(threadId, previousTurnIds, preferredTurnId = '') {
+function turnContainsSubmittedText(turn, submittedText) {
+  const normalizedText = submittedText.trim()
+  return (turn?.items ?? []).some((item) =>
+    item.type === 'userMessage' &&
+    (item.content ?? [])
+      .filter((content) => content.type === 'text' && typeof content.text === 'string')
+      .map((content) => content.text)
+      .join('\n')
+      .trim() === normalizedText,
+  )
+}
+
+async function waitForStartedTurn(
+  threadId,
+  previousTurnIds,
+  preferredTurnId = '',
+  submittedText = '',
+) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
       const result = await request('thread/read', {
@@ -247,10 +264,14 @@ async function waitForStartedTurn(threadId, previousTurnIds, preferredTurnId = '
       const preferredTurn = preferredTurnId
         ? turns.find((turn) => turn.id === preferredTurnId)
         : null
-      if (preferredTurn) {
+      if (preferredTurn && turnContainsSubmittedText(preferredTurn, submittedText)) {
         return preferredTurn
       }
-      const newTurn = turns.findLast((turn) => turn.id && !previousTurnIds.has(turn.id))
+      const newTurn = turns.findLast((turn) =>
+        turn.id &&
+        !previousTurnIds.has(turn.id) &&
+        turnContainsSubmittedText(turn, submittedText),
+      )
       if (newTurn) {
         return newTurn
       }
@@ -297,6 +318,7 @@ async function startTurn(threadId, text, model = '') {
       threadId,
       previousTurnIds,
       started.turn?.id ?? '',
+      text,
     )
     return persistedTurn ? { ...started, turn: persistedTurn } : started
   } catch (error) {
@@ -321,6 +343,7 @@ async function startTurn(threadId, text, model = '') {
       threadId,
       previousTurnIds,
       started.turn?.id ?? '',
+      text,
     )
     return persistedTurn ? { ...started, turn: persistedTurn } : started
   } catch {
