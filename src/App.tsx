@@ -31,6 +31,11 @@ import {
   type TurnActivityObservation,
 } from './workflow-watchdog.ts'
 import { deliveryDeduplicationSignature } from './delivery-deduplication.ts'
+import {
+  buildWorkloadEscalationResult,
+  nextConsecutiveFailedRuns,
+  shouldEscalateWorkload,
+} from './workload-escalation.ts'
 
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
@@ -113,6 +118,7 @@ type Agent = {
   runStartedAt: string
   lastDurationMs: number
   completedRuns: number
+  consecutiveFailedRuns: number
   pendingTurnId: string
   lastCompletedTurnId: string
   updatedAt: string
@@ -624,6 +630,7 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
     runStartedAt: agent.runStartedAt ?? '',
     lastDurationMs: agent.lastDurationMs ?? 0,
     completedRuns: agent.completedRuns ?? 0,
+    consecutiveFailedRuns: Math.max(0, agent.consecutiveFailedRuns ?? 0),
     pendingTurnId: agent.pendingTurnId ?? '',
     lastCompletedTurnId: agent.lastCompletedTurnId ?? '',
     updatedAt: agent.updatedAt ?? new Date().toISOString(),
@@ -2282,6 +2289,7 @@ function App() {
           runStartedAt: '',
           lastDurationMs: 0,
           completedRuns: 0,
+          consecutiveFailedRuns: 0,
           pendingTurnId: '',
           lastCompletedTurnId: '',
           updatedAt: new Date().toISOString(),
@@ -2705,6 +2713,7 @@ function App() {
       runStartedAt: '',
       lastDurationMs: 0,
       completedRuns: 0,
+      consecutiveFailedRuns: 0,
       pendingTurnId: '',
       lastCompletedTurnId: '',
       updatedAt: new Date().toISOString(),
@@ -2811,6 +2820,7 @@ function App() {
         runStartedAt: data.turn?.id ? new Date().toISOString() : '',
         lastDurationMs: 0,
         completedRuns: 0,
+        consecutiveFailedRuns: 0,
         pendingTurnId: data.turn?.id ?? '',
         lastCompletedTurnId: '',
         updatedAt: new Date().toISOString(),
@@ -4609,16 +4619,27 @@ function App() {
                 terminalResultObservations.current.delete(agent.pendingTurnId)
                 turnActivityObservations.current.delete(agent.id)
                 const failureDetail = data.error?.message ?? data.status
+                const consecutiveFailedRuns = nextConsecutiveFailedRuns(agent.consecutiveFailedRuns)
+                const overloadEscalation = shouldEscalateWorkload(consecutiveFailedRuns)
                 const failedAgent: Agent = {
                   ...agent,
                   status: autoRunRef.current ? 'rueckfrage' : 'wartet',
-                  lastResult: [
-                    'Der Codex-Lauf wurde nicht abgeschlossen.',
-                    `Agent: ${agent.name}`,
-                    `Fehler: ${failureDetail}`,
-                    '',
-                    `[Workflow-Status: ${MANAGEMENT_ERROR_STATUS_NAME}]`,
-                  ].join('\n'),
+                  lastResult: overloadEscalation
+                    ? buildWorkloadEscalationResult({
+                        agentName: agent.name,
+                        failureDetail,
+                        failedRuns: consecutiveFailedRuns,
+                        availableProgress: agent.lastResult,
+                        errorStatusName: MANAGEMENT_ERROR_STATUS_NAME,
+                      })
+                    : [
+                        'Der Codex-Lauf wurde nicht abgeschlossen.',
+                        `Agent: ${agent.name}`,
+                        `Fehler: ${failureDetail}`,
+                        '',
+                        `[Workflow-Status: ${MANAGEMENT_ERROR_STATUS_NAME}]`,
+                      ].join('\n'),
+                  consecutiveFailedRuns,
                   pendingTurnId: '',
                   lastCompletedTurnId: data.turnId ?? agent.pendingTurnId,
                   runStartedAt: '',
@@ -4627,8 +4648,12 @@ function App() {
                 activeDeliveryTargetIds.current.delete(agent.id)
                 updateAgent(agent.id, failedAgent)
                 addEvent(
-                  'Codex-Ausführung nicht abgeschlossen',
-                  `${agent.name}: ${failureDetail}`,
+                  overloadEscalation
+                    ? 'Aufgabe wird an CEO eskaliert'
+                    : 'Codex-Ausführung nicht abgeschlossen',
+                  overloadEscalation
+                    ? `${agent.name}: Aufgabe wird nach ${consecutiveFailedRuns} Fehlläufen zur Aufteilung gemeldet.`
+                    : `${agent.name}: ${failureDetail}`,
                 )
                 if (autoRun && failedAgent.assignment === 'management') {
                   queuedSourceAgentIdsByTarget.current.delete(failedAgent.id)
@@ -4664,11 +4689,29 @@ function App() {
                     ? Math.max(0, Date.now() - new Date(agent.runStartedAt).getTime())
                     : agent.lastDurationMs),
                 completedRuns: agent.completedRuns + 1,
+                consecutiveFailedRuns: 0,
                 updatedAt: new Date().toISOString(),
               }
               activeDeliveryTargetIds.current.delete(agent.id)
               updateAgent(agent.id, completedAgent)
               addEvent('Codex-Ergebnis empfangen', `${agent.name} ist fertig.`)
+              const pendingTeamPlan = completedAgent.assignment === 'management'
+                ? parseManagementTeamPlan(completedAgent.lastResult)
+                : null
+              if (autoRun && pendingTeamPlan) {
+                sharedStateDirty.current = true
+                autoRunRef.current = false
+                setAutoRun(false)
+                setTransmittingAgentIds([])
+                queuedSourceAgentIdsByTarget.current.clear()
+                activeDeliveryTargetIds.current.clear()
+                resetInactiveAgentStatuses()
+                addEvent(
+                  'Team-Vorschlag wartet auf Freigabe',
+                  `${completedAgent.name} hat die Arbeitsaufteilung vorbereitet. Der Benutzer muss sie bei Auto Stop prüfen und übernehmen.`,
+                )
+                return
+              }
               if (completedAgent.threadTitle !== completedAgent.name) {
                 await renameCodexThread(completedAgent)
               }
