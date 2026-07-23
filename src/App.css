@@ -200,7 +200,6 @@
 .maintenanceControl {
   align-items: center;
   display: inline-flex;
-  gap: 6px;
   margin-left: 2px;
 }
 
@@ -209,28 +208,18 @@
   background: var(--surface-raised);
   border-color: var(--line-strong);
   display: inline-flex;
-  font-size: 12px;
-  height: 30px;
+  font-size: 13px;
+  font-weight: 700;
+  height: 34px;
   justify-content: center;
-  min-width: 30px;
+  min-width: 34px;
   padding: 0;
-  width: 30px;
-}
-
-.maintenanceStateText {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1;
-  white-space: nowrap;
+  width: 34px;
 }
 
 .maintenanceControl.ready .maintenanceLauncher {
   border-color: #d2a83a;
   color: #f2c94c;
-}
-
-.maintenanceControl.ready .maintenanceStateText {
-  color: #d9b95e;
 }
 
 .maintenanceControl.diagnosing .maintenanceLauncher,
@@ -239,17 +228,8 @@
   color: var(--accent);
 }
 
-.maintenanceControl.diagnosing .maintenanceStateText,
-.maintenanceControl.repairing .maintenanceStateText {
-  color: var(--accent);
-}
-
 .maintenanceControl.failed .maintenanceLauncher {
   border-color: #ef9696;
-  color: #ef9696;
-}
-
-.maintenanceControl.failed .maintenanceStateText {
   color: #ef9696;
 }
 
