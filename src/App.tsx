@@ -32,6 +32,7 @@ import {
   type TurnActivityObservation,
 } from './workflow-watchdog.ts'
 import { deliveryDeduplicationSignature } from './delivery-deduplication.ts'
+import { resolveDeterministicCommunicationRepairTarget } from './communication-repair.ts'
 import { summarizeDeliveryAttempts } from './delivery-outcome.ts'
 import {
   buildWorkloadEscalationResult,
@@ -3983,11 +3984,57 @@ function App() {
             : []
         })
     })
+    const repairTargetId = resolveDeterministicCommunicationRepairTarget({
+      sourceAgentId: agent.id,
+      activeRouteCount: activeRoutes.length,
+      resultStatusIds,
+      dashboardAgentIds: workflowBoardAgentIds[agent.id] ?? [],
+      knownAgentIds: agents.map((item) => item.id),
+    })
+    const repairTarget = agents.find((item) => item.id === repairTargetId)
+    const repairStatus = projectStatuses.find((status) => status.id === resultStatusIds[0])
+    let deterministicRepairDelivery: WorkflowDelivery | null = null
+    if (repairTarget && repairStatus) {
+      const repairFilter: WorkflowStatusFilter = {
+        id: crypto.randomUUID(),
+        ownerAgentId: agent.id,
+        projectPath: agent.projectPath,
+        name: `${repairStatus.name}: Reparatur ${agent.name} -> ${repairTarget.name}`,
+        statusId: repairStatus.id,
+      }
+      const inboundRoute: WorkflowRoute = {
+        id: crypto.randomUUID(),
+        ownerAgentId: agent.id,
+        projectPath: agent.projectPath,
+        sourceId: agent.id,
+        targetId: repairFilter.id,
+        condition: 'Automatische Kommunikationsreparatur',
+        prompt: '',
+      }
+      const outgoingRoute: WorkflowRoute = {
+        id: crypto.randomUUID(),
+        ownerAgentId: agent.id,
+        projectPath: agent.projectPath,
+        sourceId: repairFilter.id,
+        targetId: repairTarget.id,
+        condition: 'Automatische Kommunikationsreparatur',
+        prompt: 'Übernimm das Ergebnis über den eindeutig wiederhergestellten Kommunikationsweg und arbeite gemäß deiner Rolle weiter.',
+      }
+      setWorkflowStatusFilters((current) => [...current, repairFilter])
+      setRoutes((current) => [...current, inboundRoute, outgoingRoute])
+      sharedStateDirty.current = true
+      deterministicRepairDelivery = { target: repairTarget, route: outgoingRoute }
+      addEvent(
+        'Kommunikationsweg repariert',
+        `${agent.name} -> ${repairTarget.name} · Status: ${repairStatus.name}`,
+      )
+    }
+
     const managementRecoveryTargetId = resolveManagementRecoveryTargetId({
       isManagementAgent: agent.assignment === 'management',
       inboundSourceAgentId: agent.lastInboundAgentId,
       reportsTechnicalFailure,
-      configuredDeliveryCount: configuredDeliveries.length,
+      configuredDeliveryCount: configuredDeliveries.length + (deterministicRepairDelivery ? 1 : 0),
       knownAgentIds: agents.map((item) => item.id),
     })
     const managementRecoveryTarget = agents.find(
@@ -4008,9 +4055,45 @@ function App() {
           },
         }
       : null
-    const deliveries = managementRecoveryDelivery
-      ? [...configuredDeliveries, managementRecoveryDelivery]
-      : configuredDeliveries
+    const projectManagers = agents.filter((item) =>
+      item.id !== agent.id &&
+      item.assignment === 'management' &&
+      samePath(item.projectPath, agent.projectPath),
+    )
+    const escalationTarget = !deterministicRepairDelivery && configuredDeliveries.length === 0 && projectManagers.length === 1
+      ? projectManagers[0]
+      : null
+    const escalationDelivery: WorkflowDelivery | null = escalationTarget
+      ? {
+          target: escalationTarget,
+          route: {
+            id: `communication-escalation:${agent.id}:${escalationTarget.id}:${agent.lastCompletedTurnId}`,
+            ownerAgentId: agent.id,
+            projectPath: agent.projectPath,
+            sourceId: agent.id,
+            targetId: escalationTarget.id,
+            condition: 'Kommunikationsproblem',
+            prompt: [
+              'Der Kommunikations-Handwerker konnte den Fortsetzungsweg nicht eindeutig reparieren.',
+              `Betroffener Agent: ${agent.name}`,
+              `Gemeldete Statusbefehle: ${projectStatuses.filter((status) => resultStatusIds.includes(status.id)).map((status) => status.name).join(', ') || 'keine'}`,
+              'Prüfe Ziel, Statusrouting und Aufgabenaufteilung. Gib dem betroffenen Agenten danach eine konkrete, begrenzte Wiederaufnahmeanweisung.',
+            ].join('\n'),
+          },
+        }
+      : null
+    if (escalationTarget) {
+      addEvent(
+        'Kommunikationsproblem eskaliert',
+        `${agent.name} -> ${escalationTarget.name}: Fortsetzungsweg ist mehrdeutig.`,
+      )
+    }
+    const deliveries = [
+      ...configuredDeliveries,
+      ...(deterministicRepairDelivery ? [deterministicRepairDelivery] : []),
+      ...(managementRecoveryDelivery ? [managementRecoveryDelivery] : []),
+      ...(escalationDelivery ? [escalationDelivery] : []),
+    ]
 
     if (deliveries.length === 0) {
       const availableStatuses = resultStatusIds.length > 0
@@ -4237,7 +4320,7 @@ function App() {
         `${agent.name}: Kein Ziel-Chat hat die Übergabe angenommen.`,
       )
     }
-  }, [addEvent, agents, applyThreadReplacement, requestSystemDiagnosis, routes, updateAgent, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, requestSystemDiagnosis, routes, updateAgent, workflowBoardAgentIds, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   const connectAgents = useCallback((connection: Connection) => {
     if (
