@@ -37,6 +37,7 @@ import {
   nextConsecutiveFailedRuns,
   shouldEscalateWorkload,
 } from './workload-escalation.ts'
+import { resolveManagementRecoveryTargetId } from './management-recovery.ts'
 
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
@@ -122,6 +123,7 @@ type Agent = {
   consecutiveFailedRuns: number
   pendingTurnId: string
   lastCompletedTurnId: string
+  lastInboundAgentId: string
   updatedAt: string
 }
 
@@ -634,6 +636,7 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
     consecutiveFailedRuns: Math.max(0, agent.consecutiveFailedRuns ?? 0),
     pendingTurnId: agent.pendingTurnId ?? '',
     lastCompletedTurnId: agent.lastCompletedTurnId ?? '',
+    lastInboundAgentId: agent.lastInboundAgentId ?? '',
     updatedAt: agent.updatedAt ?? new Date().toISOString(),
   }
 }
@@ -854,6 +857,10 @@ function managementInstruction(agent: Agent, monitoredAgents: Agent[]) {
       ? `Zugewiesene Agenten: ${monitoredAgents.map((item) => `${item.name} (${item.role})`).join(', ')}`
       : 'Es sind aktuell keine Agenten zur Überwachung zugewiesen.',
     'Bei einer Überwachungsanfrage bewertest du Fortschritt, Blockaden, widersprüchliche Ergebnisse und den sinnvollsten nächsten Schritt.',
+    'Wenn dir ein fehlgeschlagener Agent gemeldet wird, entscheide eindeutig zwischen drei Wegen:',
+    '1. Kann derselbe Agent fortfahren, gib ihm eine konkrete, kleinere Wiederaufnahme- oder Überarbeitungsaufgabe und beende deine Antwort mit einem passenden, nicht technischen Workflow-Status.',
+    '2. Ist die Aufgabe zu groß oder wird eine weitere Rolle benötigt, liefere einen vollständigen kontrollierten Team-Vorschlag. Der Benutzer muss ihn bei Auto Stop freigeben.',
+    `3. Ist keine sichere Fortsetzung möglich, melde [Workflow-Status: ${MANAGEMENT_ERROR_STATUS_NAME}]. Der Orchestrator stoppt dann für eine Benutzerentscheidung.`,
     'Du darfst Aufgaben und Rollen vorschlagen. Technische Änderungen an Agenten, Prompts und Verdrahtungen führt weiterhin ausschließlich der Workflow-Orchestrator aus.',
     agent.teamProvisioningEnabled ? managementTeamPlanInstruction() : '',
   ].join('\n')
@@ -1563,6 +1570,7 @@ function App() {
   const agentsRef = useRef(agents)
   agentsRef.current = agents
   const pollingTurnIds = useRef(new Set<string>())
+  const watchdogInterventionTurnIds = useRef(new Set<string>())
   const terminalResultObservations = useRef(new Map<string, number>())
   const turnActivityObservations = useRef(new Map<string, TurnActivityObservation>())
   const activeDeliveryTargetIds = useRef(new Set<string>())
@@ -2293,6 +2301,7 @@ function App() {
           consecutiveFailedRuns: 0,
           pendingTurnId: '',
           lastCompletedTurnId: '',
+          lastInboundAgentId: '',
           updatedAt: new Date().toISOString(),
           }
         }),
@@ -2774,6 +2783,7 @@ function App() {
       consecutiveFailedRuns: 0,
       pendingTurnId: '',
       lastCompletedTurnId: '',
+      lastInboundAgentId: '',
       updatedAt: new Date().toISOString(),
     }
     setAgents((current) => [...current, agent])
@@ -2881,6 +2891,7 @@ function App() {
         consecutiveFailedRuns: 0,
         pendingTurnId: data.turn?.id ?? '',
         lastCompletedTurnId: '',
+        lastInboundAgentId: '',
         updatedAt: new Date().toISOString(),
       }
 
@@ -3829,10 +3840,6 @@ function App() {
     const activeRoutes = routes.filter(
       (route) => route.sourceId === agent.id,
     )
-    if (activeRoutes.length === 0) {
-      addEvent('Weitergabe gestoppt', `${agent.name} hat keine Workflow-Verbindung.`)
-      return
-    }
     const projectStatuses = workflowStatusesForAgent(agent, workflowStatuses)
     const resultStatusIds = workflowStatusIdsFromResult(agent.lastResult, projectStatuses)
     const reportsTechnicalFailure = projectStatuses.some(
@@ -3846,7 +3853,7 @@ function App() {
       agent.lastCompletedTurnId,
       reportsTechnicalFailure,
     )
-    const deliveries = activeRoutes.flatMap<WorkflowDelivery>((route) => {
+    const configuredDeliveries = activeRoutes.flatMap<WorkflowDelivery>((route) => {
       const directTarget = agents.find((item) => item.id === route.targetId)
       if (directTarget) {
         return [{ target: directTarget, route }]
@@ -3906,11 +3913,60 @@ function App() {
             : []
         })
     })
+    const managementRecoveryTargetId = resolveManagementRecoveryTargetId({
+      isManagementAgent: agent.assignment === 'management',
+      inboundSourceAgentId: agent.lastInboundAgentId,
+      reportsTechnicalFailure,
+      configuredDeliveryCount: configuredDeliveries.length,
+      knownAgentIds: agents.map((item) => item.id),
+    })
+    const managementRecoveryTarget = agents.find(
+      (item) => item.id === managementRecoveryTargetId,
+    )
+    const managementRecoveryDelivery: WorkflowDelivery | null = managementRecoveryTarget
+      ? {
+          target: managementRecoveryTarget,
+          route: {
+            id: `management-recovery:${agent.id}:${managementRecoveryTarget.id}`,
+            ownerAgentId: agent.id,
+            projectPath: agent.projectPath,
+            sourceId: agent.id,
+            targetId: managementRecoveryTarget.id,
+            condition: 'Verwaltungs-Rückgabe',
+            prompt:
+              'Setze die konkrete Wiederaufnahme- oder Überarbeitungsanweisung des Verwaltungsagenten um. Bewahre bereits nutzbare Ergebnisse und bearbeite nur den klar begrenzten Rest.',
+          },
+        }
+      : null
+    const deliveries = managementRecoveryDelivery
+      ? [...configuredDeliveries, managementRecoveryDelivery]
+      : configuredDeliveries
+
     if (deliveries.length === 0) {
       const availableStatuses = resultStatusIds.length > 0
         ? projectStatuses.filter((status) => resultStatusIds.includes(status.id)).map((status) => status.name).join(', ')
         : 'kein Workflow-Status'
-      addEvent('Keine Status-Weitergabe', `${agent.name}: ${availableStatuses}`)
+      addEvent(
+        activeRoutes.length === 0 ? 'Weitergabe gestoppt' : 'Keine Status-Weitergabe',
+        activeRoutes.length === 0
+          ? `${agent.name} hat keine Workflow-Verbindung.`
+          : `${agent.name}: ${availableStatuses}`,
+      )
+      sharedStateDirty.current = true
+      autoRunRef.current = false
+      setAutoRun(false)
+      setTransmittingAgentIds([])
+      queuedSourceAgentIdsByTarget.current.clear()
+      activeDeliveryTargetIds.current.clear()
+      updateAgent(agent.id, {
+        status: 'rueckfrage',
+        pendingTurnId: '',
+        runStartedAt: '',
+      })
+      addEvent(
+        'Automatik gestoppt',
+        `${agent.name} hat keinen gültigen Fortsetzungsweg. Der Workflow wartet auf eine Benutzerentscheidung.`,
+      )
       return
     }
     const newDeliveries = deliveries.filter(({ route, target, stop }) => {
@@ -4016,6 +4072,7 @@ function App() {
         status: 'laeuft',
         lastResult: message,
         runStartedAt: new Date().toISOString(),
+        lastInboundAgentId: agent.id,
       })
       try {
         const response = await fetch(
@@ -4064,7 +4121,12 @@ function App() {
       }
     }))
     const deliveryOutcome = summarizeDeliveryAttempts(deliveryAttempts)
-    updateAgent(agent.id, { status: deliveryOutcome.sourceStatus })
+    updateAgent(agent.id, {
+      status: deliveryOutcome.sourceStatus,
+      ...(managementRecoveryDelivery && deliveryOutcome.delivered
+        ? { lastInboundAgentId: '' }
+        : {}),
+    })
     if (deliveryOutcome.delivered) {
       addEvent(
         'Aufgabe weitergegeben',
@@ -4630,21 +4692,31 @@ function App() {
                   const runStartedAt = agent.runStartedAt
                     ? new Date(agent.runStartedAt).getTime()
                     : 0
-                  if (turnNeedsWatchdogIntervention(observation, runStartedAt, now)) {
-                    const interruptResponse = await fetch(
-                      `/api/threads/${encodeURIComponent(agent.threadId)}/interrupt`,
-                      {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ turnId: activeTurnId }),
-                      },
-                    )
-                    const interruptData = await interruptResponse.json()
-                    if (!interruptResponse.ok) {
-                      throw new Error(
-                        interruptData.error ||
-                          'Der festhängende Codex-Lauf konnte nicht unterbrochen werden.',
+                  if (
+                    turnNeedsWatchdogIntervention(observation, runStartedAt, now) &&
+                    !watchdogInterventionTurnIds.current.has(activeTurnId)
+                  ) {
+                    watchdogInterventionTurnIds.current.add(activeTurnId)
+                    let interruptData: { error?: string }
+                    try {
+                      const interruptResponse = await fetch(
+                        `/api/threads/${encodeURIComponent(agent.threadId)}/interrupt`,
+                        {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ turnId: activeTurnId }),
+                        },
                       )
+                      interruptData = await interruptResponse.json()
+                      if (!interruptResponse.ok) {
+                        throw new Error(
+                          interruptData.error ||
+                            'Der festhängende Codex-Lauf konnte nicht unterbrochen werden.',
+                        )
+                      }
+                    } catch (error) {
+                      watchdogInterventionTurnIds.current.delete(activeTurnId)
+                      throw error
                     }
                     data = {
                       turnId: activeTurnId,
@@ -4680,6 +4752,10 @@ function App() {
                   terminalResultObservations.current.delete(agent.pendingTurnId)
                   return
                 }
+              }
+              watchdogInterventionTurnIds.current.delete(agent.pendingTurnId)
+              if (data.turnId) {
+                watchdogInterventionTurnIds.current.delete(data.turnId)
               }
               if (data.status !== 'completed') {
                 const runAgeMs = agent.runStartedAt
@@ -4832,6 +4908,7 @@ function App() {
                 message.includes('lokalen Historie nicht gefunden') ||
                 message.includes('thread not found')
               ) {
+                watchdogInterventionTurnIds.current.delete(agent.pendingTurnId)
                 updateAgent(agent.id, {
                   status: autoRunRef.current ? 'rueckfrage' : 'wartet',
                   pendingTurnId: '',
