@@ -871,6 +871,33 @@ const server = createServer(async (incoming, response) => {
       return
     }
 
+    const interruptMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/interrupt$/)
+    if (incoming.method === 'POST' && interruptMatch) {
+      const body = await readJson(incoming)
+      const turnId = typeof body.turnId === 'string' ? body.turnId.trim() : ''
+      if (!turnId) {
+        sendJson(response, 400, { error: 'Turn-ID ist erforderlich.' })
+        return
+      }
+      await ready
+      const threadId = decodeURIComponent(interruptMatch[1])
+      try {
+        await request('turn/interrupt', { threadId, turnId })
+        sendJson(response, 200, { interrupted: true, alreadyInactive: false, turnId })
+      } catch (error) {
+        const result = await request('thread/read', { threadId, includeTurns: true })
+        const status = typeof result.thread?.status === 'string'
+          ? result.thread.status
+          : result.thread?.status?.type ?? ''
+        if (['idle', 'notLoaded', 'systemError'].includes(status)) {
+          sendJson(response, 200, { interrupted: false, alreadyInactive: true, turnId })
+          return
+        }
+        throw error
+      }
+      return
+    }
+
     const resultMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/result$/)
     if (incoming.method === 'GET' && resultMatch) {
       await ready

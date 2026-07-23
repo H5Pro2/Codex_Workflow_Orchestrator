@@ -21,7 +21,15 @@ import {
   parseManagementTeamPlan,
 } from './team-plan.ts'
 import { runProvisioningTransaction } from './provisioning-transaction.ts'
-import { findCompletedConversationTurn } from './codex-turn.ts'
+import {
+  findCompletedConversationTurn,
+  findConversationTurnActivity,
+} from './codex-turn.ts'
+import {
+  observeTurnActivity,
+  turnNeedsWatchdogIntervention,
+  type TurnActivityObservation,
+} from './workflow-watchdog.ts'
 
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
@@ -1511,6 +1519,7 @@ function App() {
   agentsRef.current = agents
   const pollingTurnIds = useRef(new Set<string>())
   const terminalResultObservations = useRef(new Map<string, number>())
+  const turnActivityObservations = useRef(new Map<string, TurnActivityObservation>())
   const activeDeliveryTargetIds = useRef(new Set<string>())
   const queuedSourceAgentIdsByTarget = useRef(new Map<string, string[]>())
   const timerDispatchIds = useRef(new Set<string>())
@@ -4443,6 +4452,8 @@ function App() {
                 const runAgeMs = agent.runStartedAt
                   ? Date.now() - new Date(agent.runStartedAt).getTime()
                   : 0
+                let activeTurnId = agent.pendingTurnId
+                let activitySignature = ''
                 if (runAgeMs >= 8000) {
                   const conversationResponse = await fetch(
                     `/api/threads/${encodeURIComponent(agent.threadId)}/conversation`,
@@ -4462,7 +4473,61 @@ function App() {
                         durationMs: runAgeMs,
                         error: null,
                       }
+                    } else {
+                      const activity = findConversationTurnActivity(
+                        conversation.messages ?? [],
+                        agent.lastResult,
+                        agent.lastCompletedTurnId,
+                      )
+                      if (activity) {
+                        activeTurnId = activity.turnId
+                        activitySignature = activity.signature
+                      }
                     }
+                  }
+                }
+                if (data.status === 'inProgress') {
+                  const now = Date.now()
+                  const observation = observeTurnActivity(
+                    turnActivityObservations.current.get(agent.id),
+                    activeTurnId,
+                    activitySignature,
+                    now,
+                  )
+                  turnActivityObservations.current.set(agent.id, observation)
+                  const runStartedAt = agent.runStartedAt
+                    ? new Date(agent.runStartedAt).getTime()
+                    : 0
+                  if (turnNeedsWatchdogIntervention(observation, runStartedAt, now)) {
+                    const interruptResponse = await fetch(
+                      `/api/threads/${encodeURIComponent(agent.threadId)}/interrupt`,
+                      {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ turnId: activeTurnId }),
+                      },
+                    )
+                    const interruptData = await interruptResponse.json()
+                    if (!interruptResponse.ok) {
+                      throw new Error(
+                        interruptData.error ||
+                          'Der festhängende Codex-Lauf konnte nicht unterbrochen werden.',
+                      )
+                    }
+                    data = {
+                      turnId: activeTurnId,
+                      status: 'interrupted',
+                      text: '',
+                      durationMs: runAgeMs,
+                      error: {
+                        message:
+                          'Systemüberwachung: Der Codex-Lauf zeigte zu lange keinen Fortschritt.',
+                      },
+                    }
+                    addEvent(
+                      'Systemüberwachung eingegriffen',
+                      `${agent.name}: Lauf nach ausbleibendem Fortschritt kontrolliert unterbrochen.`,
+                    )
                   }
                 }
                 if (data.status === 'inProgress') {
@@ -4481,6 +4546,7 @@ function App() {
                   return
                 }
                 terminalResultObservations.current.delete(agent.pendingTurnId)
+                turnActivityObservations.current.delete(agent.id)
                 const failureDetail = data.error?.message ?? data.status
                 const failedAgent: Agent = {
                   ...agent,
@@ -4523,6 +4589,7 @@ function App() {
               }
 
               terminalResultObservations.current.delete(agent.pendingTurnId)
+              turnActivityObservations.current.delete(agent.id)
               const completedAgent: Agent = {
                 ...agent,
                 status: autoRunRef.current ? 'fertig' : 'wartet',

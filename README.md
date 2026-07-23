@@ -190,6 +190,12 @@ Nach `turn/start` gleicht der Connector die zunächst gemeldete Turn-ID mit der 
 
 Bleibt eine zunächst gemeldete Turn-ID trotz einer bereits abgeschlossenen Codex-Antwort aktiv, ordnet die Oberfläche die Antwort zusätzlich über den exakt gesendeten Auftrag zu und übernimmt die tatsächlich gespeicherte Turn-ID. Bei mehreren geöffneten Browser-Tabs hält außerdem nur ein Tab eine kurzlebige Automatik-Sperre. Damit werden Übergaben, Überwachungen und Zeitpläne nicht doppelt ausgeführt; beim Schließen des führenden Tabs kann ein anderer Tab den Lauf automatisch übernehmen.
 
+### Systemüberwachung
+
+Eine deterministische Systemüberwachung beobachtet den tatsächlich gespeicherten Codex-Turn. Bleibt dessen sichtbarer Fortschritt zehn Minuten unverändert oder überschreitet ein Lauf 45 Minuten, unterbricht der Connector genau diesen Turn kontrolliert. Der Agent erhält den Status `Fehler`; ein vorhandener Fehlerpfad führt die Diagnose an den Verwaltungsagenten beziehungsweise CEO zurück.
+
+Der Systemüberwacher verändert weder selbstständig Quellcode noch startet er Prozesse neu. Solche Eingriffe bleiben eine bewusste Benutzerentscheidung.
+
 ## Zeitpläne
 
 Ein Zeitplan enthält eine Aufgabe und wird mit dem Zielagenten verbunden.
