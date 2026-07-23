@@ -6,11 +6,13 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
+import { createProvisioningJournal } from './provisioning-journal.mjs'
 import { createSharedStateStore } from './shared-state.mjs'
 
 const PORT = Number(process.env.CODEX_BRIDGE_PORT || 4317)
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url))
 const STATE_FILE = join(SERVER_DIR, 'orchestrator-state.json')
+const PROVISIONING_JOURNAL_FILE = join(SERVER_DIR, 'provisioning-journal.json')
 const CODEX_HOME = process.env.CODEX_HOME || join(homedir(), '.codex')
 const CODEX_GLOBAL_STATE_FILE = join(CODEX_HOME, '.codex-global-state.json')
 const LOCAL_CODEX_ENTRY = join(
@@ -28,6 +30,7 @@ let nextRequestId = 1
 let initialized = false
 let latestRateLimits = null
 const sharedStateStore = createSharedStateStore(STATE_FILE)
+const provisioningJournal = createProvisioningJournal(PROVISIONING_JOURNAL_FILE)
 
 const codex = spawn(
   process.execPath,
@@ -111,6 +114,24 @@ async function initialize() {
 }
 
 const ready = initialize()
+
+void ready.then(async () => {
+  const sharedState = (await sharedStateStore.read()).state
+  const recovered = await provisioningJournal.recover(
+    (threadId) => request('thread/archive', { threadId }),
+    (transaction) => Array.isArray(sharedState?.agents) && sharedState.agents.some((agent) =>
+      agent.id === transaction.metadata?.managerAgentId &&
+      agent.lastAppliedTeamPlanSignature === transaction.metadata?.signature,
+    ),
+  )
+  const archived = recovered.reduce((total, transaction) => total + transaction.archived, 0)
+  const failures = recovered.reduce((total, transaction) => total + transaction.failures.length, 0)
+  if (archived > 0 || failures > 0) {
+    console.log(`Team-Wiederherstellung: ${archived} unvollstÃ¤ndige Chats archiviert, ${failures} Fehler.`)
+  }
+}).catch((error) => {
+  console.error('Team-Wiederherstellung fehlgeschlagen:', error)
+})
 
 async function listAllThreads() {
   await ready
@@ -514,6 +535,44 @@ const server = createServer(async (incoming, response) => {
       return
     }
 
+    if (incoming.method === 'POST' && url.pathname === '/api/provisioning-transactions') {
+      const body = await readJson(incoming)
+      const transaction = await provisioningJournal.create({
+        projectPath: typeof body.projectPath === 'string' ? body.projectPath : '',
+        managerAgentId: typeof body.managerAgentId === 'string' ? body.managerAgentId : '',
+        signature: typeof body.signature === 'string' ? body.signature : '',
+      })
+      sendJson(response, 201, { transaction })
+      return
+    }
+
+    const provisioningRollbackMatch = url.pathname.match(/^\/api\/provisioning-transactions\/([^/]+)\/rollback$/)
+    if (incoming.method === 'POST' && provisioningRollbackMatch) {
+      await ready
+      const result = await provisioningJournal.rollback(
+        decodeURIComponent(provisioningRollbackMatch[1]),
+        (threadId) => request('thread/archive', { threadId }),
+      )
+      if (result.failures.length > 0) {
+        sendJson(response, 500, {
+          error: `${result.failures.length} unvollstÃ¤ndige Codex-Chats konnten nicht archiviert werden.`,
+          archived: result.archived,
+        })
+        return
+      }
+      sendJson(response, 200, { ok: true, found: result.found, archived: result.archived })
+      return
+    }
+
+    const provisioningCommitMatch = url.pathname.match(/^\/api\/provisioning-transactions\/([^/]+)$/)
+    if (incoming.method === 'DELETE' && provisioningCommitMatch) {
+      const committed = await provisioningJournal.commit(decodeURIComponent(provisioningCommitMatch[1]))
+      sendJson(response, committed ? 200 : 404, committed
+        ? { ok: true }
+        : { error: 'Team-Transaktion wurde nicht gefunden.' })
+      return
+    }
+
     if (incoming.method === 'POST' && url.pathname === '/api/threads') {
       const body = await readJson(incoming)
       if (!body.cwd || !body.name) {
@@ -526,6 +585,18 @@ const server = createServer(async (incoming, response) => {
         experimentalRawEvents: false,
         persistExtendedHistory: true,
       })
+      const transactionId = typeof body.provisioningTransactionId === 'string'
+        ? body.provisioningTransactionId.trim()
+        : ''
+      if (transactionId) {
+        try {
+          const tracked = await provisioningJournal.addThread(transactionId, result.thread.id)
+          if (!tracked) throw new Error('Team-Transaktion wurde nicht gefunden.')
+        } catch (error) {
+          await request('thread/archive', { threadId: result.thread.id }).catch(() => undefined)
+          throw error
+        }
+      }
       const initialTurn = body.startInitialPrompt === false
         ? null
         : await request('turn/start', {

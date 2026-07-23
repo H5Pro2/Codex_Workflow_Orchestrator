@@ -282,6 +282,9 @@ pruefen ausserdem einen vollstaendigen Team-Aufbau mit Rollen-Prompts, Statusbef
 Start-, Fehler-, Arbeits- und Abschlusswegen sowie individuellen Dashboard-Zuordnungen.
 Ein simulierter Connector-Abbruch prueft, dass bereits erstellte Codex-Chats wieder
 archiviert werden und keine unvollstaendige Teamkonfiguration sichtbar wird.
+Der Connector fuehrt dafuer ein lokales Transaktionsjournal. Nach einem Browser- oder
+Connector-Neustart werden unterbrochene Team-Erstellungen automatisch bereinigt;
+bereits atomar gespeicherte Teams werden anhand ihrer Team-Signatur beibehalten.
 Sie verwenden ausschliesslich temporaere Dateien und veraendern keine Projekte oder Chats.
 
 Die Produktionsausgabe wird unter `dist/` erzeugt.

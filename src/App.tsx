@@ -2798,6 +2798,37 @@ function App() {
     const createdThreads: CodexThread[] = []
     try {
       await runProvisioningTransaction(async ({ addRollback }) => {
+        const transactionResponse = await fetch('/api/provisioning-transactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectPath: selectedProject.path,
+            managerAgentId: manager.id,
+            signature,
+          }),
+        })
+        const transactionData = await transactionResponse.json()
+        if (!transactionResponse.ok || !transactionData.transaction?.id) {
+          throw new Error(transactionData.error || tx(
+            'Die dauerhafte Team-Transaktion konnte nicht gestartet werden.',
+            'The durable team transaction could not be started.',
+          ))
+        }
+        const provisioningTransactionId = transactionData.transaction.id as string
+        addRollback(async () => {
+          const rollbackResponse = await fetch(
+            `/api/provisioning-transactions/${encodeURIComponent(provisioningTransactionId)}/rollback`,
+            { method: 'POST' },
+          )
+          if (!rollbackResponse.ok) {
+            const rollbackData = await rollbackResponse.json().catch(() => ({}))
+            throw new Error(rollbackData.error || tx(
+              'Die unvollstÃ¤ndige Team-Erstellung konnte nicht vollstÃ¤ndig bereinigt werden.',
+              'The incomplete team setup could not be cleaned up completely.',
+            ))
+          }
+        })
+
         for (const [index, specification] of plan.agents.entries()) {
         setTeamPlanProgress(tx(
           `Agent ${index + 1} von ${plan.agents.length} wird eingerichtet: ${specification.name}`,
@@ -2812,6 +2843,7 @@ function App() {
             body: JSON.stringify({
               cwd: selectedProject.path,
               name: specification.name,
+              provisioningTransactionId,
               initialPrompt: tx(
                 'Dieser Codex-Chat wurde als Agent eingerichtet. Antworte ausschließlich mit BEREIT und warte danach auf eine Benutzeranweisung.',
                 'This Codex chat was created as an agent. Reply only with READY, then wait for a user instruction.',
@@ -2830,14 +2862,6 @@ function App() {
           }
           sharedStateDirty.current = true
           createdThreads.push(thread)
-          addRollback(async () => {
-            const rollbackResponse = await fetch(`/api/threads/${encodeURIComponent(thread.id)}`, {
-              method: 'DELETE',
-            })
-            if (!rollbackResponse.ok) {
-              throw new Error(`${specification.name}: Der unvollstÃ¤ndige Codex-Chat konnte nicht archiviert werden.`)
-            }
-          })
           agent = normalizeAgent({
             id: crypto.randomUUID(),
             name: specification.name,
@@ -3173,6 +3197,13 @@ function App() {
       const commitData = await commitResponse.json()
       sharedStateVersion.current = commitData.updatedAt
       sharedStateDirty.current = false
+      const journalCommitResponse = await fetch(
+        `/api/provisioning-transactions/${encodeURIComponent(provisioningTransactionId)}`,
+        { method: 'DELETE' },
+      )
+      if (!journalCommitResponse.ok) {
+        console.warn('Das Team wurde gespeichert, aber der Transaktionseintrag wird erst beim Connector-Neustart bereinigt.')
+      }
       setAgents(finalAgents)
       setWorkflowStatuses(nextWorkflowStatuses)
       setWorkflowInitials(finalInitials)

@@ -13,6 +13,8 @@ dist-ssr
 *.local
 server/orchestrator-state.json
 server/orchestrator-state.json.tmp
+server/provisioning-journal.json
+server/provisioning-journal.json.tmp
 server/.thread-aliases/
 server/protocol/
 
