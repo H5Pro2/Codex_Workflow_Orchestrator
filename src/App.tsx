@@ -31,6 +31,7 @@ import {
   type TurnActivityObservation,
 } from './workflow-watchdog.ts'
 import { deliveryDeduplicationSignature } from './delivery-deduplication.ts'
+import { summarizeDeliveryAttempts } from './delivery-outcome.ts'
 import {
   buildWorkloadEscalationResult,
   nextConsecutiveFailedRuns,
@@ -3993,27 +3994,29 @@ function App() {
     })
     if (readyAgentDeliveries.length === 0) return
 
-    updateAgent(agent.id, { status: 'weitergegeben' })
-    const deliveredTargets: string[] = []
-    await Promise.all(readyAgentDeliveries.map(async ({ target, route }) => {
-      deliveredTargets.push(target.name)
+    const deliveryAttempts = await Promise.all(readyAgentDeliveries.map(async ({ target, route }) => {
       const message = buildHandoffMessage(
         agent,
         target,
         route,
         workflowStatusesForAgent(target, workflowStatuses),
       )
+      if (!target.threadId) {
+        activeDeliveryTargetIds.current.delete(target.id)
+        updateAgent(target.id, {
+          status: 'rueckfrage',
+          pendingTurnId: '',
+          runStartedAt: '',
+        })
+        addEvent('Weitergabe nicht gesendet', `${target.name} ist mit keinem Codex-Chat verknüpft.`)
+        return { targetName: target.name, delivered: false }
+      }
+
       updateAgent(target.id, {
         status: 'laeuft',
         lastResult: message,
         runStartedAt: new Date().toISOString(),
       })
-      if (!target.threadId) {
-        activeDeliveryTargetIds.current.delete(target.id)
-        addEvent('Weitergabe nicht gesendet', `${target.name} ist mit keinem Codex-Chat verknüpft.`)
-        return
-      }
-
       try {
         const response = await fetch(
           `/api/threads/${encodeURIComponent(target.threadId)}/messages`,
@@ -4027,10 +4030,14 @@ function App() {
         if (!response.ok) {
           throw new Error(data.error || 'Übergabe konnte nicht gesendet werden.')
         }
+        const turnId = data.turn?.id ?? ''
+        if (!turnId) {
+          throw new Error('Der Connector hat keine Turn-ID für die Übergabe geliefert.')
+        }
         applyThreadReplacement(target, data.replacementThread)
         updateAgent(target.id, {
           status: 'laeuft',
-          pendingTurnId: data.turn?.id ?? '',
+          pendingTurnId: turnId,
         })
         if (currentTaskSignature) {
           setRoutes((current) =>
@@ -4041,6 +4048,7 @@ function App() {
             ),
           )
         }
+        return { targetName: target.name, delivered: true }
       } catch (error) {
         activeDeliveryTargetIds.current.delete(target.id)
         updateAgent(target.id, {
@@ -4052,12 +4060,22 @@ function App() {
           'Weitergabe nicht gesendet',
           `${target.name}: ${error instanceof Error ? error.message : 'Connector nicht erreichbar.'}`,
         )
+        return { targetName: target.name, delivered: false }
       }
     }))
-    addEvent(
-      'Aufgabe weitergegeben',
-      `${agent.name} -> ${deliveredTargets.join(', ')}`,
-    )
+    const deliveryOutcome = summarizeDeliveryAttempts(deliveryAttempts)
+    updateAgent(agent.id, { status: deliveryOutcome.sourceStatus })
+    if (deliveryOutcome.delivered) {
+      addEvent(
+        'Aufgabe weitergegeben',
+        `${agent.name} -> ${deliveryOutcome.deliveredTargets.join(', ')}`,
+      )
+    } else {
+      addEvent(
+        'Keine Aufgabe weitergegeben',
+        `${agent.name}: Kein Ziel-Chat hat die Übergabe angenommen.`,
+      )
+    }
   }, [addEvent, agents, applyThreadReplacement, routes, updateAgent, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   const connectAgents = useCallback((connection: Connection) => {

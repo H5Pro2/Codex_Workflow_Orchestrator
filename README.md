@@ -175,6 +175,8 @@ Der Status `Fehler` ist für kontrolliert aufgebaute Teams reserviert. Er signal
 
 `Auto Start` aktiviert die Ausführung des verbundenen Workflows. Dabei werden die Duplikat-Sperren des vorherigen Laufs zurückgesetzt. Initial-Bausteine senden ihre Startanweisung zusammen mit der aktiven Prompt-Datei, der Connector überwacht laufende Agenten und passende Ergebnisse werden entlang der Verdrahtung weitergegeben.
 
+Eine Übergabe gilt erst als erfolgreich, wenn der Connector für den Ziel-Chat eine konkrete Turn-ID bestätigt hat. Erst danach wird der Zielagent als aktiv und der Quellagent als `Weitergegeben` markiert. Fehlende Chat-Verknüpfungen, Connector-Fehler oder Antworten ohne Turn-ID führen sichtbar zu `Rückfrage`. Bei mehreren Zielen werden nur die tatsächlich angenommenen Übergaben als erfolgreich protokolliert.
+
 `Auto Stop` blockiert neue automatische Aktionen:
 
 - keine neuen Initial-Anfragen
