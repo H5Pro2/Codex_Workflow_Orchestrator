@@ -194,7 +194,22 @@ Bleibt eine zunächst gemeldete Turn-ID trotz einer bereits abgeschlossenen Code
 
 Eine deterministische Systemüberwachung beobachtet den tatsächlich gespeicherten Codex-Turn. Bleibt dessen sichtbarer Fortschritt zehn Minuten unverändert oder überschreitet ein Lauf 45 Minuten, unterbricht der Connector genau diesen Turn kontrolliert. Der Agent erhält den Status `Fehler`; ein vorhandener Fehlerpfad führt die Diagnose an den Verwaltungsagenten beziehungsweise CEO zurück.
 
-Der Systemüberwacher verändert weder selbstständig Quellcode noch startet er Prozesse neu. Solche Eingriffe bleiben eine bewusste Benutzerentscheidung.
+Zusätzlich gehört der interne **Kommunikations-Handwerker** fest zum Orchestrator. Er ist kein Projektagent und erscheint deshalb weder in der Agentenliste noch in einem Projekt-Dashboard. Sein eigener Codex-Task arbeitet ausschließlich im Arbeitsordner des Orchestrators und ist auf folgende technische Bereiche beschränkt:
+
+- Connector und Codex-App-Server-Protokoll
+- Erstellung, Persistenz, Abfrage und Unterbrechung von Turns
+- Agentenstatus, Zielwarteschlangen und automatische Übergaben
+- Statusrouting, Automatik-Lease und festhängende Workflow-Verarbeitung
+
+Bei einem Watchdog-Eingriff startet der Kommunikations-Handwerker automatisch eine **lesende Diagnose**. Eine Diagnose kann außerdem über die kompakte Schaltfläche `W` am Connector manuell angefordert werden. Der Wartungsbericht nennt Ursache, Indizien, betroffene Komponente und den kleinstmöglichen Reparaturvorschlag. Fachliche Inhalte und Dateien ausgewählter Benutzerprojekte gehören ausdrücklich nicht zu seinem Zuständigkeitsbereich.
+
+Der Wartungsagent verändert niemals allein Quellcode und startet keinen Prozess eigenmächtig neu. Die Oberfläche trennt deshalb drei Stufen:
+
+1. Diagnose ohne Änderung
+2. ausdrücklich bestätigte Reparatur innerhalb des Orchestrator-Codes, weiterhin ohne Git und ohne Neustart
+3. separat bestätigter Connector-Neustart
+
+Für Reparatur und Neustart erscheint jeweils eine zusätzliche Bestätigung mit dem genauen erlaubten Eingriff. Der Wartungszustand wird im Connector gespeichert, sodass ein Diagnosebericht auch nach einem Browser-Neuladen erhalten bleibt.
 
 ## Zeitpläne
 

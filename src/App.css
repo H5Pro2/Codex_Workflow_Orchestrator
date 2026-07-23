@@ -197,6 +197,30 @@
   color: #fda4af;
 }
 
+.maintenanceLauncher {
+  align-items: center;
+  background: var(--surface-raised);
+  border-color: var(--line-strong);
+  display: inline-flex;
+  font-size: 12px;
+  height: 30px;
+  justify-content: center;
+  margin-left: 2px;
+  min-width: 30px;
+  padding: 0;
+  width: 30px;
+}
+
+.maintenanceLauncher.ready {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.maintenanceLauncher.failed {
+  border-color: #ef9696;
+  color: #ef9696;
+}
+
 .languageSwitch {
   align-items: center;
   display: flex !important;
@@ -2574,6 +2598,102 @@ label {
 
 .promptEditorModal {
   max-width: 760px;
+}
+
+.maintenanceModal {
+  max-width: 760px;
+}
+
+.maintenanceScope {
+  border-left: 2px solid var(--accent);
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0;
+  padding: 5px 0 5px 11px;
+}
+
+.maintenanceStatus {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: flex;
+  gap: 10px;
+  min-height: 48px;
+  padding: 9px 11px;
+}
+
+.maintenanceStatus > div {
+  display: grid;
+  gap: 2px;
+}
+
+.maintenanceStatus span {
+  color: var(--muted);
+}
+
+.maintenanceStatus.ready {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+
+.maintenanceStatus.failed {
+  border-color: #bd5b5b;
+}
+
+.maintenanceIncident {
+  display: grid;
+  gap: 7px;
+}
+
+.maintenanceIncident textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.maintenanceReport {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+}
+
+.maintenanceReport pre {
+  background: var(--surface-inset);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font: 12px/1.55 var(--code-font);
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
+.maintenanceConfirmation {
+  background: var(--surface-accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.maintenanceConfirmation p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.maintenanceConfirmActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.maintenanceActions {
+  gap: 8px;
+}
+
+.maintenanceActions > span {
+  flex: 1;
 }
 
 .agentDeleteModal {

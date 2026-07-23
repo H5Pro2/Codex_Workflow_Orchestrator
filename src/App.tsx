@@ -159,6 +159,16 @@ type UsageSummary = {
   unlimited: boolean
 }
 
+type MaintenanceState = {
+  threadId: string
+  turnId: string
+  status: 'idle' | 'diagnosing' | 'ready' | 'repairing' | 'failed'
+  incident: string
+  report: string
+  error: string
+  updatedAt: string
+}
+
 type WorkflowRoute = {
   id: string
   ownerAgentId: string
@@ -1355,6 +1365,12 @@ function App() {
   const [codexProjects, setCodexProjects] = useState<CodexProject[]>(initialCodexProjects)
   const [codexThreads, setCodexThreads] = useState<CodexThread[]>(initialCodexThreads)
   const [connectorOnline, setConnectorOnline] = useState(false)
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false)
+  const [maintenanceIncident, setMaintenanceIncident] = useState('')
+  const [maintenanceConfirmAction, setMaintenanceConfirmAction] = useState<'repair' | 'restart' | ''>('')
+  const [maintenanceState, setMaintenanceState] = useState<MaintenanceState>({
+    threadId: '', turnId: '', status: 'idle', incident: '', report: '', error: '', updatedAt: '',
+  })
   const [provisioningRecovery, setProvisioningRecovery] = useState<ProvisioningRecovery | null>(null)
   const [language, setLanguage] = useState<UiLanguage>(() => {
     const storedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
@@ -1482,6 +1498,26 @@ function App() {
     document.documentElement.style.colorScheme = effectiveTheme
     document.body.style.background = programSettings.backgroundColor
   }, [effectiveTheme, programSettings.backgroundColor])
+
+  useEffect(() => {
+    let active = true
+    const loadMaintenanceState = async () => {
+      try {
+        const response = await fetch('/api/system-maintenance')
+        if (!response.ok) return
+        const state = await response.json()
+        if (active) setMaintenanceState(state)
+      } catch {
+        // Connector health is presented separately.
+      }
+    }
+    void loadMaintenanceState()
+    const timer = window.setInterval(() => void loadMaintenanceState(), 2500)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [])
 
   useEffect(() => {
     if (programSettings.theme !== 'system') {
@@ -4528,6 +4564,20 @@ function App() {
                       'Systemüberwachung eingegriffen',
                       `${agent.name}: Lauf nach ausbleibendem Fortschritt kontrolliert unterbrochen.`,
                     )
+                    void fetch('/api/system-maintenance/diagnose', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        incident: `Codex-Lauf von ${agent.name} zeigte zu lange keinen Fortschritt und wurde unterbrochen.`,
+                        context: [
+                          `Projekt: ${agent.projectPath}`,
+                          `Thread-ID: ${agent.threadId}`,
+                          `Turn-ID: ${activeTurnId}`,
+                          `Laufzeit: ${Math.round(runAgeMs / 1000)} Sekunden`,
+                          `Agentenstatus: ${agent.status}`,
+                        ].join('\n'),
+                      }),
+                    }).catch(() => undefined)
                   }
                 }
                 if (data.status === 'inProgress') {
@@ -4922,6 +4972,53 @@ function App() {
     setAutoRun(true)
     addEvent('Automatik gestartet', 'Initial-Anfragen und automatische Weitergaben sind aktiviert. Die Duplikat-Sperren des vorherigen Laufs wurden zurückgesetzt.')
     void startInitialWorkflows()
+  }
+
+  const requestMaintenanceDiagnosis = async (incident: string, context = '') => {
+    try {
+      const response = await fetch('/api/system-maintenance/diagnose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ incident, context }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || tx('Diagnose konnte nicht gestartet werden.', 'Diagnosis could not be started.'))
+      setMaintenanceState(data)
+      setMaintenanceConfirmAction('')
+      addEvent('Systemdiagnose gestartet', incident)
+    } catch (error) {
+      setMaintenanceState((current) => ({
+        ...current,
+        status: 'failed',
+        error: error instanceof Error ? error.message : tx('Diagnose konnte nicht gestartet werden.', 'Diagnosis could not be started.'),
+      }))
+    }
+  }
+
+  const runConfirmedMaintenanceAction = async (action: 'repair' | 'restart') => {
+    try {
+      const response = await fetch(`/api/system-maintenance/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmed: true }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || tx('Wartungsaktion fehlgeschlagen.', 'Maintenance action failed.'))
+      setMaintenanceConfirmAction('')
+      if (action === 'repair') {
+        setMaintenanceState(data)
+        addEvent('Systemreparatur bestätigt', 'Der Kommunikations-Handwerker setzt den bestätigten Vorschlag um.')
+      } else {
+        setConnectorOnline(false)
+        addEvent('Connector-Neustart bestätigt', 'Der lokale Connector wird kontrolliert neu gestartet.')
+      }
+    } catch (error) {
+      setMaintenanceState((current) => ({
+        ...current,
+        status: 'failed',
+        error: error instanceof Error ? error.message : tx('Wartungsaktion fehlgeschlagen.', 'Maintenance action failed.'),
+      }))
+    }
   }
 
   const applyThemePreset = (theme: ThemeMode) => {
@@ -5455,6 +5552,20 @@ function App() {
               </span>
             )}
           </div>
+          <button
+            aria-label={tx('Systemwartung öffnen', 'Open system maintenance')}
+            className={`maintenanceLauncher ${maintenanceState.status}`}
+            onClick={() => {
+              setMaintenanceConfirmAction('')
+              setMaintenanceOpen(true)
+            }}
+            title={tx('Kommunikations-Handwerker', 'Communication maintainer')}
+            type="button"
+          >
+            {['diagnosing', 'repairing'].includes(maintenanceState.status)
+              ? <span className="activitySpinner" aria-hidden="true" />
+              : 'W'}
+          </button>
           <div className="languageSwitch" aria-label={tx('Sprache', 'Language')}>
             <button
               className={language === 'en' ? 'active' : ''}
@@ -5476,6 +5587,100 @@ function App() {
           </div>
         </div>
       </section>
+
+      {maintenanceOpen && (
+        <div className="modalBackdrop" role="presentation" onMouseDown={() => setMaintenanceOpen(false)}>
+          <section
+            aria-labelledby="maintenance-title"
+            aria-modal="true"
+            className="promptModal maintenanceModal"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">Systemwartung</p>
+                <h2 id="maintenance-title">{tx('Kommunikations-Handwerker', 'Communication maintainer')}</h2>
+              </div>
+              <button aria-label={tx('Fenster schließen', 'Close window')} onClick={() => setMaintenanceOpen(false)}>×</button>
+            </div>
+
+            <p className="maintenanceScope">
+              {tx(
+                'Überwacht ausschließlich Connector, Codex-Turns, Warteschlangen, Übergaben und Workflow-Kommunikation. Benutzerprojekte und fachliche Aufgaben bleiben unberührt.',
+                'Monitors only the connector, Codex turns, queues, handoffs, and workflow communication. User projects and domain work remain untouched.',
+              )}
+            </p>
+
+            <div className={`maintenanceStatus ${maintenanceState.status}`}>
+              {['diagnosing', 'repairing'].includes(maintenanceState.status) && <span className="activitySpinner" aria-hidden="true" />}
+              <div>
+                <strong>{tx('Zustand', 'State')}</strong>
+                <span>{maintenanceState.status === 'idle' ? tx('Bereit', 'Ready')
+                  : maintenanceState.status === 'diagnosing' ? tx('Diagnose läuft', 'Diagnosis running')
+                  : maintenanceState.status === 'repairing' ? tx('Bestätigte Reparatur läuft', 'Confirmed repair running')
+                  : maintenanceState.status === 'ready' ? tx('Bericht liegt vor', 'Report available')
+                  : tx('Aufmerksamkeit erforderlich', 'Attention required')}</span>
+              </div>
+            </div>
+
+            <label className="maintenanceIncident">
+              <span>{tx('Vorfall oder Prüfanlass', 'Incident or reason for inspection')}</span>
+              <textarea
+                disabled={['diagnosing', 'repairing'].includes(maintenanceState.status)}
+                onChange={(event) => setMaintenanceIncident(event.target.value)}
+                placeholder={tx('Beschreibe das Kommunikations- oder Verarbeitungsproblem.', 'Describe the communication or processing problem.')}
+                value={maintenanceIncident}
+              />
+            </label>
+
+            {maintenanceState.error && <p className="modalError" role="alert">{maintenanceState.error}</p>}
+            {maintenanceState.report && (
+              <section className="maintenanceReport">
+                <strong>{tx('Wartungsbericht', 'Maintenance report')}</strong>
+                <pre>{maintenanceState.report}</pre>
+              </section>
+            )}
+
+            {maintenanceConfirmAction && (
+              <section className="maintenanceConfirmation">
+                <strong>{maintenanceConfirmAction === 'repair'
+                  ? tx('Codeänderung wirklich freigeben?', 'Really approve source changes?')
+                  : tx('Connector wirklich neu starten?', 'Really restart the connector?')}</strong>
+                <p>{maintenanceConfirmAction === 'repair'
+                  ? tx('Der Wartungsagent darf nur den bestätigten Bericht im Orchestrator umsetzen. Git und Neustart bleiben gesperrt.', 'The maintainer may only implement the confirmed report in the orchestrator. Git and restart remain blocked.')
+                  : tx('Die Oberfläche verliert kurz die Verbindung und verbindet sich anschließend erneut.', 'The interface will briefly disconnect and then reconnect.')}</p>
+                <div className="maintenanceConfirmActions">
+                  <button onClick={() => setMaintenanceConfirmAction('')}>{tx('Abbrechen', 'Cancel')}</button>
+                  <button className="primary" onClick={() => void runConfirmedMaintenanceAction(maintenanceConfirmAction)}>{tx('Bestätigen', 'Confirm')}</button>
+                </div>
+              </section>
+            )}
+
+            <div className="modalActions maintenanceActions">
+              <button
+                disabled={!maintenanceIncident.trim() || ['diagnosing', 'repairing'].includes(maintenanceState.status)}
+                onClick={() => void requestMaintenanceDiagnosis(maintenanceIncident)}
+              >
+                {tx('Diagnose starten', 'Start diagnosis')}
+              </button>
+              <span />
+              <button
+                disabled={maintenanceState.status !== 'ready'}
+                onClick={() => setMaintenanceConfirmAction('repair')}
+              >
+                {tx('Reparatur freigeben', 'Approve repair')}
+              </button>
+              <button
+                disabled={!['ready', 'failed'].includes(maintenanceState.status)}
+                onClick={() => setMaintenanceConfirmAction('restart')}
+              >
+                {tx('Neustart freigeben', 'Approve restart')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       <section className={`layout ${eventLogCollapsed ? 'eventLogCollapsed' : ''}`}>
         <aside className="agentRail">

@@ -8,11 +8,19 @@ import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import { createProvisioningJournal } from './provisioning-journal.mjs'
 import { createSharedStateStore } from './shared-state.mjs'
+import {
+  MAINTENANCE_THREAD_NAME,
+  createMaintenanceStateStore,
+  maintenanceDiagnosticPrompt,
+  maintenanceRepairPrompt,
+} from './maintenance-agent.mjs'
 
 const PORT = Number(process.env.CODEX_BRIDGE_PORT || 4317)
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url))
 const STATE_FILE = join(SERVER_DIR, 'orchestrator-state.json')
 const PROVISIONING_JOURNAL_FILE = join(SERVER_DIR, 'provisioning-journal.json')
+const MAINTENANCE_STATE_FILE = join(SERVER_DIR, 'maintenance-state.json')
+const ROOT_DIR = resolve(SERVER_DIR, '..')
 const CODEX_HOME = process.env.CODEX_HOME || join(homedir(), '.codex')
 const CODEX_GLOBAL_STATE_FILE = join(CODEX_HOME, '.codex-global-state.json')
 const LOCAL_CODEX_ENTRY = join(
@@ -39,6 +47,7 @@ let latestProvisioningRecovery = {
 }
 const sharedStateStore = createSharedStateStore(STATE_FILE)
 const provisioningJournal = createProvisioningJournal(PROVISIONING_JOURNAL_FILE)
+const maintenanceStateStore = createMaintenanceStateStore(MAINTENANCE_STATE_FILE)
 
 const codex = spawn(
   process.execPath,
@@ -156,7 +165,7 @@ const provisioningRecoveryReady = ready.then(async () => {
   console.error('Team-Wiederherstellung fehlgeschlagen:', error)
 })
 
-async function listAllThreads() {
+async function listAllThreads({ includeMaintenance = false } = {}) {
   await ready
   const threads = []
   let cursor = null
@@ -171,7 +180,59 @@ async function listAllThreads() {
     threads.push(...result.data.map(normalizeThread))
     cursor = result.nextCursor
   } while (cursor)
-  return threads
+  return includeMaintenance
+    ? threads
+    : threads.filter((thread) => thread.name !== MAINTENANCE_THREAD_NAME)
+}
+
+async function ensureMaintenanceThread() {
+  const state = await maintenanceStateStore.read()
+  if (state.threadId) {
+    try {
+      await request('thread/read', { threadId: state.threadId, includeTurns: false })
+      return state.threadId
+    } catch {
+      // A removed maintenance task is recreated transparently.
+    }
+  }
+
+  const result = await request('thread/start', {
+    cwd: ROOT_DIR,
+    experimentalRawEvents: false,
+    persistExtendedHistory: true,
+  })
+  await request('thread/name/set', { threadId: result.thread.id, name: MAINTENANCE_THREAD_NAME })
+  await maintenanceStateStore.write({ ...state, threadId: result.thread.id })
+  return result.thread.id
+}
+
+async function refreshMaintenanceState() {
+  const state = await maintenanceStateStore.read()
+  if (!state.threadId || !state.turnId || !['diagnosing', 'repairing'].includes(state.status)) {
+    return state
+  }
+  try {
+    const result = await request('thread/read', { threadId: state.threadId, includeTurns: true })
+    const turn = (result.thread?.turns ?? []).find((item) => item.id === state.turnId)
+    if (!turn || turn.status === 'inProgress') return state
+    const report = (turn.items ?? [])
+      .filter((item) => item.type === 'agentMessage' && typeof item.text === 'string')
+      .map((item) => item.text)
+      .filter(Boolean)
+      .at(-1) ?? ''
+    return maintenanceStateStore.write({
+      ...state,
+      status: turn.status === 'completed' ? 'ready' : 'failed',
+      report,
+      error: turn.status === 'completed' ? '' : turn.error?.message ?? 'Wartungs-Task nicht abgeschlossen.',
+    })
+  } catch (error) {
+    return maintenanceStateStore.write({
+      ...state,
+      status: 'failed',
+      error: error instanceof Error ? error.message : 'Wartungsstatus konnte nicht gelesen werden.',
+    })
+  }
 }
 
 async function listSavedProjects() {
@@ -327,7 +388,7 @@ async function startTurn(threadId, text, model = '') {
     }
   }
 
-  const thread = (await listAllThreads()).find((item) => item.id === threadId)
+  const thread = (await listAllThreads({ includeMaintenance: true })).find((item) => item.id === threadId)
   if (!thread) {
     throw new Error(`Codex-Task nicht gefunden: ${threadId}`)
   }
@@ -543,6 +604,97 @@ const server = createServer(async (incoming, response) => {
     if (incoming.method === 'GET' && url.pathname === '/api/health') {
       await ready
       sendJson(response, 200, { online: initialized })
+      return
+    }
+
+    if (incoming.method === 'GET' && url.pathname === '/api/system-maintenance') {
+      await ready
+      sendJson(response, 200, await refreshMaintenanceState())
+      return
+    }
+
+    if (incoming.method === 'POST' && url.pathname === '/api/system-maintenance/diagnose') {
+      const body = await readJson(incoming)
+      const current = await refreshMaintenanceState()
+      if (['diagnosing', 'repairing'].includes(current.status)) {
+        sendJson(response, 409, { error: 'Der Kommunikations-Handwerker arbeitet bereits.', state: current })
+        return
+      }
+      const threadId = await ensureMaintenanceThread()
+      const started = await startTurn(
+        threadId,
+        maintenanceDiagnosticPrompt(
+          typeof body.incident === 'string' ? body.incident : '',
+          typeof body.context === 'string' ? body.context : '',
+        ),
+      )
+      const state = await maintenanceStateStore.write({
+        ...current,
+        threadId,
+        turnId: started.turn?.id ?? '',
+        status: 'diagnosing',
+        incident: typeof body.incident === 'string' ? body.incident.trim() : '',
+        report: '',
+        error: '',
+      })
+      sendJson(response, 202, state)
+      return
+    }
+
+    if (incoming.method === 'POST' && url.pathname === '/api/system-maintenance/repair') {
+      const body = await readJson(incoming)
+      if (body.confirmed !== true) {
+        sendJson(response, 400, { error: 'Die Reparatur wurde nicht ausdrücklich bestätigt.' })
+        return
+      }
+      const current = await refreshMaintenanceState()
+      if (current.status !== 'ready' || !current.report.trim()) {
+        sendJson(response, 409, { error: 'Es liegt kein bestätigungsfähiger Wartungsbericht vor.', state: current })
+        return
+      }
+      const threadId = await ensureMaintenanceThread()
+      const started = await startTurn(threadId, maintenanceRepairPrompt(current.report))
+      const state = await maintenanceStateStore.write({
+        ...current,
+        threadId,
+        turnId: started.turn?.id ?? '',
+        status: 'repairing',
+        error: '',
+      })
+      sendJson(response, 202, state)
+      return
+    }
+
+    if (incoming.method === 'POST' && url.pathname === '/api/system-maintenance/restart') {
+      const body = await readJson(incoming)
+      if (body.confirmed !== true) {
+        sendJson(response, 400, { error: 'Der Connector-Neustart wurde nicht ausdrücklich bestätigt.' })
+        return
+      }
+      const current = await refreshMaintenanceState()
+      if (!['ready', 'failed'].includes(current.status)) {
+        sendJson(response, 409, { error: 'Ein Neustart ist erst nach abgeschlossener Diagnose möglich.' })
+        return
+      }
+      const nodePath = process.execPath.replaceAll("'", "''")
+      const bridgePath = join(SERVER_DIR, 'bridge.mjs').replaceAll("'", "''")
+      const rootPath = ROOT_DIR.replaceAll("'", "''")
+      const restartScript = [
+        `$oldPid = ${process.pid}`,
+        'while (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 200 }',
+        `Start-Process -FilePath '${nodePath}' -ArgumentList '${bridgePath}' -WorkingDirectory '${rootPath}' -WindowStyle Hidden`,
+      ].join('; ')
+      const helper = spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', restartScript], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      helper.unref()
+      sendJson(response, 202, { restarting: true })
+      setTimeout(() => {
+        shutdown()
+        process.exit(0)
+      }, 250)
       return
     }
 
