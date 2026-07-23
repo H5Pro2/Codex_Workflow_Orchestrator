@@ -537,6 +537,19 @@ const server = createServer(async (incoming, response) => {
 
     if (incoming.method === 'PUT' && url.pathname === '/api/state') {
       const body = await readJson(incoming)
+      await loadSharedState()
+      if (
+        body.force !== true &&
+        typeof body.expectedUpdatedAt === 'string' &&
+        body.expectedUpdatedAt !== sharedStateUpdatedAt
+      ) {
+        sendJson(response, 409, {
+          error: 'Der gemeinsame Zustand wurde zwischenzeitlich geändert.',
+          state: sharedStateCache,
+          updatedAt: sharedStateUpdatedAt,
+        })
+        return
+      }
       const updatedAt = await saveSharedState(body.state)
       sendJson(response, 200, { ok: true, updatedAt })
       return

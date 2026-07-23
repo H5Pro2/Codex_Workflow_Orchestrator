@@ -611,23 +611,43 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
 }
 
 function deduplicateAgents(agents: Agent[]) {
-  const linkedThreadIds = new Set(agents.filter((agent) => agent.threadId).map((agent) => agent.threadId))
-  const seenThreadIds = new Set<string>()
+  const configurationScore = (agent: Agent) => {
+    const activeDocument = activePromptDocumentForAgent(agent)
+    return (
+      (isDefaultAgentRole(agent.role, agent.name) ? 0 : 8) +
+      (activeDocument?.filePath ? 8 : 0) +
+      (activeDocument && normalizedInstructionText(activeDocument.content) !== normalizedInstructionText('Definiere die Rollen-Anweisung für diesen Codex Task.') ? 4 : 0) +
+      (agent.workflowStatusIds?.length ?? 0) * 2 +
+      (agent.assignment === 'management' ? 8 : 0) +
+      (agent.teamProvisioningEnabled ? 4 : 0) +
+      (agent.monitoringEnabled ? 2 : 0) +
+      (agent.lastAppliedTeamPlanSignature ? 4 : 0)
+    )
+  }
+  const preferredByThreadId = new Map<string, Agent>()
 
+  agents.forEach((agent) => {
+    if (!agent.threadId) return
+    const current = preferredByThreadId.get(agent.threadId)
+    if (!current || configurationScore(agent) > configurationScore(current)) {
+      preferredByThreadId.set(agent.threadId, agent)
+    }
+  })
+
+  const emittedThreadIds = new Set<string>()
   return agents.filter((agent) => {
     if (agent.threadId) {
-      if (seenThreadIds.has(agent.threadId)) {
+      if (preferredByThreadId.get(agent.threadId)?.id !== agent.id || emittedThreadIds.has(agent.threadId)) {
         return false
       }
-      seenThreadIds.add(agent.threadId)
+      emittedThreadIds.add(agent.threadId)
       return true
     }
 
     return !agents.some(
       (linkedAgent) =>
         linkedAgent.threadId &&
-        linkedThreadIds.has(linkedAgent.threadId) &&
-        linkedAgent.projectPath === agent.projectPath &&
+        samePath(linkedAgent.projectPath, agent.projectPath) &&
         linkedAgent.name.trim().toLocaleLowerCase('de-DE') ===
           agent.name.trim().toLocaleLowerCase('de-DE'),
     )
@@ -1594,6 +1614,7 @@ function App() {
   const [sharedStateReady, setSharedStateReady] = useState(false)
   const sharedStateVersion = useRef('')
   const sharedStateDirty = useRef(false)
+  const teamPlanApplyingRef = useRef(false)
   const autoRunRef = useRef(autoRun)
   const agentsRef = useRef(agents)
   agentsRef.current = agents
@@ -1679,11 +1700,18 @@ function App() {
         const response = await fetch('/api/state', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state }),
+          body: JSON.stringify({
+            state,
+            expectedUpdatedAt: sharedStateVersion.current,
+          }),
         })
         if (response.ok) {
           const data = await response.json()
           sharedStateVersion.current = data.updatedAt
+          sharedStateDirty.current = false
+        } else if (response.status === 409) {
+          // Let the polling loop apply the newer shared snapshot. This prevents
+          // an older browser tab from overwriting changes made in another tab.
           sharedStateDirty.current = false
         }
       } catch {
@@ -2140,7 +2168,7 @@ function App() {
   }, [activeDashboardOwnerId, agents, routes, workflowPrompts])
 
   useEffect(() => {
-    if (!connectorOnline) {
+    if (!connectorOnline || teamPlanApplyingRef.current) {
       return
     }
 
@@ -2819,7 +2847,7 @@ function App() {
   }
 
   const applyManagementTeamPlan = async (manager: Agent) => {
-    if (!selectedProject || !selectedTeamPlan || teamPlanApplying) return
+    if (!selectedProject || !selectedTeamPlan || teamPlanApplying || teamPlanApplyingRef.current) return
     if (autoRun || autoRunRef.current) {
       setTeamPlanError(tx(
         'Der Team-Aufbau ist nur bei Auto Stop möglich.',
@@ -2837,9 +2865,6 @@ function App() {
       ))
       return
     }
-    // Do not let a polling snapshot replace the team state while its agents,
-    // status commands, and workflow routes are committed together.
-    sharedStateDirty.current = true
     if (selectedTeamPlanComplete) {
       setTeamPlanError(tx('Dieser Team-Vorschlag ist bereits vollständig eingerichtet.', 'This team proposal is already fully configured.'))
       return
@@ -2912,6 +2937,10 @@ function App() {
       return
     }
 
+    // Codex exposes newly created threads before the complete team state is ready.
+    // Keep reconciliation from importing those threads as default agents meanwhile.
+    teamPlanApplyingRef.current = true
+    sharedStateDirty.current = true
     setTeamPlanApplying(true)
     setTeamPlanProgress(tx('Team-Einrichtung wird vorbereitet…', 'Preparing team setup…'))
     setTeamPlanError('')
@@ -3151,65 +3180,62 @@ function App() {
           ]
         }),
       ]
-      setAgents(resolvedAgents.map((agent) => agent.id === manager.id
+      const finalAgents = resolvedAgents.map((agent) => agent.id === manager.id
         ? { ...agent, lastAppliedTeamPlanSignature: signature, updatedAt: new Date().toISOString() }
-        : agent))
-      setWorkflowStatuses(nextWorkflowStatuses)
-      setWorkflowInitials((current) => [
-        ...current.filter((item) => item.id !== configuredInitial.id),
+        : agent)
+      const finalInitials = [
+        ...workflowInitials.filter((item) => item.id !== configuredInitial.id),
         configuredInitial,
-      ])
-      setWorkflowStatusFilters((current) => [
-        ...current.filter((item) => ![...planFilters, ...errorFilters, ...stopFilters].some((filter) => filter.id === item.id)),
+      ]
+      const allPlanFilters = [...planFilters, ...errorFilters, ...stopFilters]
+      const finalStatusFilters = [
+        ...workflowStatusFilters.filter((item) => !allPlanFilters.some((filter) => filter.id === item.id)),
         ...planFilters,
         ...errorFilters,
         ...stopFilters.map(({ stopId: _stopId, ...filter }) => filter),
-      ])
-      setWorkflowStops((current) => [
-        ...current.filter((item) => !planStops.some((stop) => stop.id === item.id)),
+      ]
+      const finalStops = [
+        ...workflowStops.filter((item) => !planStops.some((stop) => stop.id === item.id)),
         ...planStops,
-      ])
-      setCodexThreads((current) => [
-        ...current.filter((thread) => !createdThreads.some((created) => created.id === thread.id)),
-        ...createdThreads,
-      ])
-      setWorkflowBoardAgentIds((current) => {
-        const next = {
-          ...current,
-          [manager.id]: Array.from(new Set([manager.id, startAgent.id])),
-        }
-        plan.connections.forEach((connection) => {
-          const source = projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!
-          const target = projectAgentMap.get(connection.to.toLocaleLowerCase('de-DE'))!
-          next[source.id] = Array.from(new Set([source.id, ...(next[source.id] ?? []), target.id]))
-        })
-        managedAgents.forEach((source) => {
-          next[source.id] = Array.from(new Set([source.id, ...(next[source.id] ?? []), manager.id]))
-        })
-        return next
+      ]
+      const finalBoardAgentIds = { ...workflowBoardAgentIds }
+      finalBoardAgentIds[manager.id] = Array.from(new Set([manager.id, startAgent.id]))
+      plan.connections.forEach((connection) => {
+        const source = projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!
+        const target = projectAgentMap.get(connection.to.toLocaleLowerCase('de-DE'))!
+        finalBoardAgentIds[source.id] = Array.from(new Set([
+          source.id,
+          ...(finalBoardAgentIds[source.id] ?? []),
+          target.id,
+        ]))
       })
-      setRoutes((current) => {
-        const planFilterIds = new Set([...planFilters, ...errorFilters, ...stopFilters].map((filter) => filter.id))
-        const planSourceIds = new Set(plan.connections.map((connection) =>
-          projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!.id,
-        ))
-        const proposedPairs = new Set(plan.connections.map((connection) => {
-          const sourceId = projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!.id
-          const targetId = projectAgentMap.get(connection.to.toLocaleLowerCase('de-DE'))!.id
-          return `${sourceId}:${targetId}`
-        }))
-        const retained = current.filter((route) => !(
-          samePath(route.projectPath, selectedProject.path) && (
-            route.sourceId === configuredInitial.id ||
-            planFilterIds.has(route.sourceId) ||
-            planFilterIds.has(route.targetId) ||
-            (planSourceIds.has(route.sourceId) && proposedPairs.has(`${route.sourceId}:${route.targetId}`))
-          )
-        ))
-        return [...retained, ...newRoutes]
+      managedAgents.forEach((source) => {
+        finalBoardAgentIds[source.id] = Array.from(new Set([
+          source.id,
+          ...(finalBoardAgentIds[source.id] ?? []),
+          manager.id,
+        ]))
       })
-      setWorkflowPositions((current) => ({
-        ...current,
+      const planFilterIds = new Set(allPlanFilters.map((filter) => filter.id))
+      const planSourceIds = new Set(plan.connections.map((connection) =>
+        projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!.id,
+      ))
+      const proposedPairs = new Set(plan.connections.map((connection) => {
+        const sourceId = projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!.id
+        const targetId = projectAgentMap.get(connection.to.toLocaleLowerCase('de-DE'))!.id
+        return `${sourceId}:${targetId}`
+      }))
+      const retainedRoutes = routes.filter((route) => !(
+        samePath(route.projectPath, selectedProject.path) && (
+          route.sourceId === configuredInitial.id ||
+          planFilterIds.has(route.sourceId) ||
+          planFilterIds.has(route.targetId) ||
+          (planSourceIds.has(route.sourceId) && proposedPairs.has(`${route.sourceId}:${route.targetId}`))
+        )
+      ))
+      const finalRoutes = [...retainedRoutes, ...newRoutes]
+      const finalPositions = {
+        ...workflowPositions,
         [`${manager.id}:${configuredInitial.id}`]: { x: 50, y: 90 },
         [`${manager.id}:${startAgent.id}`]: { x: 280, y: 90 },
         ...Object.fromEntries(plan.connections.flatMap((connection, index) => {
@@ -3236,7 +3262,50 @@ function App() {
             [`${source.id}:${planStops[index].id}`, { x: 500, y: 460 + index * 120 }],
           ]
         })),
-      }))
+      }
+
+      setAgents(finalAgents)
+      setWorkflowStatuses(nextWorkflowStatuses)
+      setWorkflowInitials(finalInitials)
+      setWorkflowStatusFilters(finalStatusFilters)
+      setWorkflowStops(finalStops)
+      setCodexThreads((current) => [
+        ...current.filter((thread) => !createdThreads.some((created) => created.id === thread.id)),
+        ...createdThreads,
+      ])
+      setWorkflowBoardAgentIds(finalBoardAgentIds)
+      setRoutes(finalRoutes)
+      setWorkflowPositions(finalPositions)
+
+      const commitResponse = await fetch('/api/state', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          force: true,
+          state: {
+            agents: finalAgents,
+            events,
+            hiddenThreadIds,
+            routes: finalRoutes,
+            workflowPrompts,
+            workflowInitials: finalInitials,
+            workflowStatuses: nextWorkflowStatuses,
+            workflowStatusFilters: finalStatusFilters,
+            workflowStops: finalStops,
+            workflowTimers,
+            workflowPositions: finalPositions,
+            workflowBoardAgentIds: finalBoardAgentIds,
+            selectedProjectId: projectFilter,
+            autoRun: false,
+          },
+        }),
+      })
+      if (!commitResponse.ok) {
+        throw new Error(tx('Die vollständige Teamkonfiguration konnte nicht gespeichert werden.', 'The complete team configuration could not be saved.'))
+      }
+      const commitData = await commitResponse.json()
+      sharedStateVersion.current = commitData.updatedAt
+      sharedStateDirty.current = false
       addEvent(
         'Team-Vorschlag übernommen',
         `${manager.name}: ${plan.agents.length} Agenten, ${plan.statusCommands.length} Statusbefehle, ${plan.connections.length} Verbindungen und ${plan.stops.length} Abschlusswege. Automatik bleibt gestoppt.`,
@@ -3259,6 +3328,7 @@ function App() {
       setTeamPlanError(error instanceof Error ? error.message : tx('Team-Aufbau fehlgeschlagen.', 'Team creation failed.'))
       addEvent('Team-Aufbau fehlgeschlagen', error instanceof Error ? error.message : 'Unbekannter Fehler.')
     } finally {
+      teamPlanApplyingRef.current = false
       setTeamPlanApplying(false)
       window.setTimeout(() => setTeamPlanProgress(''), 1200)
     }
