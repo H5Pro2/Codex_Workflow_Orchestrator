@@ -273,7 +273,12 @@ Der Orchestrator-Zustand wird lokal gespeichert. Prompt-Dateien werden im jeweil
 ```powershell
 npm run lint
 npm run build
+npm test
 ```
+
+`npm test` prueft die atomare Zustandsspeicherung, monotone Versionsstaende und den
+Schutz vor ueberschreibenden Aenderungen aus veralteten Browser-Tabs. Die Tests
+verwenden ausschliesslich temporaere Dateien und veraendern keine Projekte oder Chats.
 
 Die Produktionsausgabe wird unter `dist/` erzeugt.
 

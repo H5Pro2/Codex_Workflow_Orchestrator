@@ -6,6 +6,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
+import { createSharedStateStore } from './shared-state.mjs'
 
 const PORT = Number(process.env.CODEX_BRIDGE_PORT || 4317)
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url))
@@ -25,59 +26,8 @@ const pending = new Map()
 const inactiveTurnSince = new Map()
 let nextRequestId = 1
 let initialized = false
-let sharedStateCache = null
-let sharedStateUpdatedAt = ''
 let latestRateLimits = null
-
-function canonicalize(value) {
-  if (Array.isArray(value)) {
-    return value.map(canonicalize)
-  }
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.keys(value)
-        .sort()
-        .map((key) => [key, canonicalize(value[key])]),
-    )
-  }
-  return value
-}
-
-function stableStateString(state) {
-  return JSON.stringify(canonicalize(state))
-}
-
-async function loadSharedState() {
-  if (sharedStateCache) {
-    return sharedStateCache
-  }
-  try {
-    const parsed = JSON.parse(await readFile(STATE_FILE, 'utf8'))
-    sharedStateCache = parsed.state ?? null
-    sharedStateUpdatedAt = parsed.updatedAt ?? ''
-  } catch {
-    sharedStateCache = null
-    sharedStateUpdatedAt = ''
-  }
-  return sharedStateCache
-}
-
-async function saveSharedState(state) {
-  await loadSharedState()
-  if (sharedStateCache && stableStateString(sharedStateCache) === stableStateString(state)) {
-    return sharedStateUpdatedAt
-  }
-  sharedStateCache = state
-  sharedStateUpdatedAt = new Date().toISOString()
-  const temporaryFile = `${STATE_FILE}.tmp`
-  await writeFile(
-    temporaryFile,
-    JSON.stringify({ updatedAt: sharedStateUpdatedAt, state }, null, 2),
-    'utf8',
-  )
-  await rename(temporaryFile, STATE_FILE)
-  return sharedStateUpdatedAt
-}
+const sharedStateStore = createSharedStateStore(STATE_FILE)
 
 const codex = spawn(
   process.execPath,
@@ -530,28 +480,25 @@ const server = createServer(async (incoming, response) => {
     }
 
     if (incoming.method === 'GET' && url.pathname === '/api/state') {
-      const state = await loadSharedState()
-      sendJson(response, 200, { state, updatedAt: sharedStateUpdatedAt })
+      sendJson(response, 200, await sharedStateStore.read())
       return
     }
 
     if (incoming.method === 'PUT' && url.pathname === '/api/state') {
       const body = await readJson(incoming)
-      await loadSharedState()
-      if (
-        body.force !== true &&
-        typeof body.expectedUpdatedAt === 'string' &&
-        body.expectedUpdatedAt !== sharedStateUpdatedAt
-      ) {
+      const result = await sharedStateStore.update(body.state, {
+        expectedUpdatedAt: body.expectedUpdatedAt,
+        force: body.force === true,
+      })
+      if (!result.ok) {
         sendJson(response, 409, {
           error: 'Der gemeinsame Zustand wurde zwischenzeitlich geändert.',
-          state: sharedStateCache,
-          updatedAt: sharedStateUpdatedAt,
+          state: result.state,
+          updatedAt: result.updatedAt,
         })
         return
       }
-      const updatedAt = await saveSharedState(body.state)
-      sendJson(response, 200, { ok: true, updatedAt })
+      sendJson(response, 200, { ok: true, updatedAt: result.updatedAt })
       return
     }
 
