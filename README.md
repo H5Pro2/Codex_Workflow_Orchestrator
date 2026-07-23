@@ -209,6 +209,8 @@ Zusätzlich gehört der interne **Kommunikations-Handwerker** fest zum Orchestra
 
 Bei einem Watchdog-Eingriff startet der Kommunikations-Handwerker automatisch eine **lesende Diagnose**. Eine Diagnose kann außerdem über die kompakte Schaltfläche `W` am Connector manuell angefordert werden. Der Wartungsbericht nennt Ursache, Indizien, betroffene Komponente und den kleinstmöglichen Reparaturvorschlag. Fachliche Inhalte und Dateien ausgewählter Benutzerprojekte gehören ausdrücklich nicht zu seinem Zuständigkeitsbereich.
 
+Kommunikations-, Connector- und Routingfehler werden im Hintergrund an den Kommunikations-Handwerker gemeldet, ohne für jeden Fehler ein zusätzliches Dialogfenster zu öffnen. Nur wenn der Watchdog einen festhängenden Codex-Lauf tatsächlich abbricht, erscheint ein kompakter Hinweis mit Agent, Laufzeit und direktem Zugang zum Handwerkerbericht.
+
 Neben der Schaltfläche zeigt die Oberfläche den aktuellen Wartungszustand dauerhaft an: `Bereit`, `Diagnose`, `Reparatur`, `Bericht` oder `Fehler`. So bleibt auch bei geschlossenem Wartungsfenster sichtbar, ob der Kommunikations-Handwerker arbeitet oder eine Benutzerentscheidung benötigt.
 
 Der Wartungsagent verändert niemals allein Quellcode und startet keinen Prozess eigenmächtig neu. Die Oberfläche trennt deshalb drei Stufen:

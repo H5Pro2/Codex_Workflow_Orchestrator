@@ -2636,6 +2636,15 @@ label {
   max-width: 760px;
 }
 
+.stallNoticeModal {
+  max-width: 520px;
+}
+
+.stallNoticeText {
+  line-height: 1.5;
+  margin: 0;
+}
+
 .maintenanceScope {
   border-left: 2px solid var(--accent);
   color: var(--muted);

@@ -134,6 +134,12 @@ type EventLog = {
   detail: string
 }
 
+type StallNotice = {
+  agentName: string
+  turnId: string
+  durationSeconds: number
+}
+
 type CodexProject = {
   id: string
   label: string
@@ -1383,6 +1389,7 @@ function App() {
   const [connectorOnline, setConnectorOnline] = useState(false)
   const [maintenanceOpen, setMaintenanceOpen] = useState(false)
   const [maintenanceIncident, setMaintenanceIncident] = useState('')
+  const [stallNotice, setStallNotice] = useState<StallNotice | null>(null)
   const [maintenanceConfirmAction, setMaintenanceConfirmAction] = useState<'repair' | 'restart' | ''>('')
   const [maintenanceState, setMaintenanceState] = useState<MaintenanceState>({
     threadId: '', turnId: '', status: 'idle', incident: '', report: '', error: '', updatedAt: '',
@@ -2338,6 +2345,14 @@ function App() {
       { id: crypto.randomUUID(), at: nowLabel(), title, detail },
       ...current.slice(0, 39),
     ])
+  }, [])
+
+  const requestSystemDiagnosis = useCallback((incident: string, context: string[]) => {
+    void fetch('/api/system-maintenance/diagnose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ incident, context: context.join('\n') }),
+    }).catch(() => undefined)
   }, [])
 
   const updateAgent = useCallback((id: string, patch: Partial<Agent>) => {
@@ -3967,6 +3982,17 @@ function App() {
         'Automatik gestoppt',
         `${agent.name} hat keinen gültigen Fortsetzungsweg. Der Workflow wartet auf eine Benutzerentscheidung.`,
       )
+      requestSystemDiagnosis(
+        `Workflow von ${agent.name} hat keinen gültigen Fortsetzungsweg.`,
+        [
+          `Projekt: ${agent.projectPath}`,
+          `Agent-ID: ${agent.id}`,
+          `Thread-ID: ${agent.threadId || 'nicht verfügbar'}`,
+          `Turn-ID: ${agent.lastCompletedTurnId || 'nicht verfügbar'}`,
+          `Workflow-Status: ${availableStatuses}`,
+          `Ausgehende Verbindungen: ${activeRoutes.length}`,
+        ],
+      )
       return
     }
     const newDeliveries = deliveries.filter(({ route, target, stop }) => {
@@ -4065,6 +4091,14 @@ function App() {
           runStartedAt: '',
         })
         addEvent('Weitergabe nicht gesendet', `${target.name} ist mit keinem Codex-Chat verknüpft.`)
+        requestSystemDiagnosis(
+          `Workflow-Ziel ${target.name} besitzt keinen verknüpften Codex-Chat.`,
+          [
+            `Projekt: ${target.projectPath}`,
+            `Agent-ID: ${target.id}`,
+            `Quelle: ${agent.name}`,
+          ],
+        )
         return { targetName: target.name, delivered: false }
       }
 
@@ -4117,6 +4151,16 @@ function App() {
           'Weitergabe nicht gesendet',
           `${target.name}: ${error instanceof Error ? error.message : 'Connector nicht erreichbar.'}`,
         )
+        requestSystemDiagnosis(
+          `Weitergabe an ${target.name} fehlgeschlagen.`,
+          [
+            `Projekt: ${target.projectPath}`,
+            `Agent-ID: ${target.id}`,
+            `Thread-ID: ${target.threadId || 'nicht verfügbar'}`,
+            `Quelle: ${agent.name}`,
+            `Fehler: ${error instanceof Error ? error.message : 'Der lokale Connector ist nicht erreichbar.'}`,
+          ],
+        )
         return { targetName: target.name, delivered: false }
       }
     }))
@@ -4138,7 +4182,7 @@ function App() {
         `${agent.name}: Kein Ziel-Chat hat die Übergabe angenommen.`,
       )
     }
-  }, [addEvent, agents, applyThreadReplacement, routes, updateAgent, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, requestSystemDiagnosis, routes, updateAgent, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   const connectAgents = useCallback((connection: Connection) => {
     if (
@@ -4732,20 +4776,23 @@ function App() {
                       'Systemüberwachung eingegriffen',
                       `${agent.name}: Lauf nach ausbleibendem Fortschritt kontrolliert unterbrochen.`,
                     )
-                    void fetch('/api/system-maintenance/diagnose', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        incident: `Codex-Lauf von ${agent.name} zeigte zu lange keinen Fortschritt und wurde unterbrochen.`,
-                        context: [
-                          `Projekt: ${agent.projectPath}`,
-                          `Thread-ID: ${agent.threadId}`,
-                          `Turn-ID: ${activeTurnId}`,
-                          `Laufzeit: ${Math.round(runAgeMs / 1000)} Sekunden`,
-                          `Agentenstatus: ${agent.status}`,
-                        ].join('\n'),
-                      }),
-                    }).catch(() => undefined)
+                    const durationSeconds = Math.round(runAgeMs / 1000)
+                    setStallNotice({
+                      agentName: agent.name,
+                      turnId: activeTurnId,
+                      durationSeconds,
+                    })
+                    requestSystemDiagnosis(
+                      `Codex-Lauf von ${agent.name} zeigte zu lange keinen Fortschritt und wurde unterbrochen.`,
+                      [
+                        `Projekt: ${agent.projectPath}`,
+                        `Agent-ID: ${agent.id}`,
+                        `Thread-ID: ${agent.threadId}`,
+                        `Turn-ID: ${activeTurnId}`,
+                        `Laufzeit: ${durationSeconds} Sekunden`,
+                        `Agentenstatus: ${agent.status}`,
+                      ],
+                    )
                   }
                 }
                 if (data.status === 'inProgress') {
@@ -4806,6 +4853,21 @@ function App() {
                     ? `${agent.name}: Aufgabe wird nach ${consecutiveFailedRuns} Fehlläufen zur Aufteilung gemeldet.`
                     : `${agent.name}: ${failureDetail}`,
                 )
+                if (!failureDetail.startsWith('Systemüberwachung:')) {
+                  requestSystemDiagnosis(
+                    overloadEscalation
+                      ? `Agent ${agent.name} ist wiederholt fehlgeschlagen.`
+                      : `Codex-Ausführung von ${agent.name} wurde nicht abgeschlossen.`,
+                    [
+                      `Projekt: ${agent.projectPath}`,
+                      `Agent-ID: ${agent.id}`,
+                      `Thread-ID: ${agent.threadId}`,
+                      `Turn-ID: ${data.turnId ?? agent.pendingTurnId}`,
+                      `Fehlversuche in Folge: ${consecutiveFailedRuns}`,
+                      `Fehler: ${failureDetail}`,
+                    ],
+                  )
+                }
                 if (autoRun && failedAgent.assignment === 'management') {
                   queuedSourceAgentIdsByTarget.current.delete(failedAgent.id)
                   sharedStateDirty.current = true
@@ -4920,6 +4982,16 @@ function App() {
                 'Ergebnisabfrage fehlgeschlagen',
                 `${agent.name}: ${message}`,
               )
+              requestSystemDiagnosis(
+                `Codex-Ergebnis von ${agent.name} konnte nicht abgefragt werden.`,
+                [
+                  `Projekt: ${agent.projectPath}`,
+                  `Agent-ID: ${agent.id}`,
+                  `Thread-ID: ${agent.threadId}`,
+                  `Turn-ID: ${agent.pendingTurnId || 'nicht verfügbar'}`,
+                  `Fehler: ${message}`,
+                ],
+              )
             } finally {
               pollingTurnIds.current.delete(agent.pendingTurnId)
             }
@@ -4930,7 +5002,7 @@ function App() {
     void poll()
     const timer = window.setInterval(() => void poll(), 2500)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, autoRun, handoff, renameCodexThread, resetInactiveAgentStatuses, updateAgent, workflowStatuses])
+  }, [addEvent, agents, autoRun, handoff, renameCodexThread, requestSystemDiagnosis, resetInactiveAgentStatuses, updateAgent, workflowStatuses])
 
   useEffect(() => {
     if (!autoRun || !automationLeader) return
@@ -5512,6 +5584,58 @@ function App() {
           </button>
         </div>
       </section>
+
+      {stallNotice && (
+        <div className="modalBackdrop" role="presentation" onMouseDown={() => setStallNotice(null)}>
+          <section
+            aria-labelledby="stall-notice-title"
+            aria-modal="true"
+            className="promptModal stallNoticeModal"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="alertdialog"
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">{tx('SYSTEMÜBERWACHUNG', 'SYSTEM MONITORING')}</p>
+                <h2 id="stall-notice-title">
+                  {tx('Festhängender Lauf abgebrochen', 'Stalled run interrupted')}
+                </h2>
+              </div>
+              <button
+                aria-label={tx('Fenster schließen', 'Close window')}
+                onClick={() => setStallNotice(null)}
+              >×</button>
+            </div>
+            <p className="stallNoticeText">
+              {tx(
+                `Der Lauf von „${stallNotice.agentName}“ wurde nach ${stallNotice.durationSeconds} Sekunden ohne Fortschritt unterbrochen.`,
+                `The run for “${stallNotice.agentName}” was interrupted after ${stallNotice.durationSeconds} seconds without progress.`,
+              )}
+            </p>
+            <p className="modalHint">
+              {tx(
+                'Der Kommunikations-Handwerker erstellt bereits eine Diagnose.',
+                'The communication technician is already preparing a diagnosis.',
+              )}
+            </p>
+            <div className="modalActions">
+              <button onClick={() => setStallNotice(null)}>{tx('Schließen', 'Close')}</button>
+              <button
+                className="primary"
+                onClick={() => {
+                  setMaintenanceIncident(
+                    `Festhängender Lauf: ${stallNotice.agentName}\nTurn-ID: ${stallNotice.turnId}`,
+                  )
+                  setMaintenanceOpen(true)
+                  setStallNotice(null)
+                }}
+              >
+                {tx('Handwerker öffnen', 'Open technician')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {teamReadyNotice && (
         <div className="modalBackdrop" role="presentation" onMouseDown={() => setTeamReadyNotice(null)}>
