@@ -197,6 +197,13 @@
   color: #fda4af;
 }
 
+.maintenanceControl {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 2px;
+}
+
 .maintenanceLauncher {
   align-items: center;
   background: var(--surface-raised);
@@ -205,19 +212,44 @@
   font-size: 12px;
   height: 30px;
   justify-content: center;
-  margin-left: 2px;
   min-width: 30px;
   padding: 0;
   width: 30px;
 }
 
-.maintenanceLauncher.ready {
+.maintenanceStateText {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.maintenanceControl.ready .maintenanceLauncher {
+  border-color: #d2a83a;
+  color: #f2c94c;
+}
+
+.maintenanceControl.ready .maintenanceStateText {
+  color: #d9b95e;
+}
+
+.maintenanceControl.diagnosing .maintenanceLauncher,
+.maintenanceControl.repairing .maintenanceLauncher {
   border-color: var(--accent);
   color: var(--accent);
 }
 
-.maintenanceLauncher.failed {
+.maintenanceControl.diagnosing .maintenanceStateText,
+.maintenanceControl.repairing .maintenanceStateText {
+  color: var(--accent);
+}
+
+.maintenanceControl.failed .maintenanceLauncher {
   border-color: #ef9696;
+  color: #ef9696;
+}
+
+.maintenanceControl.failed .maintenanceStateText {
   color: #ef9696;
 }
 

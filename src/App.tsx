@@ -5552,20 +5552,29 @@ function App() {
               </span>
             )}
           </div>
-          <button
-            aria-label={tx('Systemwartung öffnen', 'Open system maintenance')}
-            className={`maintenanceLauncher ${maintenanceState.status}`}
-            onClick={() => {
-              setMaintenanceConfirmAction('')
-              setMaintenanceOpen(true)
-            }}
-            title={tx('Kommunikations-Handwerker', 'Communication maintainer')}
-            type="button"
-          >
-            {['diagnosing', 'repairing'].includes(maintenanceState.status)
-              ? <span className="activitySpinner" aria-hidden="true" />
-              : 'W'}
-          </button>
+          <div className={`maintenanceControl ${maintenanceState.status}`}>
+            <button
+              aria-label={tx('Systemwartung öffnen', 'Open system maintenance')}
+              className="maintenanceLauncher"
+              onClick={() => {
+                setMaintenanceConfirmAction('')
+                setMaintenanceOpen(true)
+              }}
+              title={tx('Kommunikations-Handwerker', 'Communication maintainer')}
+              type="button"
+            >
+              {['diagnosing', 'repairing'].includes(maintenanceState.status)
+                ? <span className="activitySpinner" aria-hidden="true" />
+                : 'W'}
+            </button>
+            <span className="maintenanceStateText" aria-live="polite">
+              {maintenanceState.status === 'diagnosing' ? tx('Diagnose', 'Diagnosis')
+                : maintenanceState.status === 'repairing' ? tx('Reparatur', 'Repair')
+                : maintenanceState.status === 'ready' ? tx('Bericht', 'Report')
+                : maintenanceState.status === 'failed' ? tx('Fehler', 'Error')
+                : tx('Bereit', 'Ready')}
+            </span>
+          </div>
           <div className="languageSwitch" aria-label={tx('Sprache', 'Language')}>
             <button
               className={language === 'en' ? 'active' : ''}
