@@ -207,30 +207,69 @@
   align-items: center;
   background: var(--surface-raised);
   border-color: var(--line-strong);
+  border-radius: 6px;
+  color: var(--text-muted);
   display: inline-flex;
   font-size: 13px;
   font-weight: 700;
-  height: 34px;
+  height: 40px;
   justify-content: center;
-  min-width: 34px;
+  min-width: 40px;
   padding: 0;
-  width: 34px;
+  position: relative;
+  width: 40px;
 }
 
-.maintenanceControl.ready .maintenanceLauncher {
-  border-color: #d2a83a;
-  color: #f2c94c;
+.maintenanceLauncher:hover {
+  background: color-mix(in srgb, var(--text) 7%, var(--surface-raised));
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.maintenanceControl.unread.ready .maintenanceLauncher {
+  background: color-mix(in srgb, #e58b45 12%, var(--surface-raised));
+  border-color: color-mix(in srgb, #e58b45 70%, var(--line-strong));
+  color: #eaa064;
+}
+
+.maintenanceControl.unread.ready .maintenanceLauncher:hover {
+  background: color-mix(in srgb, #e58b45 20%, var(--surface-raised));
+  border-color: #e58b45;
 }
 
 .maintenanceControl.diagnosing .maintenanceLauncher,
 .maintenanceControl.repairing .maintenanceLauncher {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--line-strong);
+  color: var(--text-muted);
 }
 
-.maintenanceControl.failed .maintenanceLauncher {
+.maintenanceControl.unread.failed .maintenanceLauncher {
+  background: color-mix(in srgb, #ef9696 12%, var(--surface-raised));
   border-color: #ef9696;
   color: #ef9696;
+}
+
+.maintenanceUnreadBadge {
+  align-items: center;
+  background: #e58b45;
+  border: 2px solid var(--surface);
+  border-radius: 999px;
+  color: #171719;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 800;
+  height: 18px;
+  justify-content: center;
+  line-height: 1;
+  min-width: 18px;
+  padding: 0 4px;
+  position: absolute;
+  right: -7px;
+  top: -7px;
+}
+
+.maintenanceControl.failed .maintenanceUnreadBadge {
+  background: #ef9696;
 }
 
 .languageSwitch {

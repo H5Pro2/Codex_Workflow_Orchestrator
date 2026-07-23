@@ -314,6 +314,7 @@ const workflowNodeTypes = { workflow: WorkflowNode }
 const STORAGE_KEY = 'codex-workflow-orchestrator'
 const LANGUAGE_STORAGE_KEY = 'codex-workflow-orchestrator-language'
 const PROGRAM_SETTINGS_STORAGE_KEY = 'codex-workflow-orchestrator-program-settings'
+const MAINTENANCE_READ_STORAGE_KEY = 'codex-workflow-orchestrator-maintenance-read'
 const PROMPT_NODES_ENABLED = false
 
 const defaultProgramSettings: ProgramSettings = {
@@ -1394,6 +1395,9 @@ function App() {
   const [maintenanceState, setMaintenanceState] = useState<MaintenanceState>({
     threadId: '', turnId: '', status: 'idle', incident: '', report: '', error: '', updatedAt: '',
   })
+  const [maintenanceReadAt, setMaintenanceReadAt] = useState(
+    () => window.localStorage.getItem(MAINTENANCE_READ_STORAGE_KEY) ?? '',
+  )
   const [provisioningRecovery, setProvisioningRecovery] = useState<ProvisioningRecovery | null>(null)
   const [language, setLanguage] = useState<UiLanguage>(() => {
     const storedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
@@ -5339,6 +5343,19 @@ function App() {
     }))
   }
 
+  const hasUnreadMaintenanceReport = ['ready', 'failed'].includes(maintenanceState.status)
+    && Boolean(maintenanceState.updatedAt)
+    && maintenanceState.updatedAt !== maintenanceReadAt
+
+  const openMaintenance = () => {
+    setMaintenanceConfirmAction('')
+    if (hasUnreadMaintenanceReport) {
+      window.localStorage.setItem(MAINTENANCE_READ_STORAGE_KEY, maintenanceState.updatedAt)
+      setMaintenanceReadAt(maintenanceState.updatedAt)
+    }
+    setMaintenanceOpen(true)
+  }
+
   const updateProgramColor = (
     key: 'accentColor' | 'backgroundColor' | 'foregroundColor',
     value: string,
@@ -5912,7 +5929,7 @@ function App() {
               </span>
             )}
           </div>
-          <div className={`maintenanceControl ${maintenanceState.status}`}>
+          <div className={`maintenanceControl ${maintenanceState.status}${hasUnreadMaintenanceReport ? ' unread' : ''}`}>
             <button
               aria-label={`${tx('Systemwartung öffnen', 'Open system maintenance')}: ${maintenanceState.status === 'diagnosing' ? tx('Diagnose', 'Diagnosis')
                 : maintenanceState.status === 'repairing' ? tx('Reparatur', 'Repair')
@@ -5920,10 +5937,7 @@ function App() {
                 : maintenanceState.status === 'failed' ? tx('Fehler', 'Error')
                 : tx('Bereit', 'Ready')}`}
               className="maintenanceLauncher"
-              onClick={() => {
-                setMaintenanceConfirmAction('')
-                setMaintenanceOpen(true)
-              }}
+              onClick={openMaintenance}
               title={`${tx('Kommunikations-Handwerker', 'Communication maintainer')} · ${maintenanceState.status === 'diagnosing' ? tx('Diagnose', 'Diagnosis')
                 : maintenanceState.status === 'repairing' ? tx('Reparatur', 'Repair')
                 : maintenanceState.status === 'ready' ? tx('Bericht', 'Report')
@@ -5934,6 +5948,9 @@ function App() {
               {['diagnosing', 'repairing'].includes(maintenanceState.status)
                 ? <span className="activitySpinner" aria-hidden="true" />
                 : 'W'}
+              {hasUnreadMaintenanceReport && (
+                <span className="maintenanceUnreadBadge" aria-label={tx('Neuer Wartungsbericht', 'New maintenance report')}>1</span>
+              )}
             </button>
           </div>
           <div className="languageSwitch" aria-label={tx('Sprache', 'Language')}>
