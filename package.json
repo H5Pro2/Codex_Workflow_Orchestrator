@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "bridge": "node server/bridge.mjs",
-    "test": "node --test server/*.test.mjs",
+    "test": "node --test server/*.test.mjs src/*.test.ts",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"

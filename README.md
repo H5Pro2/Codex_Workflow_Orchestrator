@@ -278,7 +278,9 @@ npm test
 
 `npm test` prueft die atomare Zustandsspeicherung, monotone Versionsstaende und den
 Schutz vor ueberschreibenden Aenderungen aus veralteten Browser-Tabs. Die Tests
-verwenden ausschliesslich temporaere Dateien und veraendern keine Projekte oder Chats.
+pruefen ausserdem einen vollstaendigen Team-Aufbau mit Rollen-Prompts, Statusbefehlen,
+Start-, Fehler-, Arbeits- und Abschlusswegen sowie individuellen Dashboard-Zuordnungen.
+Sie verwenden ausschliesslich temporaere Dateien und veraendern keine Projekte oder Chats.
 
 Die Produktionsausgabe wird unter `dist/` erzeugt.
 

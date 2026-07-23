@@ -14,6 +14,12 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './App.css'
+import {
+  MANAGEMENT_ERROR_STATUS_MEANING,
+  MANAGEMENT_ERROR_STATUS_NAME,
+  buildTeamTopology,
+  parseManagementTeamPlan,
+} from './team-plan.ts'
 
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
@@ -30,44 +36,6 @@ type ProgramSettings = {
   uiFont: string
   codeFont: string
   contrast: number
-}
-
-const MANAGEMENT_ERROR_STATUS_NAME = 'Fehler'
-const MANAGEMENT_ERROR_STATUS_MEANING =
-  'Der Agent konnte seinen Codex-Lauf nicht abschließen und benötigt eine Entscheidung oder neue Anweisung.'
-
-type ManagementTeamPlanAgent = {
-  name: string
-  role: string
-  prompt: string
-  workflowStatuses: string[]
-}
-
-type ManagementTeamPlanConnection = {
-  from: string
-  to: string
-  status: string
-}
-
-type ManagementTeamPlanStatusCommand = {
-  name: string
-  meaning: string
-}
-
-type ManagementTeamPlanStop = {
-  from: string
-  status: string
-  name: string
-}
-
-type ManagementTeamPlan = {
-  projectGoal: string
-  startAgent: string
-  startInstruction: string
-  statusCommands: ManagementTeamPlanStatusCommand[]
-  agents: ManagementTeamPlanAgent[]
-  connections: ManagementTeamPlanConnection[]
-  stops: ManagementTeamPlanStop[]
 }
 
 type PromptDocument = {
@@ -867,125 +835,6 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
     'Wähle ein startAgent aus dem vorgeschlagenen Team und formuliere eine startInstruction, mit der die Arbeit bei Auto Start eindeutig beginnt.',
     'Verwende nur gültiges JSON. Erfinde keine Projektpfade. Der Orchestrator prüft den Vorschlag und ein Benutzer muss ihn übernehmen.',
   ].join('\n')
-}
-
-function parseManagementTeamPlan(text: string): { plan: ManagementTeamPlan; signature: string } | null {
-  const match = text.match(/<orchestrator_team_plan>\s*([\s\S]*?)\s*<\/orchestrator_team_plan>/i)
-  if (!match) return null
-
-  try {
-    const raw = JSON.parse(match[1]) as Record<string, unknown>
-    if (!Array.isArray(raw.agents) || raw.agents.length === 0 || raw.agents.length > 12) {
-      return null
-    }
-    const agents = raw.agents.map((entry) => {
-      if (!entry || typeof entry !== 'object') throw new Error('invalid agent')
-      const item = entry as Record<string, unknown>
-      const name = typeof item.name === 'string' ? item.name.trim() : ''
-      const role = typeof item.role === 'string' ? item.role.trim() : ''
-      const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : ''
-      if (!name || !role || !prompt || name.length > 80) throw new Error('invalid agent')
-      return {
-        name,
-        role,
-        prompt,
-        workflowStatuses: Array.isArray(item.workflowStatuses)
-          ? item.workflowStatuses.filter((status): status is string => typeof status === 'string').map((status) => status.trim()).filter(Boolean)
-          : [],
-      }
-    })
-    const normalizedNames = agents.map((agent) => agent.name.toLocaleLowerCase('de-DE'))
-    if (new Set(normalizedNames).size !== normalizedNames.length) return null
-
-    const statusCommands = Array.isArray(raw.statusCommands)
-      ? raw.statusCommands.map((entry) => {
-          if (!entry || typeof entry !== 'object') throw new Error('invalid status command')
-          const item = entry as Record<string, unknown>
-          const name = typeof item.name === 'string' ? item.name.trim() : ''
-          const meaning = typeof item.meaning === 'string' ? item.meaning.trim() : ''
-          if (!name || !meaning || name.length > 80 || meaning.length > 500) {
-            throw new Error('invalid status command')
-          }
-          return { name, meaning }
-        })
-      : []
-    if (statusCommands.length > 20) return null
-    if (!statusCommands.some((status) => status.name.toLocaleLowerCase('de-DE') === MANAGEMENT_ERROR_STATUS_NAME.toLocaleLowerCase('de-DE'))) {
-      statusCommands.push({
-        name: MANAGEMENT_ERROR_STATUS_NAME,
-        meaning: MANAGEMENT_ERROR_STATUS_MEANING,
-      })
-    }
-    agents.forEach((agent) => {
-      if (!agent.workflowStatuses.some((status) => status.toLocaleLowerCase('de-DE') === MANAGEMENT_ERROR_STATUS_NAME.toLocaleLowerCase('de-DE'))) {
-        agent.workflowStatuses.push(MANAGEMENT_ERROR_STATUS_NAME)
-      }
-    })
-    if (statusCommands.length > 20) return null
-    const normalizedStatusNames = statusCommands.map((status) => status.name.toLocaleLowerCase('de-DE'))
-    if (new Set(normalizedStatusNames).size !== normalizedStatusNames.length) return null
-
-    const fallbackStatus = statusCommands[0]?.name ?? ''
-    const connections = Array.isArray(raw.connections)
-      ? raw.connections.map((entry) => {
-          if (!entry || typeof entry !== 'object') throw new Error('invalid connection')
-          const item = entry as Record<string, unknown>
-          const from = typeof item.from === 'string' ? item.from.trim() : ''
-          const to = typeof item.to === 'string' ? item.to.trim() : ''
-          const sourceAgent = agents.find((agent) => agent.name.toLocaleLowerCase('de-DE') === from.toLocaleLowerCase('de-DE'))
-          const status = typeof item.status === 'string' && item.status.trim()
-            ? item.status.trim()
-            : sourceAgent?.workflowStatuses[0] ?? fallbackStatus
-          if (!from || !to || from === to) throw new Error('invalid connection')
-          if (!normalizedNames.includes(from.toLocaleLowerCase('de-DE')) || !normalizedNames.includes(to.toLocaleLowerCase('de-DE'))) {
-            throw new Error('unknown connection agent')
-          }
-          if (!status || !normalizedStatusNames.includes(status.toLocaleLowerCase('de-DE'))) {
-            throw new Error('invalid connection status')
-          }
-          return { from, to, status }
-        })
-      : []
-    const stops = Array.isArray(raw.stops)
-      ? raw.stops.map((entry) => {
-          if (!entry || typeof entry !== 'object') throw new Error('invalid stop')
-          const item = entry as Record<string, unknown>
-          const from = typeof item.from === 'string' ? item.from.trim() : ''
-          const status = typeof item.status === 'string' ? item.status.trim() : ''
-          const name = typeof item.name === 'string' ? item.name.trim() : ''
-          if (!from || !status || !name || name.length > 80) throw new Error('invalid stop')
-          if (!normalizedNames.includes(from.toLocaleLowerCase('de-DE'))) throw new Error('unknown stop agent')
-          if (!normalizedStatusNames.includes(status.toLocaleLowerCase('de-DE'))) throw new Error('invalid stop status')
-          return { from, status, name }
-        })
-      : []
-    if (stops.length > 12) return null
-    const plannedPaths = [...connections, ...stops]
-    plannedPaths.forEach((path) => {
-      const source = agents.find((agent) => agent.name.toLocaleLowerCase('de-DE') === path.from.toLocaleLowerCase('de-DE'))
-      if (source && !source.workflowStatuses.some((status) => status.toLocaleLowerCase('de-DE') === path.status.toLocaleLowerCase('de-DE'))) {
-        source.workflowStatuses.push(path.status)
-      }
-    })
-    const projectGoal = typeof raw.projectGoal === 'string' ? raw.projectGoal.trim() : ''
-    const requestedStartAgent = typeof raw.startAgent === 'string' ? raw.startAgent.trim() : ''
-    const startAgent = agents.find((agent) => agent.name.toLocaleLowerCase('de-DE') === requestedStartAgent.toLocaleLowerCase('de-DE'))?.name ?? agents[0].name
-    const startInstruction = typeof raw.startInstruction === 'string' && raw.startInstruction.trim()
-      ? raw.startInstruction.trim()
-      : `Beginne mit der dir zugewiesenen Arbeit für dieses Projektziel: ${projectGoal || 'Setze den beschriebenen Teamauftrag um.'}`
-    const plan: ManagementTeamPlan = {
-      projectGoal,
-      startAgent,
-      startInstruction,
-      statusCommands,
-      agents,
-      connections,
-      stops,
-    }
-    return { plan, signature: JSON.stringify(plan) }
-  } catch {
-    return null
-  }
 }
 
 function buildInstruction(
@@ -3183,22 +3032,22 @@ function App() {
       const finalAgents = resolvedAgents.map((agent) => agent.id === manager.id
         ? { ...agent, lastAppliedTeamPlanSignature: signature, updatedAt: new Date().toISOString() }
         : agent)
-      const finalInitials = [
+      let finalInitials = [
         ...workflowInitials.filter((item) => item.id !== configuredInitial.id),
         configuredInitial,
       ]
       const allPlanFilters = [...planFilters, ...errorFilters, ...stopFilters]
-      const finalStatusFilters = [
+      let finalStatusFilters = [
         ...workflowStatusFilters.filter((item) => !allPlanFilters.some((filter) => filter.id === item.id)),
         ...planFilters,
         ...errorFilters,
         ...stopFilters.map(({ stopId: _stopId, ...filter }) => filter),
       ]
-      const finalStops = [
+      let finalStops = [
         ...workflowStops.filter((item) => !planStops.some((stop) => stop.id === item.id)),
         ...planStops,
       ]
-      const finalBoardAgentIds = { ...workflowBoardAgentIds }
+      let finalBoardAgentIds = { ...workflowBoardAgentIds }
       finalBoardAgentIds[manager.id] = Array.from(new Set([manager.id, startAgent.id]))
       plan.connections.forEach((connection) => {
         const source = projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!
@@ -3233,8 +3082,8 @@ function App() {
           (planSourceIds.has(route.sourceId) && proposedPairs.has(`${route.sourceId}:${route.targetId}`))
         )
       ))
-      const finalRoutes = [...retainedRoutes, ...newRoutes]
-      const finalPositions = {
+      let finalRoutes = [...retainedRoutes, ...newRoutes]
+      let finalPositions = {
         ...workflowPositions,
         [`${manager.id}:${configuredInitial.id}`]: { x: 50, y: 90 },
         [`${manager.id}:${startAgent.id}`]: { x: 280, y: 90 },
@@ -3263,6 +3112,27 @@ function App() {
           ]
         })),
       }
+
+      const topology = buildTeamTopology({
+        plan,
+        manager,
+        agents: [...projectAgentMap.values()],
+        projectPath: selectedProject.path,
+        statuses: nextWorkflowStatuses,
+        initials: workflowInitials,
+        filters: workflowStatusFilters,
+        stops: workflowStops,
+        routes,
+        positions: workflowPositions,
+        boardAgentIds: workflowBoardAgentIds,
+        createId: () => crypto.randomUUID(),
+      })
+      finalInitials = topology.initials
+      finalStatusFilters = topology.filters
+      finalStops = topology.stops
+      finalBoardAgentIds = topology.boardAgentIds
+      finalRoutes = topology.routes
+      finalPositions = topology.positions
 
       setAgents(finalAgents)
       setWorkflowStatuses(nextWorkflowStatuses)
