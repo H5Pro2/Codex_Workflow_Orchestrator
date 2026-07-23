@@ -2364,6 +2364,63 @@ function App() {
   }, [autoRun, resetInactiveAgentStatuses])
 
   useEffect(() => {
+    const managementAgents = new Map(
+      agents
+        .filter((agent) => agent.assignment === 'management')
+        .map((agent) => [agent.id, agent]),
+    )
+    const obsoleteFilterIds = new Set(
+      workflowStatusFilters
+        .filter((filter) => {
+          const manager = managementAgents.get(filter.ownerAgentId)
+          if (!manager) return false
+          const expectedName = `${MANAGEMENT_ERROR_STATUS_NAME}: ${manager.name} -> ${manager.name}`
+          return filter.name.trim().toLocaleLowerCase('de-DE') ===
+            expectedName.toLocaleLowerCase('de-DE')
+        })
+        .map((filter) => filter.id),
+    )
+    if (obsoleteFilterIds.size === 0) return
+
+    sharedStateDirty.current = true
+    setWorkflowStatusFilters((current) =>
+      current.filter((filter) => !obsoleteFilterIds.has(filter.id)),
+    )
+    setRoutes((current) =>
+      current.filter(
+        (route) =>
+          !obsoleteFilterIds.has(route.sourceId) &&
+          !obsoleteFilterIds.has(route.targetId),
+      ),
+    )
+    setWorkflowPositions((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(
+          ([key]) => !obsoleteFilterIds.has(key.slice(key.indexOf(':') + 1)),
+        ),
+      ),
+    )
+
+    if (autoRunRef.current) {
+      autoRunRef.current = false
+      setAutoRun(false)
+      setTransmittingAgentIds([])
+      queuedSourceAgentIdsByTarget.current.clear()
+      activeDeliveryTargetIds.current.clear()
+      resetInactiveAgentStatuses()
+      addEvent(
+        'Automatik gestoppt',
+        'Eine veraltete Selbstverknüpfung des Verwaltungsagenten wurde entfernt. Bitte den Workflow prüfen und neu starten.',
+      )
+    } else {
+      addEvent(
+        'Workflow bereinigt',
+        'Eine veraltete Selbstverknüpfung des Verwaltungsagenten wurde entfernt.',
+      )
+    }
+  }, [addEvent, agents, resetInactiveAgentStatuses, workflowStatusFilters])
+
+  useEffect(() => {
     if (
       !selectedAgent ||
       !selectedTeamPlan ||
