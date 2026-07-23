@@ -20,6 +20,7 @@ import {
   buildTeamTopology,
   parseManagementTeamPlan,
 } from './team-plan.ts'
+import { runProvisioningTransaction } from './provisioning-transaction.ts'
 
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
@@ -2796,7 +2797,8 @@ function App() {
     const nextAgentMap = new Map(agents.map((agent) => [agent.id, agent]))
     const createdThreads: CodexThread[] = []
     try {
-      for (const [index, specification] of plan.agents.entries()) {
+      await runProvisioningTransaction(async ({ addRollback }) => {
+        for (const [index, specification] of plan.agents.entries()) {
         setTeamPlanProgress(tx(
           `Agent ${index + 1} von ${plan.agents.length} wird eingerichtet: ${specification.name}`,
           `Configuring agent ${index + 1} of ${plan.agents.length}: ${specification.name}`,
@@ -2828,6 +2830,14 @@ function App() {
           }
           sharedStateDirty.current = true
           createdThreads.push(thread)
+          addRollback(async () => {
+            const rollbackResponse = await fetch(`/api/threads/${encodeURIComponent(thread.id)}`, {
+              method: 'DELETE',
+            })
+            if (!rollbackResponse.ok) {
+              throw new Error(`${specification.name}: Der unvollstÃ¤ndige Codex-Chat konnte nicht archiviert werden.`)
+            }
+          })
           agent = normalizeAgent({
             id: crypto.randomUUID(),
             name: specification.name,
@@ -3134,19 +3144,6 @@ function App() {
       finalRoutes = topology.routes
       finalPositions = topology.positions
 
-      setAgents(finalAgents)
-      setWorkflowStatuses(nextWorkflowStatuses)
-      setWorkflowInitials(finalInitials)
-      setWorkflowStatusFilters(finalStatusFilters)
-      setWorkflowStops(finalStops)
-      setCodexThreads((current) => [
-        ...current.filter((thread) => !createdThreads.some((created) => created.id === thread.id)),
-        ...createdThreads,
-      ])
-      setWorkflowBoardAgentIds(finalBoardAgentIds)
-      setRoutes(finalRoutes)
-      setWorkflowPositions(finalPositions)
-
       const commitResponse = await fetch('/api/state', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -3176,6 +3173,18 @@ function App() {
       const commitData = await commitResponse.json()
       sharedStateVersion.current = commitData.updatedAt
       sharedStateDirty.current = false
+      setAgents(finalAgents)
+      setWorkflowStatuses(nextWorkflowStatuses)
+      setWorkflowInitials(finalInitials)
+      setWorkflowStatusFilters(finalStatusFilters)
+      setWorkflowStops(finalStops)
+      setCodexThreads((current) => [
+        ...current.filter((thread) => !createdThreads.some((created) => created.id === thread.id)),
+        ...createdThreads,
+      ])
+      setWorkflowBoardAgentIds(finalBoardAgentIds)
+      setRoutes(finalRoutes)
+      setWorkflowPositions(finalPositions)
       addEvent(
         'Team-Vorschlag übernommen',
         `${manager.name}: ${plan.agents.length} Agenten, ${plan.statusCommands.length} Statusbefehle, ${plan.connections.length} Verbindungen und ${plan.stops.length} Abschlusswege. Automatik bleibt gestoppt.`,
@@ -3188,12 +3197,11 @@ function App() {
         connections: plan.connections.length,
         stops: plan.stops.length,
       })
+      })
     } catch (error) {
-      setAgents([...nextAgentMap.values()])
-      setWorkflowStatuses(nextWorkflowStatuses)
+      sharedStateDirty.current = false
       setCodexThreads((current) => [
         ...current.filter((thread) => !createdThreads.some((created) => created.id === thread.id)),
-        ...createdThreads,
       ])
       setTeamPlanError(error instanceof Error ? error.message : tx('Team-Aufbau fehlgeschlagen.', 'Team creation failed.'))
       addEvent('Team-Aufbau fehlgeschlagen', error instanceof Error ? error.message : 'Unbekannter Fehler.')

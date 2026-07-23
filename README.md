@@ -280,6 +280,8 @@ npm test
 Schutz vor ueberschreibenden Aenderungen aus veralteten Browser-Tabs. Die Tests
 pruefen ausserdem einen vollstaendigen Team-Aufbau mit Rollen-Prompts, Statusbefehlen,
 Start-, Fehler-, Arbeits- und Abschlusswegen sowie individuellen Dashboard-Zuordnungen.
+Ein simulierter Connector-Abbruch prueft, dass bereits erstellte Codex-Chats wieder
+archiviert werden und keine unvollstaendige Teamkonfiguration sichtbar wird.
 Sie verwenden ausschliesslich temporaere Dateien und veraendern keine Projekte oder Chats.
 
 Die Produktionsausgabe wird unter `dist/` erzeugt.
