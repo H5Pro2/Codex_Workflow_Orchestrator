@@ -208,7 +208,10 @@ export function buildTeamTopology(input: TeamTopologyInput) {
   })
   const errorStatus = statusByName.get(normalizedName(MANAGEMENT_ERROR_STATUS_NAME))
   if (!errorStatus) throw new Error(`Statusbefehl fehlt: ${MANAGEMENT_ERROR_STATUS_NAME}`)
-  const errorFilters = managedAgents.map((source) => {
+  // A management agent must never route its own technical error back to itself.
+  // Such an error requires a user decision and is handled as an Auto Stop.
+  const errorSources = managedAgents.filter((source) => source.id !== manager.id)
+  const errorFilters = errorSources.map((source) => {
     const name = `${MANAGEMENT_ERROR_STATUS_NAME}: ${source.name} -> ${manager.name}`
     const existing = input.filters.find((item) => samePath(item.projectPath, projectPath) && item.name === name)
     return { id: existing?.id ?? createId(), ownerAgentId: source.id, projectPath, name, statusId: errorStatus.id }
@@ -238,7 +241,7 @@ export function buildTeamTopology(input: TeamTopologyInput) {
         { id: createId(), ownerAgentId: source.id, projectPath, sourceId: filter.id, targetId: target.id, condition: 'Immer', prompt: 'Übernimm das Ergebnis, prüfe es gemäß deiner Rolle und arbeite selbstständig weiter.' },
       ]
     }),
-    ...managedAgents.flatMap((source, index) => [
+    ...errorSources.flatMap((source, index) => [
       { id: createId(), ownerAgentId: source.id, projectPath, sourceId: source.id, targetId: errorFilters[index].id, condition: 'Immer', prompt: '' },
       { id: createId(), ownerAgentId: source.id, projectPath, sourceId: errorFilters[index].id, targetId: manager.id, condition: 'Immer', prompt: 'Prüfe den fehlgeschlagenen Lauf, entscheide über den nächsten Schritt und gib dem Benutzer eine klare Rückmeldung.' },
     ]),
@@ -267,7 +270,7 @@ export function buildTeamTopology(input: TeamTopologyInput) {
     const target = agentByName.get(normalizedName(connection.to))!
     boardAgentIds[source.id] = Array.from(new Set([source.id, ...(boardAgentIds[source.id] ?? []), target.id]))
   })
-  managedAgents.forEach((source) => {
+  errorSources.forEach((source) => {
     boardAgentIds[source.id] = Array.from(new Set([source.id, ...(boardAgentIds[source.id] ?? []), manager.id]))
   })
   const retainedPositions = Object.fromEntries(
@@ -284,7 +287,7 @@ export function buildTeamTopology(input: TeamTopologyInput) {
       const y = 60 + branchIndex * 140
       return [[`${source.id}:${source.id}`, { x: 40, y: 130 }], [`${source.id}:${planFilters[index].id}`, { x: 270, y }], [`${source.id}:${target.id}`, { x: 500, y }]]
     })),
-    ...Object.fromEntries(managedAgents.flatMap((source, index) => [[`${source.id}:${errorFilters[index].id}`, { x: 270, y: 300 }], [`${source.id}:${manager.id}`, { x: 500, y: 300 }]])),
+    ...Object.fromEntries(errorSources.flatMap((source, index) => [[`${source.id}:${errorFilters[index].id}`, { x: 270, y: 300 }], [`${source.id}:${manager.id}`, { x: 500, y: 300 }]])),
     ...Object.fromEntries(plan.stops.flatMap((item, index) => {
       const source = agentByName.get(normalizedName(item.from))!
       return [[`${source.id}:${stopFilters[index].id}`, { x: 270, y: 460 + index * 120 }], [`${source.id}:${planStops[index].id}`, { x: 500, y: 460 + index * 120 }]]

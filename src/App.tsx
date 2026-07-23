@@ -4712,6 +4712,36 @@ function App() {
                 )
                 return
               }
+              const completedAgentStatuses = workflowStatusesForAgent(
+                completedAgent,
+                workflowStatuses,
+              )
+              const completedStatusIds = workflowStatusIdsFromResult(
+                completedAgent.lastResult,
+                completedAgentStatuses,
+              )
+              const managementReportedTechnicalFailure =
+                completedAgent.assignment === 'management' &&
+                completedAgentStatuses.some(
+                  (status) =>
+                    completedStatusIds.includes(status.id) &&
+                    status.name.trim().toLocaleLowerCase('de-DE') ===
+                      MANAGEMENT_ERROR_STATUS_NAME.toLocaleLowerCase('de-DE'),
+                )
+              if (autoRunRef.current && managementReportedTechnicalFailure) {
+                sharedStateDirty.current = true
+                autoRunRef.current = false
+                setAutoRun(false)
+                setTransmittingAgentIds([])
+                queuedSourceAgentIdsByTarget.current.clear()
+                activeDeliveryTargetIds.current.clear()
+                resetInactiveAgentStatuses()
+                addEvent(
+                  'Automatik gestoppt',
+                  `${completedAgent.name} hat einen technischen Fehler gemeldet und benötigt eine Benutzerentscheidung.`,
+                )
+                return
+              }
               if (completedAgent.threadTitle !== completedAgent.name) {
                 await renameCodexThread(completedAgent)
               }
@@ -4748,7 +4778,7 @@ function App() {
     void poll()
     const timer = window.setInterval(() => void poll(), 2500)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, autoRun, handoff, renameCodexThread, resetInactiveAgentStatuses, updateAgent])
+  }, [addEvent, agents, autoRun, handoff, renameCodexThread, resetInactiveAgentStatuses, updateAgent, workflowStatuses])
 
   useEffect(() => {
     if (!autoRun || !automationLeader) return

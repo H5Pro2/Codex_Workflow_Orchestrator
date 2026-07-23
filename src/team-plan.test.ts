@@ -204,3 +204,58 @@ test('replaces stale topology for the managed project without touching other pro
   assert.deepEqual(topology.boardAgentIds['other-agent'], ['other-agent'])
   assert.deepEqual(topology.positions['other-agent:other-agent'], { x: 2, y: 2 })
 })
+
+test('does not create a technical error route from the manager back to itself', () => {
+  const parsed = parseManagementTeamPlan(teamProposal)
+  assert.ok(parsed)
+  const projectPath = 'C:\\Projects\\team-test'
+  const manager = { id: 'agent-ceo', name: 'CEO' }
+  const plan = {
+    ...parsed.plan,
+    agents: [
+      {
+        name: 'CEO',
+        role: 'Leitet das Team',
+        prompt: 'Koordiniere das Team und entscheide bei Fehlern.',
+        workflowStatuses: [MANAGEMENT_ERROR_STATUS_NAME],
+      },
+      ...parsed.plan.agents,
+    ],
+  }
+  const agents = [
+    manager,
+    { id: 'agent-architect', name: 'Architekt' },
+    { id: 'agent-developer', name: 'Entwickler' },
+    { id: 'agent-qa', name: 'QA' },
+  ]
+  const statuses = plan.statusCommands.map((status, index) => ({
+    id: `status-${index + 1}`,
+    projectPath,
+    name: status.name,
+    description: status.meaning,
+  }))
+  let nextId = 0
+  const topology = buildTeamTopology({
+    plan,
+    manager,
+    agents,
+    projectPath,
+    statuses,
+    initials: [],
+    filters: [],
+    stops: [],
+    routes: [],
+    positions: {},
+    boardAgentIds: {},
+    createId: () => `self-route-${++nextId}`,
+  })
+
+  assert.equal(
+    topology.filters.some((filter) => filter.name === 'Fehler: CEO -> CEO'),
+    false,
+  )
+  assert.equal(
+    topology.routes.some((route) => route.sourceId === manager.id && route.targetId === manager.id),
+    false,
+  )
+})
