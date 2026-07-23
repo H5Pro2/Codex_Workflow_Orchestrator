@@ -30,6 +30,7 @@ import {
   turnNeedsWatchdogIntervention,
   type TurnActivityObservation,
 } from './workflow-watchdog.ts'
+import { deliveryDeduplicationSignature } from './delivery-deduplication.ts'
 
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
@@ -3764,9 +3765,19 @@ function App() {
       addEvent('Weitergabe gestoppt', `${agent.name} hat keine Workflow-Verbindung.`)
       return
     }
-    const currentTaskSignature = taskSignature(agent.lastResult)
     const projectStatuses = workflowStatusesForAgent(agent, workflowStatuses)
     const resultStatusIds = workflowStatusIdsFromResult(agent.lastResult, projectStatuses)
+    const reportsTechnicalFailure = projectStatuses.some(
+      (status) =>
+        resultStatusIds.includes(status.id) &&
+        status.name.trim().toLocaleLowerCase('de-DE') ===
+          MANAGEMENT_ERROR_STATUS_NAME.toLocaleLowerCase('de-DE'),
+    )
+    const currentTaskSignature = deliveryDeduplicationSignature(
+      taskSignature(agent.lastResult),
+      agent.lastCompletedTurnId,
+      reportsTechnicalFailure,
+    )
     const deliveries = activeRoutes.flatMap<WorkflowDelivery>((route) => {
       const directTarget = agents.find((item) => item.id === route.targetId)
       if (directTarget) {

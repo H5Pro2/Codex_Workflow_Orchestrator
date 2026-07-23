@@ -192,7 +192,7 @@ Bleibt eine zunächst gemeldete Turn-ID trotz einer bereits abgeschlossenen Code
 
 ### Systemüberwachung
 
-Eine deterministische Systemüberwachung beobachtet den tatsächlich gespeicherten Codex-Turn. Bleibt dessen sichtbarer Fortschritt zehn Minuten unverändert oder überschreitet ein Lauf 45 Minuten, unterbricht der Connector genau diesen Turn kontrolliert. Der Agent erhält den Status `Fehler`; ein vorhandener Fehlerpfad führt die Diagnose an den Verwaltungsagenten beziehungsweise CEO zurück.
+Eine deterministische Systemüberwachung beobachtet den tatsächlich gespeicherten Codex-Turn. Bleibt dessen sichtbarer Fortschritt zehn Minuten unverändert oder überschreitet ein Lauf 45 Minuten, unterbricht der Connector genau diesen Turn kontrolliert. Der Agent erhält den Status `Fehler`; ein vorhandener Fehlerpfad führt die Diagnose an den Verwaltungsagenten beziehungsweise CEO zurück. Technische Fehler werden pro Codex-Turn erneut gemeldet. Die normale Duplikat-Sperre verhindert weiterhin identische fachliche Endlosschleifen, blockiert aber keine neue Abbruchmeldung.
 
 Zusätzlich gehört der interne **Kommunikations-Handwerker** fest zum Orchestrator. Er ist kein Projektagent und erscheint deshalb weder in der Agentenliste noch in einem Projekt-Dashboard. Sein eigener Codex-Task arbeitet ausschließlich im Arbeitsordner des Orchestrators und ist auf folgende technische Bereiche beschränkt:
 
