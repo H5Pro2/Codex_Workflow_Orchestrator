@@ -162,6 +162,20 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
   }
 }
 
+export function looksLikeManagementTeamPlan(text: string) {
+  const normalized = text.trim().toLocaleLowerCase('de-DE')
+  if (!normalized || /<orchestrator_team_plan>/i.test(text)) return false
+
+  const planningSignals = [
+    'teamvorschlag',
+    'statusbefehle',
+    'workflow-dashboard',
+    'workflow dashboard',
+    'startbereit',
+  ]
+  return planningSignals.filter((signal) => normalized.includes(signal)).length >= 3
+}
+
 type TeamTopologyInput = {
   plan: ManagementTeamPlan
   manager: TeamAgentRef

@@ -18,6 +18,7 @@ import {
   MANAGEMENT_ERROR_STATUS_MEANING,
   MANAGEMENT_ERROR_STATUS_NAME,
   buildTeamTopology,
+  looksLikeManagementTeamPlan,
   parseManagementTeamPlan,
 } from './team-plan.ts'
 import { runProvisioningTransaction } from './provisioning-transaction.ts'
@@ -1416,6 +1417,7 @@ function App() {
   const [agentCreationBusy, setAgentCreationBusy] = useState(false)
   const [agentCreationError, setAgentCreationError] = useState('')
   const [teamPlanApplying, setTeamPlanApplying] = useState(false)
+  const [teamPlanFormatRequesting, setTeamPlanFormatRequesting] = useState(false)
   const [teamPlanError, setTeamPlanError] = useState('')
   const [teamPlanProgress, setTeamPlanProgress] = useState('')
   const [teamReadyNotice, setTeamReadyNotice] = useState<{ project: string; agents: number; statuses: number; connections: number; stops: number } | null>(null)
@@ -1984,6 +1986,11 @@ function App() {
     selectedAgent?.teamProvisioningEnabled &&
     /<orchestrator_team_plan>/i.test(selectedAgent.lastResult) &&
     !selectedTeamPlan,
+  )
+  const selectedTeamPlanNeedsFormat = Boolean(
+    selectedAgent?.teamProvisioningEnabled &&
+    !selectedTeamPlan &&
+    looksLikeManagementTeamPlan(selectedAgent.lastResult),
   )
   const pendingPromptDeliveryAgent = useMemo(
     () => agents.find((agent) => agent.id === pendingPromptDeliveryAgentId),
@@ -3812,6 +3819,50 @@ function App() {
       )
     } finally {
       setChatSending(false)
+      setAgentTransmission(agent.id, false)
+    }
+  }
+
+  const requestTeamPlanFormatCorrection = async (agent: Agent) => {
+    if (!agent.threadId || teamPlanFormatRequesting || autoRun) return
+
+    setTeamPlanFormatRequesting(true)
+    setAgentTransmission(agent.id, true)
+    setTeamPlanError('')
+    setChatError('')
+    const message = [
+      'Dein letzter Teamvorschlag ist fachlich vollständig, konnte aber nicht automatisch übernommen werden.',
+      'Gib exakt denselben Vorschlag jetzt zusätzlich im unten beschriebenen Orchestrator-Format aus.',
+      'Plane nichts neu, ändere keine Dateien und starte die Automatik nicht.',
+      '',
+      managementTeamPlanInstruction(projectWorkflowStatuses),
+    ].join('\n')
+    try {
+      const response = await fetch(`/api/threads/${encodeURIComponent(agent.threadId)}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: message, model: agent.model || undefined }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || tx('Formatkorrektur konnte nicht angefordert werden.', 'Could not request format correction.'))
+      }
+      applyThreadReplacement(agent, data.replacementThread)
+      setChatPinnedToBottom(true)
+      updateAgent(agent.id, {
+        status: 'laeuft',
+        runStartedAt: new Date().toISOString(),
+        pendingTurnId: data.turn?.id ?? '',
+      })
+      addEvent('Team-Vorschlag wird korrigiert', `${agent.name}: Orchestrator-Format angefordert.`)
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : tx('Der Codex-Connector ist nicht erreichbar.', 'The Codex connector is unavailable.')
+      setTeamPlanError(message)
+      setChatError(message)
+    } finally {
+      setTeamPlanFormatRequesting(false)
       setAgentTransmission(agent.id, false)
     }
   }
@@ -6529,11 +6580,22 @@ function App() {
                         )}
                       </div>
                     )}
-                    {selectedAgent.teamProvisioningEnabled && selectedTeamPlanMalformed && (
-                      <p className="formError">{tx(
-                        'Der Team-Vorschlag enthält kein gültiges Orchestrator-Format. Bitte den Verwaltungsagenten um eine korrigierte Ausgabe.',
-                        'The team proposal does not contain a valid orchestrator format. Ask the management agent for a corrected response.',
-                      )}</p>
+                    {selectedAgent.teamProvisioningEnabled && (selectedTeamPlanMalformed || selectedTeamPlanNeedsFormat) && (
+                      <div className="managementTeamActions">
+                        <p className="formError">{tx(
+                          'Der Team-Vorschlag ist lesbar, aber noch nicht automatisch übernehmbar.',
+                          'The team proposal is readable, but cannot be applied automatically yet.',
+                        )}</p>
+                        <button
+                          disabled={autoRun || teamPlanFormatRequesting}
+                          onClick={() => void requestTeamPlanFormatCorrection(selectedAgent)}
+                          type="button"
+                        >
+                          {teamPlanFormatRequesting
+                            ? tx('Format wird angefordert…', 'Requesting format…')
+                            : tx('Format korrigieren', 'Correct format')}
+                        </button>
+                      </div>
                     )}
                   </section>
                 </div>
@@ -6635,11 +6697,28 @@ function App() {
                     {teamPlanError && <p className="formError">{teamPlanError}</p>}
                   </section>
                 )}
-                {selectedAgent.teamProvisioningEnabled && selectedTeamPlanMalformed && (
-                  <p className="chatTeamPlanError">{tx(
-                    'Der Team-Vorschlag konnte nicht gelesen werden. Öffne das Setup für Details.',
-                    'The team proposal could not be read. Open setup for details.',
-                  )}</p>
+                {selectedAgent.teamProvisioningEnabled && (selectedTeamPlanMalformed || selectedTeamPlanNeedsFormat) && (
+                  <section className="chatTeamPlan blocked" aria-live="polite">
+                    <div>
+                      <span>{tx('Team-Vorschlag erkannt', 'Team proposal detected')}</span>
+                      <strong>{tx('Übernahmeformat fehlt', 'Application format missing')}</strong>
+                      <small>{tx(
+                        'Der Inhalt bleibt unverändert. Fordere nur das technische Format für die Übernahme an.',
+                        'The content remains unchanged. Request only the technical format required to apply it.',
+                      )}</small>
+                    </div>
+                    <button
+                      className="primary"
+                      disabled={autoRun || teamPlanFormatRequesting}
+                      onClick={() => void requestTeamPlanFormatCorrection(selectedAgent)}
+                      type="button"
+                    >
+                      {teamPlanFormatRequesting
+                        ? tx('Wird angefordert…', 'Requesting…')
+                        : tx('Format korrigieren', 'Correct format')}
+                    </button>
+                    {teamPlanError && <p className="formError">{teamPlanError}</p>}
+                  </section>
                 )}
                 <div className="chatBody">
                   <div

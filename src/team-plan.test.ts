@@ -7,6 +7,7 @@ import { createSharedStateStore } from '../server/shared-state.mjs'
 import {
   MANAGEMENT_ERROR_STATUS_NAME,
   buildTeamTopology,
+  looksLikeManagementTeamPlan,
   parseManagementTeamPlan,
 } from './team-plan.ts'
 
@@ -35,6 +36,19 @@ const teamProposal = `<orchestrator_team_plan>
   ]
 }
 </orchestrator_team_plan>`
+
+test('detects a prose-only team proposal that needs format correction', () => {
+  assert.equal(looksLikeManagementTeamPlan(`
+    ## Teamvorschlag
+    Das Team umfasst Architektur, Entwicklung und QA.
+    ## Einheitliche Statusbefehle
+    Die Statusbefehle steuern die Weiterleitung.
+    ## Workflow-Dashboard
+    Das Projekt ist nach der Benutzerfreigabe startbereit.
+  `), true)
+  assert.equal(looksLikeManagementTeamPlan('Die Analyse ist abgeschlossen.'), false)
+  assert.equal(looksLikeManagementTeamPlan(teamProposal), false)
+})
 
 test('builds and atomically persists a complete managed team setup', async () => {
   const parsed = parseManagementTeamPlan(teamProposal)
