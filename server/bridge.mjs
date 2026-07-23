@@ -29,6 +29,14 @@ const inactiveTurnSince = new Map()
 let nextRequestId = 1
 let initialized = false
 let latestRateLimits = null
+let latestProvisioningRecovery = {
+  status: 'pending',
+  completedAt: null,
+  transactions: 0,
+  archived: 0,
+  preserved: 0,
+  failures: 0,
+}
 const sharedStateStore = createSharedStateStore(STATE_FILE)
 const provisioningJournal = createProvisioningJournal(PROVISIONING_JOURNAL_FILE)
 
@@ -115,7 +123,7 @@ async function initialize() {
 
 const ready = initialize()
 
-void ready.then(async () => {
+const provisioningRecoveryReady = ready.then(async () => {
   const sharedState = (await sharedStateStore.read()).state
   const recovered = await provisioningJournal.recover(
     (threadId) => request('thread/archive', { threadId }),
@@ -126,10 +134,25 @@ void ready.then(async () => {
   )
   const archived = recovered.reduce((total, transaction) => total + transaction.archived, 0)
   const failures = recovered.reduce((total, transaction) => total + transaction.failures.length, 0)
+  const preserved = recovered.filter((transaction) => transaction.preserved).length
+  latestProvisioningRecovery = {
+    status: failures > 0 ? 'attention' : 'complete',
+    completedAt: new Date().toISOString(),
+    transactions: recovered.length,
+    archived,
+    preserved,
+    failures,
+  }
   if (archived > 0 || failures > 0) {
     console.log(`Team-Wiederherstellung: ${archived} unvollstÃ¤ndige Chats archiviert, ${failures} Fehler.`)
   }
 }).catch((error) => {
+  latestProvisioningRecovery = {
+    ...latestProvisioningRecovery,
+    status: 'failed',
+    completedAt: new Date().toISOString(),
+    failures: Math.max(1, latestProvisioningRecovery.failures),
+  }
   console.error('Team-Wiederherstellung fehlgeschlagen:', error)
 })
 
@@ -497,6 +520,12 @@ const server = createServer(async (incoming, response) => {
     if (incoming.method === 'GET' && url.pathname === '/api/health') {
       await ready
       sendJson(response, 200, { online: initialized })
+      return
+    }
+
+    if (incoming.method === 'GET' && url.pathname === '/api/provisioning-recovery') {
+      await provisioningRecoveryReady
+      sendJson(response, 200, latestProvisioningRecovery)
       return
     }
 

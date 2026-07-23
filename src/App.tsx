@@ -379,6 +379,15 @@ const languageCopy: Record<UiLanguage, {
 
 const initialCodexProjects: CodexProject[] = []
 
+type ProvisioningRecovery = {
+  status: 'pending' | 'complete' | 'attention' | 'failed'
+  completedAt: string | null
+  transactions: number
+  archived: number
+  preserved: number
+  failures: number
+}
+
 const initialCodexThreads: CodexThread[] = []
 
 const statusLabels: Record<UiLanguage, Record<AgentStatus, string>> = {
@@ -1310,6 +1319,7 @@ function App() {
   const [codexProjects, setCodexProjects] = useState<CodexProject[]>(initialCodexProjects)
   const [codexThreads, setCodexThreads] = useState<CodexThread[]>(initialCodexThreads)
   const [connectorOnline, setConnectorOnline] = useState(false)
+  const [provisioningRecovery, setProvisioningRecovery] = useState<ProvisioningRecovery | null>(null)
   const [language, setLanguage] = useState<UiLanguage>(() => {
     const storedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
     return storedLanguage === 'en' ? 'en' : 'de'
@@ -2420,15 +2430,17 @@ function App() {
 
   const syncCodex = useCallback(async () => {
     try {
-      const [projectsResponse, threadsResponse] = await Promise.all([
+      const [projectsResponse, threadsResponse, recoveryResponse] = await Promise.all([
         fetch('/api/projects'),
         fetch('/api/threads'),
+        fetch('/api/provisioning-recovery'),
       ])
-      if (!projectsResponse.ok || !threadsResponse.ok) {
+      if (!projectsResponse.ok || !threadsResponse.ok || !recoveryResponse.ok) {
         throw new Error('Codex-Projekte und -Tasks konnten nicht geladen werden.')
       }
       const projectsData = await projectsResponse.json()
       const threadsData = await threadsResponse.json()
+      const recoveryData: ProvisioningRecovery = await recoveryResponse.json()
       const projects: CodexProject[] = projectsData.projects
       const threads: CodexThread[] = threadsData.threads.map(
         (thread: { id: string; name?: string | null; preview?: string; cwd: string; status: string }) => ({
@@ -2442,6 +2454,7 @@ function App() {
       ))
       setCodexProjects(projects)
       setCodexThreads(threads)
+      setProvisioningRecovery(recoveryData)
       setProjectFilter((current: string) => {
         if (projects.some((project) => project.id === current)) {
           return current
@@ -5233,6 +5246,24 @@ function App() {
                   : copy.liveSync}
               </small>
             </div>
+            {provisioningRecovery && (
+              provisioningRecovery.archived > 0 ||
+              provisioningRecovery.preserved > 0 ||
+              provisioningRecovery.failures > 0 ||
+              provisioningRecovery.status === 'failed'
+            ) && (
+              <span
+                className={`recoveryNotice ${provisioningRecovery.failures > 0 || provisioningRecovery.status === 'failed' ? 'attention' : ''}`}
+                title={tx(
+                  `${provisioningRecovery.archived} unvollständige Chats bereinigt, ${provisioningRecovery.preserved} fertige Team-Erstellungen erhalten, ${provisioningRecovery.failures} Fehler.`,
+                  `${provisioningRecovery.archived} incomplete chats cleaned up, ${provisioningRecovery.preserved} completed team setups preserved, ${provisioningRecovery.failures} errors.`,
+                )}
+              >
+                {provisioningRecovery.failures > 0 || provisioningRecovery.status === 'failed'
+                  ? tx('Wiederherstellung prüfen', 'Check recovery')
+                  : tx('Wiederherstellung abgeschlossen', 'Recovery complete')}
+              </span>
+            )}
           </div>
           <div className="languageSwitch" aria-label={tx('Sprache', 'Language')}>
             <button

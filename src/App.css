@@ -167,6 +167,19 @@
   color: #8f9daf;
 }
 
+.recoveryNotice {
+  color: var(--accent);
+  cursor: help;
+  font-size: 11px;
+  line-height: 1.3;
+  max-width: 320px;
+  text-align: right;
+}
+
+.recoveryNotice.attention {
+  color: #fda4af;
+}
+
 .stateDot {
   background: #64748b;
   border-radius: 50%;
@@ -3118,6 +3131,14 @@ summary:focus-visible {
 .shell[data-theme="light"] .talkToOptions > p,
 .shell[data-theme="light"] .noLinks {
   color: var(--muted);
+}
+
+.shell[data-theme="light"] .recoveryNotice {
+  color: color-mix(in srgb, var(--accent) 72%, #164e63 28%);
+}
+
+.shell[data-theme="light"] .recoveryNotice.attention {
+  color: #9f2942;
 }
 
 .shell[data-theme="light"] .usageSummary strong,
