@@ -28,6 +28,8 @@ type AgentAssignment = 'agent' | 'management'
 type ThemeMode = 'system' | 'light' | 'dark'
 type SettingsSection = 'general' | 'profile' | 'appearance'
 
+const INVENTORY_RECONCILIATION_GRACE_MS = 5 * 60 * 1000
+
 type ProgramSettings = {
   displayName: string
   theme: ThemeMode
@@ -779,6 +781,11 @@ function nextTimerRun(timer: WorkflowTimer, after = Date.now()) {
 
 function samePath(left: string, right: string) {
   return left.localeCompare(right, undefined, { sensitivity: 'accent' }) === 0
+}
+
+function isInsideInventoryReconciliationGrace(agent: Agent, now = Date.now()) {
+  const updatedAt = new Date(agent.updatedAt).getTime()
+  return Number.isFinite(updatedAt) && now - updatedAt < INVENTORY_RECONCILIATION_GRACE_MS
 }
 
 function monitoredAgentsFor(manager: Agent, agents: Agent[]) {
@@ -2061,6 +2068,9 @@ function App() {
             ),
         )
         if (!replacement) {
+          if (agent.threadId && isInsideInventoryReconciliationGrace(agent)) {
+            return [agent]
+          }
           hasChanges = true
           return []
         }
@@ -3076,9 +3086,14 @@ function App() {
           ]
         }),
       ]
-      const finalAgents = resolvedAgents.map((agent) => agent.id === manager.id
-        ? { ...agent, lastAppliedTeamPlanSignature: signature, updatedAt: new Date().toISOString() }
-        : agent)
+      const teamCommittedAt = new Date().toISOString()
+      const finalAgents = resolvedAgents.map((agent) => ({
+        ...agent,
+        lastAppliedTeamPlanSignature: agent.id === manager.id
+          ? signature
+          : agent.lastAppliedTeamPlanSignature,
+        updatedAt: teamCommittedAt,
+      }))
       let finalInitials = [
         ...workflowInitials.filter((item) => item.id !== configuredInitial.id),
         configuredInitial,

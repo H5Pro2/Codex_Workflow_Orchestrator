@@ -250,15 +250,18 @@ export function buildTeamTopology(input: TeamTopologyInput) {
       ]
     }),
   ]
-  const allFilters = [...planFilters, ...errorFilters, ...stopFilters]
-  const filterIds = new Set(allFilters.map((filter) => filter.id))
-  const sourceIds = new Set(plan.connections.map((connection) => agentByName.get(normalizedName(connection.from))!.id))
-  const proposedPairs = new Set(plan.connections.map((connection) => `${agentByName.get(normalizedName(connection.from))!.id}:${agentByName.get(normalizedName(connection.to))!.id}`))
-  const retainedRoutes = input.routes.filter((route) => !(samePath(route.projectPath, projectPath) && (
-    route.sourceId === configuredInitial.id || filterIds.has(route.sourceId) || filterIds.has(route.targetId) ||
-    (sourceIds.has(route.sourceId) && proposedPairs.has(`${route.sourceId}:${route.targetId}`))
-  )))
-  const boardAgentIds = { ...input.boardAgentIds, [manager.id]: Array.from(new Set([manager.id, startAgent.id])) }
+  const projectOwnerIds = new Set([
+    manager.id,
+    ...managedAgents.map((agent) => agent.id),
+    ...input.initials.filter((item) => samePath(item.projectPath, projectPath)).map((item) => item.ownerAgentId),
+    ...input.filters.filter((item) => samePath(item.projectPath, projectPath)).map((item) => item.ownerAgentId),
+    ...input.stops.filter((item) => samePath(item.projectPath, projectPath)).map((item) => item.ownerAgentId),
+    ...input.routes.filter((item) => samePath(item.projectPath, projectPath)).map((item) => item.ownerAgentId),
+  ])
+  const boardAgentIds = Object.fromEntries(
+    Object.entries(input.boardAgentIds).filter(([ownerId]) => !projectOwnerIds.has(ownerId)),
+  )
+  boardAgentIds[manager.id] = Array.from(new Set([manager.id, startAgent.id]))
   plan.connections.forEach((connection) => {
     const source = agentByName.get(normalizedName(connection.from))!
     const target = agentByName.get(normalizedName(connection.to))!
@@ -267,8 +270,11 @@ export function buildTeamTopology(input: TeamTopologyInput) {
   managedAgents.forEach((source) => {
     boardAgentIds[source.id] = Array.from(new Set([source.id, ...(boardAgentIds[source.id] ?? []), manager.id]))
   })
+  const retainedPositions = Object.fromEntries(
+    Object.entries(input.positions).filter(([key]) => !projectOwnerIds.has(key.split(':', 1)[0])),
+  )
   const positions = {
-    ...input.positions,
+    ...retainedPositions,
     [`${manager.id}:${configuredInitial.id}`]: { x: 50, y: 90 },
     [`${manager.id}:${startAgent.id}`]: { x: 280, y: 90 },
     ...Object.fromEntries(plan.connections.flatMap((connection, index) => {
@@ -286,10 +292,10 @@ export function buildTeamTopology(input: TeamTopologyInput) {
   }
 
   return {
-    initials: [...input.initials.filter((item) => item.id !== configuredInitial.id), configuredInitial],
-    filters: [...input.filters.filter((item) => !allFilters.some((filter) => filter.id === item.id)), ...planFilters, ...errorFilters, ...stopFilters.map(({ stopId: _stopId, ...filter }) => filter)],
-    stops: [...input.stops.filter((item) => !planStops.some((stop) => stop.id === item.id)), ...planStops],
-    routes: [...retainedRoutes, ...newRoutes],
+    initials: [...input.initials.filter((item) => !samePath(item.projectPath, projectPath)), configuredInitial],
+    filters: [...input.filters.filter((item) => !samePath(item.projectPath, projectPath)), ...planFilters, ...errorFilters, ...stopFilters.map(({ stopId: _stopId, ...filter }) => filter)],
+    stops: [...input.stops.filter((item) => !samePath(item.projectPath, projectPath)), ...planStops],
+    routes: [...input.routes.filter((item) => !samePath(item.projectPath, projectPath)), ...newRoutes],
     boardAgentIds,
     positions,
   }

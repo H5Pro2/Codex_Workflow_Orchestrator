@@ -138,3 +138,69 @@ test('builds and atomically persists a complete managed team setup', async () =>
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+test('replaces stale topology for the managed project without touching other projects', () => {
+  const parsed = parseManagementTeamPlan(teamProposal)
+  assert.ok(parsed)
+  const projectPath = 'C:\\Projects\\team-test'
+  const otherProjectPath = 'C:\\Projects\\other'
+  const manager = { id: 'agent-ceo', name: 'CEO' }
+  const agents = [
+    manager,
+    { id: 'agent-architect', name: 'Architekt' },
+    { id: 'agent-developer', name: 'Entwickler' },
+    { id: 'agent-qa', name: 'QA' },
+  ]
+  const statuses = parsed.plan.statusCommands.map((status, index) => ({
+    id: `status-${index + 1}`,
+    projectPath,
+    name: status.name,
+    description: status.meaning,
+  }))
+  let nextId = 0
+  const topology = buildTeamTopology({
+    plan: parsed.plan,
+    manager,
+    agents,
+    projectPath,
+    statuses,
+    initials: [
+      { id: 'stale-initial', ownerAgentId: 'stale-agent', projectPath, name: 'Alt', instruction: 'Alt' },
+      { id: 'other-initial', ownerAgentId: 'other-agent', projectPath: otherProjectPath, name: 'Other', instruction: 'Other' },
+    ],
+    filters: [
+      { id: 'stale-filter', ownerAgentId: 'stale-agent', projectPath, name: 'Alt', statusId: statuses[0].id },
+      { id: 'other-filter', ownerAgentId: 'other-agent', projectPath: otherProjectPath, name: 'Other', statusId: 'other-status' },
+    ],
+    stops: [
+      { id: 'stale-stop', ownerAgentId: 'stale-agent', projectPath, name: 'Alt' },
+      { id: 'other-stop', ownerAgentId: 'other-agent', projectPath: otherProjectPath, name: 'Other' },
+    ],
+    routes: [
+      { id: 'stale-route', ownerAgentId: 'stale-agent', projectPath, sourceId: 'stale-agent', targetId: 'stale-filter', condition: 'Immer', prompt: '' },
+      { id: 'other-route', ownerAgentId: 'other-agent', projectPath: otherProjectPath, sourceId: 'other-agent', targetId: 'other-filter', condition: 'Immer', prompt: '' },
+    ],
+    positions: {
+      'stale-agent:stale-agent': { x: 1, y: 1 },
+      'other-agent:other-agent': { x: 2, y: 2 },
+    },
+    boardAgentIds: {
+      'stale-agent': ['stale-agent'],
+      'other-agent': ['other-agent'],
+    },
+    createId: () => `replacement-${++nextId}`,
+  })
+
+  assert.equal(topology.initials.some((item) => item.id === 'stale-initial'), false)
+  assert.equal(topology.filters.some((item) => item.id === 'stale-filter'), false)
+  assert.equal(topology.stops.some((item) => item.id === 'stale-stop'), false)
+  assert.equal(topology.routes.some((item) => item.id === 'stale-route'), false)
+  assert.equal('stale-agent' in topology.boardAgentIds, false)
+  assert.equal('stale-agent:stale-agent' in topology.positions, false)
+  assert.ok(topology.initials.some((item) => item.id === 'other-initial'))
+  assert.ok(topology.filters.some((item) => item.id === 'other-filter'))
+  assert.ok(topology.stops.some((item) => item.id === 'other-stop'))
+  assert.ok(topology.routes.some((item) => item.id === 'other-route'))
+  assert.deepEqual(topology.boardAgentIds['other-agent'], ['other-agent'])
+  assert.deepEqual(topology.positions['other-agent:other-agent'], { x: 2, y: 2 })
+})
