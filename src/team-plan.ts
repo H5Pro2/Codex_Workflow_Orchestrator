@@ -109,12 +109,19 @@ export function repairManagementStartTopology(input: ManagementStartRepairInput)
     changed = true
     return { ...initial, name: 'Start', instruction: '' }
   })
+  const retainedInitialTargets = new Set<string>()
   let routes = input.routes.flatMap((route) => {
     if (!managerInitialIds.has(route.sourceId)) return [route]
     if (route.targetId !== input.manager.id) {
       changed = true
       return []
     }
+    const pair = `${route.sourceId}:${route.targetId}`
+    if (retainedInitialTargets.has(pair)) {
+      changed = true
+      return []
+    }
+    retainedInitialTargets.add(pair)
     if (route.ownerAgentId === input.manager.id && route.prompt === '') return [route]
     changed = true
     return [{ ...route, ownerAgentId: input.manager.id, prompt: '' }]

@@ -15,7 +15,6 @@ import {
   type ReactFlowInstance,
   useEdgesState,
   useNodesState,
-  useReactFlow,
   useUpdateNodeInternals,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -348,9 +347,7 @@ function WorkflowConnectionLine({
 }: ConnectionLineComponentProps) {
   const cursorRef = useRef<HTMLSpanElement>(null)
   const pathRef = useRef<SVGPathElement>(null)
-  const { flowToScreenPosition } = useReactFlow()
   const initialGeometryRef = useRef({
-    flowToScreenPosition,
     fromPosition,
     fromX,
     fromY,
@@ -361,8 +358,12 @@ function WorkflowConnectionLine({
 
   useLayoutEffect(() => {
     const geometry = initialGeometryRef.current
-    const source = geometry.flowToScreenPosition({ x: geometry.fromX, y: geometry.fromY })
-    const initialTarget = geometry.flowToScreenPosition({ x: geometry.toX, y: geometry.toY })
+    const pane = document.querySelector<HTMLElement>('.workflowDashboard .react-flow__pane')
+    const paneBounds = pane?.getBoundingClientRect()
+    const paneLeft = paneBounds?.left ?? 0
+    const paneTop = paneBounds?.top ?? 0
+    const source = { x: paneLeft + geometry.fromX, y: paneTop + geometry.fromY }
+    const initialTarget = { x: paneLeft + geometry.toX, y: paneTop + geometry.toY }
     const syncConnection = (clientX: number, clientY: number) => {
       const [path] = getSmoothStepPath({
         sourceX: source.x,
@@ -4553,6 +4554,14 @@ function App() {
         return
       }
     }
+    if (routes.some((route) =>
+      route.ownerAgentId === activeDashboardOwnerId &&
+      route.sourceId === connection.source &&
+      route.targetId === connection.target,
+    )) {
+      addEvent('Workflow-Verbindung nicht erstellt', 'Diese Verbindung ist bereits vorhanden.')
+      return
+    }
     const route: WorkflowRoute = {
       id: crypto.randomUUID(),
       ownerAgentId: activeDashboardOwnerId,
@@ -4575,7 +4584,7 @@ function App() {
       'Workflow-Verbindung erstellt',
       `${nodeName(route.sourceId)} → ${nodeName(route.targetId)}`,
     )
-  }, [activeDashboardOwnerId, addEvent, agents, selectedProject?.path, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStops, workflowTimers])
+  }, [activeDashboardOwnerId, addEvent, agents, routes, selectedProject?.path, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStops, workflowTimers])
 
   const addWorkflowPrompt = () => {
     const prompt: WorkflowPrompt = {

@@ -327,7 +327,7 @@ Sie verwenden ausschließlich temporäre Dateien und verändern keine Projekte o
 
 Die Produktionsausgabe wird unter `dist/` erzeugt.
 
-Im Workflow-Dashboard verwenden alle Knoten eine stabile Geometrie mit vergrößerten Anschlussflächen. React Flow misst diese Anschlüsse nach jedem Dashboardaufbau neu, damit Verbindungen exakt mittig an den sichtbaren Ein- und Ausgängen andocken. Beim Ziehen folgen der neutrale weiße Griffpunkt und der Kopf der Vorschau-Linie über dasselbe native Zeigerereignis unmittelbar dem Mauszeiger. Beide werden im selben Bildschirmkoordinatensystem aktualisiert und warten nicht auf einen React-Renderzyklus. Gut erkennbare, abgerundete Pfade und eine höhere Ziehschwelle reduzieren unbeabsichtigte Sprünge beim Verschieben und Verbinden.
+Im Workflow-Dashboard verwenden alle Knoten eine stabile Geometrie mit vergrößerten Anschlussflächen. React Flow misst diese Anschlüsse nach jedem Dashboardaufbau neu, damit Verbindungen exakt mittig an den sichtbaren Ein- und Ausgängen andocken. Beim Ziehen folgen der neutrale weiße Griffpunkt und der Kopf der Vorschau-Linie über dasselbe native Zeigerereignis unmittelbar dem Mauszeiger. Der Linienanfang verwendet die bereits transformierten Canvas-Koordinaten relativ zur sichtbaren Zeichenfläche; Punkt, Pfadkopf und Ausgang liegen dadurch im selben Bildschirmkoordinatensystem. Doppelte Verbindungen werden nicht gespeichert und vorhandene doppelte Initial-Routen automatisch bereinigt. Gut erkennbare, abgerundete Pfade und eine höhere Ziehschwelle reduzieren unbeabsichtigte Sprünge beim Verschieben und Verbinden.
 
 ## Bekannte Grenzen
 

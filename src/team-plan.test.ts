@@ -83,6 +83,10 @@ test('repairs an unambiguous legacy CEO start without changing specialist routes
         sourceId: 'initial', targetId: 'ceo', condition: 'Immer', prompt: 'Alte Prompt-Aufgabe',
       },
       {
+        id: 'duplicate-start', ownerAgentId: 'ceo', projectPath: 'C:\\Projects\\game',
+        sourceId: 'initial', targetId: 'ceo', condition: 'Immer', prompt: '',
+      },
+      {
         id: 'specialist-route', ownerAgentId: 'designer', projectPath: 'C:\\Projects\\game',
         sourceId: 'designer', targetId: 'qa', condition: 'Immer', prompt: 'Unverändert',
       },
@@ -101,6 +105,7 @@ test('repairs an unambiguous legacy CEO start without changing specialist routes
     name: 'Start', instruction: '',
   })
   assert.ok(repaired.routes.some((route) => route.sourceId === 'initial' && route.targetId === 'ceo' && route.prompt === ''))
+  assert.equal(repaired.routes.filter((route) => route.sourceId === 'initial' && route.targetId === 'ceo').length, 1)
   assert.ok(repaired.routes.some((route) => route.sourceId === 'ceo' && route.targetId === 'start-filter'))
   assert.ok(repaired.routes.some((route) => route.sourceId === 'start-filter' && route.targetId === 'designer'))
   assert.ok(repaired.routes.some((route) => route.id === 'specialist-route' && route.prompt === 'Unverändert'))
