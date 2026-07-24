@@ -14,13 +14,6 @@ type ManagementObservationInput = {
   resultStatusCount: number
 }
 
-type CommunicationEscalationInput = {
-  inboundSourceAgentId: string
-  configuredDeliveryCount: number
-  hasDeterministicRepair: boolean
-  projectManagerIds: string[]
-}
-
 export function resolveManagementRecoveryTargetId({
   isManagementAgent,
   inboundSourceAgentId,
@@ -55,22 +48,4 @@ export function isCompletedManagementObservation({
     configuredDeliveryCount === 0 &&
     resultStatusCount === 0
   )
-}
-
-export function resolveCommunicationEscalationTargetId({
-  inboundSourceAgentId,
-  configuredDeliveryCount,
-  hasDeterministicRepair,
-  projectManagerIds,
-}: CommunicationEscalationInput) {
-  if (
-    configuredDeliveryCount > 0 ||
-    hasDeterministicRepair ||
-    projectManagerIds.length !== 1
-  ) {
-    return ''
-  }
-
-  const managerId = projectManagerIds[0]
-  return managerId === inboundSourceAgentId ? '' : managerId
 }

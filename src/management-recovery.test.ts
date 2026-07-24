@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   isCompletedManagementObservation,
-  resolveCommunicationEscalationTargetId,
   resolveManagementRecoveryTargetId,
 } from './management-recovery.ts'
 
@@ -87,22 +86,4 @@ test('does not treat actionable management results as observations', () => {
     ...base,
     resultStatusCount: 1,
   }), false)
-})
-
-test('does not escalate a management response back to the same manager', () => {
-  assert.equal(resolveCommunicationEscalationTargetId({
-    inboundSourceAgentId: 'ceo',
-    configuredDeliveryCount: 0,
-    hasDeterministicRepair: false,
-    projectManagerIds: ['ceo'],
-  }), '')
-})
-
-test('escalates a new ambiguous communication problem exactly once', () => {
-  assert.equal(resolveCommunicationEscalationTargetId({
-    inboundSourceAgentId: 'implementation',
-    configuredDeliveryCount: 0,
-    hasDeterministicRepair: false,
-    projectManagerIds: ['ceo'],
-  }), 'ceo')
 })

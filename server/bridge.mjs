@@ -16,8 +16,9 @@ import {
 import {
   MAINTENANCE_THREAD_NAME,
   createMaintenanceStateStore,
+  findMaintenanceReportManager,
   maintenanceDiagnosticPrompt,
-  maintenanceRepairPrompt,
+  maintenanceReportPrompt,
   stoppedMaintenanceState,
 } from './maintenance-agent.mjs'
 
@@ -212,33 +213,113 @@ async function ensureMaintenanceThread() {
   return result.thread.id
 }
 
-async function refreshMaintenanceState() {
-  const state = await maintenanceStateStore.read()
-  if (!state.threadId || !state.turnId || !['diagnosing', 'repairing'].includes(state.status)) {
-    return state
+async function trackMaintenanceReportTurn(manager, sourceAgentId, message, turnId) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const snapshot = await sharedStateStore.read()
+    if (!snapshot.state || !Array.isArray(snapshot.state.agents)) {
+      throw new Error('Der gemeinsame Agentenzustand ist nicht verfügbar.')
+    }
+    const managerExists = snapshot.state.agents.some((agent) => agent.id === manager.id)
+    if (!managerExists) throw new Error('Der zuständige CEO ist nicht mehr vorhanden.')
+
+    const now = new Date().toISOString()
+    const nextState = {
+      ...snapshot.state,
+      agents: snapshot.state.agents.map((agent) => agent.id === manager.id
+        ? {
+            ...agent,
+            status: 'laeuft',
+            pendingTurnId: turnId,
+            runStartedAt: now,
+            lastResult: message,
+            lastInboundAgentId: sourceAgentId,
+            updatedAt: now,
+          }
+        : agent),
+    }
+    const updated = await sharedStateStore.update(nextState, {
+      expectedUpdatedAt: snapshot.updatedAt,
+    })
+    if (updated.ok) return
+  }
+  throw new Error('Der CEO-Turn wurde gestartet, konnte aber nicht im gemeinsamen Zustand vermerkt werden.')
+}
+
+async function forwardMaintenanceReport(state) {
+  if (state.status !== 'ready' || !state.report.trim() || state.reportForwardedAt) return state
+
+  const sharedState = (await sharedStateStore.read()).state
+  const manager = findMaintenanceReportManager(state, sharedState?.agents ?? [])
+  if (!manager) return state
+
+  const message = maintenanceReportPrompt(state)
+  const started = await startTurn(manager.threadId, message, manager.model || '', manager.projectPath || '')
+  const turnId = started.turn?.id ?? ''
+  if (!turnId) throw new Error('Der Connector hat keine Turn-ID für den CEO-Bericht geliefert.')
+
+  const forwarded = await maintenanceStateStore.write({
+    ...state,
+    reportDeliveryStatus: 'delivered',
+    reportForwardedAt: new Date().toISOString(),
+    reportForwardedToAgentId: manager.id,
+    reportForwardedTurnId: turnId,
+    reportDeliveryError: '',
+  })
+  try {
+    await trackMaintenanceReportTurn(manager, state.sourceAgentId, message, turnId)
+    return forwarded
+  } catch (error) {
+    return maintenanceStateStore.write({
+      ...forwarded,
+      reportDeliveryStatus: 'failed',
+      reportDeliveryError: error instanceof Error ? error.message : 'Die CEO-Übergabe konnte nicht gespeichert werden.',
+    })
+  }
+}
+
+async function refreshMaintenanceStateInternal() {
+  let state = await maintenanceStateStore.read()
+  if (state.threadId && state.turnId && state.status === 'diagnosing') {
+    try {
+      const result = await request('thread/read', { threadId: state.threadId, includeTurns: true })
+      const turn = (result.thread?.turns ?? []).find((item) => item.id === state.turnId)
+      if (!turn || turn.status === 'inProgress') return state
+      const report = (turn.items ?? [])
+        .filter((item) => item.type === 'agentMessage' && typeof item.text === 'string')
+        .map((item) => item.text)
+        .filter(Boolean)
+        .at(-1) ?? ''
+      state = await maintenanceStateStore.write({
+        ...state,
+        status: turn.status === 'completed' ? 'ready' : 'failed',
+        report,
+        reportDeliveryStatus: turn.status === 'completed' && state.sourceAgentId ? 'pending' : 'not-applicable',
+        error: turn.status === 'completed' ? '' : turn.error?.message ?? 'Wartungs-Task nicht abgeschlossen.',
+      })
+    } catch (error) {
+      return maintenanceStateStore.write({
+        ...state,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Wartungsstatus konnte nicht gelesen werden.',
+      })
+    }
   }
   try {
-    const result = await request('thread/read', { threadId: state.threadId, includeTurns: true })
-    const turn = (result.thread?.turns ?? []).find((item) => item.id === state.turnId)
-    if (!turn || turn.status === 'inProgress') return state
-    const report = (turn.items ?? [])
-      .filter((item) => item.type === 'agentMessage' && typeof item.text === 'string')
-      .map((item) => item.text)
-      .filter(Boolean)
-      .at(-1) ?? ''
-    return maintenanceStateStore.write({
-      ...state,
-      status: turn.status === 'completed' ? 'ready' : 'failed',
-      report,
-      error: turn.status === 'completed' ? '' : turn.error?.message ?? 'Wartungs-Task nicht abgeschlossen.',
-    })
+    return await forwardMaintenanceReport(state)
   } catch (error) {
     return maintenanceStateStore.write({
       ...state,
-      status: 'failed',
-      error: error instanceof Error ? error.message : 'Wartungsstatus konnte nicht gelesen werden.',
+      reportDeliveryStatus: 'failed',
+      reportDeliveryError: error instanceof Error ? error.message : 'Der Diagnosebericht konnte nicht an den CEO übergeben werden.',
     })
   }
+}
+
+let maintenanceRefreshQueue = Promise.resolve()
+function refreshMaintenanceState() {
+  const operation = maintenanceRefreshQueue.then(() => refreshMaintenanceStateInternal())
+  maintenanceRefreshQueue = operation.then(() => undefined, () => undefined)
+  return operation
 }
 
 async function listSavedProjects() {
@@ -626,8 +707,8 @@ const server = createServer(async (incoming, response) => {
     if (incoming.method === 'POST' && url.pathname === '/api/system-maintenance/diagnose') {
       const body = await readJson(incoming)
       const current = await refreshMaintenanceState()
-      if (['diagnosing', 'repairing'].includes(current.status)) {
-        sendJson(response, 409, { error: 'Der Kommunikations-Handwerker arbeitet bereits.', state: current })
+      if (current.status === 'diagnosing') {
+        sendJson(response, 409, { error: 'Der Kommunikations-Worker erstellt bereits eine Diagnose.', state: current })
         return
       }
       const threadId = await ensureMaintenanceThread()
@@ -646,6 +727,13 @@ const server = createServer(async (incoming, response) => {
         origin: body.automatic === true ? 'automatic' : 'manual',
         incident: typeof body.incident === 'string' ? body.incident.trim() : '',
         report: '',
+        projectPath: typeof body.projectPath === 'string' ? body.projectPath.trim() : '',
+        sourceAgentId: typeof body.sourceAgentId === 'string' ? body.sourceAgentId.trim() : '',
+        reportDeliveryStatus: body.projectPath && body.sourceAgentId ? 'pending' : 'not-applicable',
+        reportForwardedAt: '',
+        reportForwardedToAgentId: '',
+        reportForwardedTurnId: '',
+        reportDeliveryError: '',
         error: '',
       })
       sendJson(response, 202, state)
@@ -655,7 +743,7 @@ const server = createServer(async (incoming, response) => {
     if (incoming.method === 'POST' && url.pathname === '/api/system-maintenance/interrupt') {
       const body = await readJson(incoming)
       const current = await refreshMaintenanceState()
-      if (!['diagnosing', 'repairing'].includes(current.status)) {
+      if (current.status !== 'diagnosing') {
         sendJson(response, 200, current)
         return
       }
@@ -671,63 +759,6 @@ const server = createServer(async (incoming, response) => {
       }
       const state = await maintenanceStateStore.write(stoppedMaintenanceState(current))
       sendJson(response, 200, state)
-      return
-    }
-
-    if (incoming.method === 'POST' && url.pathname === '/api/system-maintenance/repair') {
-      const body = await readJson(incoming)
-      if (body.confirmed !== true) {
-        sendJson(response, 400, { error: 'Die Reparatur wurde nicht ausdrücklich bestätigt.' })
-        return
-      }
-      const current = await refreshMaintenanceState()
-      if (current.status !== 'ready' || !current.report.trim()) {
-        sendJson(response, 409, { error: 'Es liegt kein bestätigungsfähiger Wartungsbericht vor.', state: current })
-        return
-      }
-      const threadId = await ensureMaintenanceThread()
-      const started = await startTurn(threadId, maintenanceRepairPrompt(current.report))
-      const state = await maintenanceStateStore.write({
-        ...current,
-        threadId,
-        turnId: started.turn?.id ?? '',
-        status: 'repairing',
-        error: '',
-      })
-      sendJson(response, 202, state)
-      return
-    }
-
-    if (incoming.method === 'POST' && url.pathname === '/api/system-maintenance/restart') {
-      const body = await readJson(incoming)
-      if (body.confirmed !== true) {
-        sendJson(response, 400, { error: 'Der Connector-Neustart wurde nicht ausdrücklich bestätigt.' })
-        return
-      }
-      const current = await refreshMaintenanceState()
-      if (!['ready', 'failed'].includes(current.status)) {
-        sendJson(response, 409, { error: 'Ein Neustart ist erst nach abgeschlossener Diagnose möglich.' })
-        return
-      }
-      const nodePath = process.execPath.replaceAll("'", "''")
-      const bridgePath = join(SERVER_DIR, 'bridge.mjs').replaceAll("'", "''")
-      const rootPath = ROOT_DIR.replaceAll("'", "''")
-      const restartScript = [
-        `$oldPid = ${process.pid}`,
-        'while (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 200 }',
-        `Start-Process -FilePath '${nodePath}' -ArgumentList '${bridgePath}' -WorkingDirectory '${rootPath}' -WindowStyle Hidden`,
-      ].join('; ')
-      const helper = spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', restartScript], {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-      })
-      helper.unref()
-      sendJson(response, 202, { restarting: true })
-      setTimeout(() => {
-        shutdown()
-        process.exit(0)
-      }, 250)
       return
     }
 

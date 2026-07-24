@@ -32,7 +32,6 @@ import {
   type TurnActivityObservation,
 } from './workflow-watchdog.ts'
 import { deliveryDeduplicationSignature } from './delivery-deduplication.ts'
-import { resolveDeterministicCommunicationRepairTarget } from './communication-repair.ts'
 import { summarizeDeliveryAttempts } from './delivery-outcome.ts'
 import {
   buildWorkloadEscalationResult,
@@ -41,7 +40,6 @@ import {
 } from './workload-escalation.ts'
 import {
   isCompletedManagementObservation,
-  resolveCommunicationEscalationTargetId,
   resolveManagementRecoveryTargetId,
 } from './management-recovery.ts'
 import { isDeliveryTargetBusy } from './delivery-availability.ts'
@@ -190,10 +188,16 @@ type UsageSummary = {
 type MaintenanceState = {
   threadId: string
   turnId: string
-  status: 'idle' | 'diagnosing' | 'ready' | 'repairing' | 'failed'
+  status: 'idle' | 'diagnosing' | 'ready' | 'failed'
   origin?: 'automatic' | 'manual'
   incident: string
   report: string
+  projectPath?: string
+  sourceAgentId?: string
+  reportDeliveryStatus?: 'not-applicable' | 'pending' | 'delivered' | 'failed'
+  reportForwardedAt?: string
+  reportForwardedToAgentId?: string
+  reportDeliveryError?: string
   error: string
   updatedAt: string
 }
@@ -1432,7 +1436,6 @@ function App() {
   const [maintenanceOpen, setMaintenanceOpen] = useState(false)
   const [maintenanceIncident, setMaintenanceIncident] = useState('')
   const [stallNotice, setStallNotice] = useState<StallNotice | null>(null)
-  const [maintenanceConfirmAction, setMaintenanceConfirmAction] = useState<'repair' | 'restart' | ''>('')
   const [maintenanceState, setMaintenanceState] = useState<MaintenanceState>({
     threadId: '', turnId: '', status: 'idle', incident: '', report: '', error: '', updatedAt: '',
   })
@@ -2421,11 +2424,21 @@ function App() {
     ])
   }, [])
 
-  const requestSystemDiagnosis = useCallback((incident: string, context: string[]) => {
+  const requestSystemDiagnosis = useCallback((
+    incident: string,
+    context: string[],
+    source: Pick<Agent, 'id' | 'projectPath'>,
+  ) => {
     void fetch('/api/system-maintenance/diagnose', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ incident, context: context.join('\n'), automatic: true }),
+      body: JSON.stringify({
+        incident,
+        context: context.join('\n'),
+        automatic: true,
+        projectPath: source.projectPath,
+        sourceAgentId: source.id,
+      }),
     }).catch(() => undefined)
   }, [])
 
@@ -4071,58 +4084,11 @@ function App() {
             : []
         })
     })
-    const repairTargetId = resolveDeterministicCommunicationRepairTarget({
-      sourceAgentId: agent.id,
-      sourceIsManagement: agent.assignment === 'management',
-      activeRouteCount: activeRoutes.length,
-      resultStatusIds,
-      dashboardAgentIds: workflowBoardAgentIds[agent.id] ?? [],
-      knownAgentIds: agents.map((item) => item.id),
-    })
-    const repairTarget = agents.find((item) => item.id === repairTargetId)
-    const repairStatus = projectStatuses.find((status) => status.id === resultStatusIds[0])
-    let deterministicRepairDelivery: WorkflowDelivery | null = null
-    if (repairTarget && repairStatus) {
-      const repairFilter: WorkflowStatusFilter = {
-        id: crypto.randomUUID(),
-        ownerAgentId: agent.id,
-        projectPath: agent.projectPath,
-        name: `${repairStatus.name}: Reparatur ${agent.name} -> ${repairTarget.name}`,
-        statusId: repairStatus.id,
-      }
-      const inboundRoute: WorkflowRoute = {
-        id: crypto.randomUUID(),
-        ownerAgentId: agent.id,
-        projectPath: agent.projectPath,
-        sourceId: agent.id,
-        targetId: repairFilter.id,
-        condition: 'Automatische Kommunikationsreparatur',
-        prompt: '',
-      }
-      const outgoingRoute: WorkflowRoute = {
-        id: crypto.randomUUID(),
-        ownerAgentId: agent.id,
-        projectPath: agent.projectPath,
-        sourceId: repairFilter.id,
-        targetId: repairTarget.id,
-        condition: 'Automatische Kommunikationsreparatur',
-        prompt: 'Übernimm das Ergebnis über den eindeutig wiederhergestellten Kommunikationsweg und arbeite gemäß deiner Rolle weiter.',
-      }
-      setWorkflowStatusFilters((current) => [...current, repairFilter])
-      setRoutes((current) => [...current, inboundRoute, outgoingRoute])
-      sharedStateDirty.current = true
-      deterministicRepairDelivery = { target: repairTarget, route: outgoingRoute }
-      addEvent(
-        'Kommunikationsweg repariert',
-        `${agent.name} -> ${repairTarget.name} · Status: ${repairStatus.name}`,
-      )
-    }
-
     const managementRecoveryTargetId = resolveManagementRecoveryTargetId({
       isManagementAgent: agent.assignment === 'management',
       inboundSourceAgentId: agent.lastInboundAgentId,
       reportsTechnicalFailure,
-      configuredDeliveryCount: configuredDeliveries.length + (deterministicRepairDelivery ? 1 : 0),
+      configuredDeliveryCount: configuredDeliveries.length,
       knownAgentIds: agents.map((item) => item.id),
     })
     const managementRecoveryTarget = agents.find(
@@ -4143,48 +4109,9 @@ function App() {
           },
         }
       : null
-    const projectManagers = agents.filter((item) =>
-      item.id !== agent.id &&
-      item.assignment === 'management' &&
-      samePath(item.projectPath, agent.projectPath),
-    )
-    const escalationTargetId = resolveCommunicationEscalationTargetId({
-      inboundSourceAgentId: agent.lastInboundAgentId,
-      configuredDeliveryCount: configuredDeliveries.length,
-      hasDeterministicRepair: Boolean(deterministicRepairDelivery),
-      projectManagerIds: projectManagers.map((item) => item.id),
-    })
-    const escalationTarget = projectManagers.find((item) => item.id === escalationTargetId) ?? null
-    const escalationDelivery: WorkflowDelivery | null = escalationTarget
-      ? {
-          target: escalationTarget,
-          route: {
-            id: `communication-escalation:${agent.id}:${escalationTarget.id}:${agent.lastCompletedTurnId}`,
-            ownerAgentId: agent.id,
-            projectPath: agent.projectPath,
-            sourceId: agent.id,
-            targetId: escalationTarget.id,
-            condition: 'Kommunikationsproblem',
-            prompt: [
-              'Der Kommunikations-Handwerker konnte den Fortsetzungsweg nicht eindeutig reparieren.',
-              `Betroffener Agent: ${agent.name}`,
-              `Gemeldete Statusbefehle: ${projectStatuses.filter((status) => resultStatusIds.includes(status.id)).map((status) => status.name).join(', ') || 'keine'}`,
-              'Prüfe Ziel, Statusrouting und Aufgabenaufteilung. Gib dem betroffenen Agenten danach eine konkrete, begrenzte Wiederaufnahmeanweisung.',
-            ].join('\n'),
-          },
-        }
-      : null
-    if (escalationTarget) {
-      addEvent(
-        'Kommunikationsproblem eskaliert',
-        `${agent.name} -> ${escalationTarget.name}: Fortsetzungsweg ist mehrdeutig.`,
-      )
-    }
     const deliveries = [
       ...configuredDeliveries,
-      ...(deterministicRepairDelivery ? [deterministicRepairDelivery] : []),
       ...(managementRecoveryDelivery ? [managementRecoveryDelivery] : []),
-      ...(escalationDelivery ? [escalationDelivery] : []),
     ]
 
     if (isCompletedManagementObservation({
@@ -4230,7 +4157,7 @@ function App() {
       })
       addEvent(
         'Automatik gestoppt',
-        `${agent.name} hat keinen gültigen Fortsetzungsweg. Der Workflow wartet auf eine Benutzerentscheidung.`,
+        `${agent.name} hat keinen gültigen Fortsetzungsweg. Der Diagnosebericht wird dem zuständigen CEO übergeben; der Workflow wartet auf die Benutzerfreigabe einer dauerhaften Änderung.`,
       )
       requestSystemDiagnosis(
         `Workflow von ${agent.name} hat keinen gültigen Fortsetzungsweg.`,
@@ -4242,6 +4169,7 @@ function App() {
           `Workflow-Status: ${availableStatuses}`,
           `Ausgehende Verbindungen: ${activeRoutes.length}`,
         ],
+        agent,
       )
       return
     }
@@ -4349,6 +4277,7 @@ function App() {
             `Agent-ID: ${target.id}`,
             `Quelle: ${agent.name}`,
           ],
+          target,
         )
         return { targetName: target.name, delivered: false }
       }
@@ -4411,6 +4340,7 @@ function App() {
             `Quelle: ${agent.name}`,
             `Fehler: ${error instanceof Error ? error.message : 'Der lokale Connector ist nicht erreichbar.'}`,
           ],
+          target,
         )
         return { targetName: target.name, delivered: false }
       }
@@ -4433,7 +4363,7 @@ function App() {
         `${agent.name}: Kein Ziel-Chat hat die Übergabe angenommen.`,
       )
     }
-  }, [addEvent, agents, applyThreadReplacement, requestSystemDiagnosis, routes, updateAgent, workflowBoardAgentIds, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, requestSystemDiagnosis, routes, updateAgent, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   const connectAgents = useCallback((connection: Connection) => {
     if (
@@ -5044,6 +4974,7 @@ function App() {
                         `Laufzeit: ${durationSeconds} Sekunden`,
                         `Agentenstatus: ${agent.status}`,
                       ],
+                      agent,
                     )
                   }
                 }
@@ -5119,6 +5050,7 @@ function App() {
                       `Fehlversuche in Folge: ${consecutiveFailedRuns}`,
                       `Fehler: ${failureDetail}`,
                     ],
+                    agent,
                   )
                 }
                 if (autoRun && failedAgent.assignment === 'management') {
@@ -5267,6 +5199,7 @@ function App() {
                   `Turn-ID: ${agent.pendingTurnId || 'nicht verfügbar'}`,
                   `Fehler: ${message}`,
                 ],
+                agent,
               )
             } finally {
               pollingTurnIds.current.delete(agent.pendingTurnId)
@@ -5573,39 +5506,12 @@ function App() {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || tx('Diagnose konnte nicht gestartet werden.', 'Diagnosis could not be started.'))
       setMaintenanceState(data)
-      setMaintenanceConfirmAction('')
       addEvent('Systemdiagnose gestartet', incident)
     } catch (error) {
       setMaintenanceState((current) => ({
         ...current,
         status: 'failed',
         error: error instanceof Error ? error.message : tx('Diagnose konnte nicht gestartet werden.', 'Diagnosis could not be started.'),
-      }))
-    }
-  }
-
-  const runConfirmedMaintenanceAction = async (action: 'repair' | 'restart') => {
-    try {
-      const response = await fetch(`/api/system-maintenance/${action}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmed: true }),
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || tx('Wartungsaktion fehlgeschlagen.', 'Maintenance action failed.'))
-      setMaintenanceConfirmAction('')
-      if (action === 'repair') {
-        setMaintenanceState(data)
-        addEvent('Systemreparatur bestätigt', 'Der Kommunikations-Handwerker setzt den bestätigten Vorschlag um.')
-      } else {
-        setConnectorOnline(false)
-        addEvent('Connector-Neustart bestätigt', 'Der lokale Connector wird kontrolliert neu gestartet.')
-      }
-    } catch (error) {
-      setMaintenanceState((current) => ({
-        ...current,
-        status: 'failed',
-        error: error instanceof Error ? error.message : tx('Wartungsaktion fehlgeschlagen.', 'Maintenance action failed.'),
       }))
     }
   }
@@ -5625,7 +5531,6 @@ function App() {
     && maintenanceState.updatedAt !== maintenanceReadAt
 
   const openMaintenance = () => {
-    setMaintenanceConfirmAction('')
     if (hasUnreadMaintenanceReport) {
       window.localStorage.setItem(MAINTENANCE_READ_STORAGE_KEY, maintenanceState.updatedAt)
       setMaintenanceReadAt(maintenanceState.updatedAt)
@@ -5908,7 +5813,7 @@ function App() {
             </p>
             <p className="modalHint">
               {tx(
-                'Der Kommunikations-Handwerker erstellt bereits eine Diagnose.',
+                'Der Kommunikations-Worker erstellt bereits eine Diagnose.',
                 'The communication technician is already preparing a diagnosis.',
               )}
             </p>
@@ -6209,20 +6114,18 @@ function App() {
           <div className={`maintenanceControl ${maintenanceState.status}${hasUnreadMaintenanceReport ? ' unread' : ''}`}>
             <button
               aria-label={`${tx('Systemwartung öffnen', 'Open system maintenance')}: ${maintenanceState.status === 'diagnosing' ? tx('Diagnose', 'Diagnosis')
-                : maintenanceState.status === 'repairing' ? tx('Reparatur', 'Repair')
                 : maintenanceState.status === 'ready' ? tx('Bericht', 'Report')
                 : maintenanceState.status === 'failed' ? tx('Fehler', 'Error')
                 : tx('Bereit', 'Ready')}`}
               className="maintenanceLauncher"
               onClick={openMaintenance}
-              title={`${tx('Kommunikations-Handwerker', 'Communication maintainer')} · ${maintenanceState.status === 'diagnosing' ? tx('Diagnose', 'Diagnosis')
-                : maintenanceState.status === 'repairing' ? tx('Reparatur', 'Repair')
+              title={`${tx('Kommunikations-Worker', 'Communication worker')} · ${maintenanceState.status === 'diagnosing' ? tx('Diagnose', 'Diagnosis')
                 : maintenanceState.status === 'ready' ? tx('Bericht', 'Report')
                 : maintenanceState.status === 'failed' ? tx('Fehler', 'Error')
                 : tx('Bereit', 'Ready')}`}
               type="button"
             >
-              {['diagnosing', 'repairing'].includes(maintenanceState.status)
+              {maintenanceState.status === 'diagnosing'
                 ? <span className="activitySpinner" aria-hidden="true" />
                 : 'W'}
               {hasUnreadMaintenanceReport && (
@@ -6264,25 +6167,24 @@ function App() {
             <div className="modalHeader">
               <div>
                 <p className="eyebrow">Systemwartung</p>
-                <h2 id="maintenance-title">{tx('Kommunikations-Handwerker', 'Communication maintainer')}</h2>
+                <h2 id="maintenance-title">{tx('Kommunikations-Worker', 'Communication worker')}</h2>
               </div>
               <button aria-label={tx('Fenster schließen', 'Close window')} onClick={() => setMaintenanceOpen(false)}>×</button>
             </div>
 
             <p className="maintenanceScope">
               {tx(
-                'Überwacht ausschließlich Connector, Codex-Turns, Warteschlangen, Übergaben und Workflow-Kommunikation. Benutzerprojekte und fachliche Aufgaben bleiben unberührt.',
-                'Monitors only the connector, Codex turns, queues, handoffs, and workflow communication. User projects and domain work remain untouched.',
+                'Diagnostiziert ausschließlich Connector, Codex-Turns, Warteschlangen, Übergaben und Workflow-Kommunikation. Er verändert und repariert nichts. Projektbezogene Berichte gehen an den zuständigen CEO.',
+                'Diagnoses only the connector, Codex turns, queues, handoffs, and workflow communication. It changes and repairs nothing. Project reports are sent to the responsible CEO.',
               )}
             </p>
 
             <div className={`maintenanceStatus ${maintenanceState.status}`}>
-              {['diagnosing', 'repairing'].includes(maintenanceState.status) && <span className="activitySpinner" aria-hidden="true" />}
+              {maintenanceState.status === 'diagnosing' && <span className="activitySpinner" aria-hidden="true" />}
               <div>
                 <strong>{tx('Zustand', 'State')}</strong>
                 <span>{maintenanceState.status === 'idle' ? tx('Bereit', 'Ready')
                   : maintenanceState.status === 'diagnosing' ? tx('Diagnose läuft', 'Diagnosis running')
-                  : maintenanceState.status === 'repairing' ? tx('Bestätigte Reparatur läuft', 'Confirmed repair running')
                   : maintenanceState.status === 'ready' ? tx('Bericht liegt vor', 'Report available')
                   : tx('Aufmerksamkeit erforderlich', 'Attention required')}</span>
               </div>
@@ -6291,7 +6193,7 @@ function App() {
             <label className="maintenanceIncident">
               <span>{tx('Vorfall oder Prüfanlass', 'Incident or reason for inspection')}</span>
               <textarea
-                disabled={['diagnosing', 'repairing'].includes(maintenanceState.status)}
+                disabled={maintenanceState.status === 'diagnosing'}
                 onChange={(event) => setMaintenanceIncident(event.target.value)}
                 placeholder={tx('Beschreibe das Kommunikations- oder Verarbeitungsproblem.', 'Describe the communication or processing problem.')}
                 value={maintenanceIncident}
@@ -6299,47 +6201,26 @@ function App() {
             </label>
 
             {maintenanceState.error && <p className="modalError" role="alert">{maintenanceState.error}</p>}
+            {maintenanceState.reportDeliveryError && <p className="modalError" role="alert">{maintenanceState.reportDeliveryError}</p>}
             {maintenanceState.report && (
               <section className="maintenanceReport">
                 <strong>{tx('Wartungsbericht', 'Maintenance report')}</strong>
                 <pre>{maintenanceState.report}</pre>
-              </section>
-            )}
-
-            {maintenanceConfirmAction && (
-              <section className="maintenanceConfirmation">
-                <strong>{maintenanceConfirmAction === 'repair'
-                  ? tx('Codeänderung wirklich freigeben?', 'Really approve source changes?')
-                  : tx('Connector wirklich neu starten?', 'Really restart the connector?')}</strong>
-                <p>{maintenanceConfirmAction === 'repair'
-                  ? tx('Der Wartungsagent darf nur den bestätigten Bericht im Orchestrator umsetzen. Git und Neustart bleiben gesperrt.', 'The maintainer may only implement the confirmed report in the orchestrator. Git and restart remain blocked.')
-                  : tx('Die Oberfläche verliert kurz die Verbindung und verbindet sich anschließend erneut.', 'The interface will briefly disconnect and then reconnect.')}</p>
-                <div className="maintenanceConfirmActions">
-                  <button onClick={() => setMaintenanceConfirmAction('')}>{tx('Abbrechen', 'Cancel')}</button>
-                  <button className="primary" onClick={() => void runConfirmedMaintenanceAction(maintenanceConfirmAction)}>{tx('Bestätigen', 'Confirm')}</button>
-                </div>
+                {maintenanceState.reportDeliveryStatus === 'delivered' && (
+                  <small>{tx('Der Bericht wurde an den zuständigen CEO übergeben.', 'The report was sent to the responsible CEO.')}</small>
+                )}
+                {maintenanceState.reportDeliveryStatus === 'pending' && (
+                  <small>{tx('Die Übergabe wartet auf einen eindeutig zuständigen, freien CEO.', 'Delivery is waiting for one clearly responsible, available CEO.')}</small>
+                )}
               </section>
             )}
 
             <div className="modalActions maintenanceActions">
               <button
-                disabled={!maintenanceIncident.trim() || ['diagnosing', 'repairing'].includes(maintenanceState.status)}
+                disabled={!maintenanceIncident.trim() || maintenanceState.status === 'diagnosing'}
                 onClick={() => void requestMaintenanceDiagnosis(maintenanceIncident)}
               >
                 {tx('Diagnose starten', 'Start diagnosis')}
-              </button>
-              <span />
-              <button
-                disabled={maintenanceState.status !== 'ready'}
-                onClick={() => setMaintenanceConfirmAction('repair')}
-              >
-                {tx('Reparatur freigeben', 'Approve repair')}
-              </button>
-              <button
-                disabled={!['ready', 'failed'].includes(maintenanceState.status)}
-                onClick={() => setMaintenanceConfirmAction('restart')}
-              >
-                {tx('Neustart freigeben', 'Approve restart')}
               </button>
             </div>
           </section>

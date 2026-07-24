@@ -203,26 +203,22 @@ Eine deterministische Systemüberwachung beobachtet den tatsächlich gespeichert
 
 Der Orchestrator merkt sich bei einer Übergabe zusätzlich den unmittelbar sendenden Agenten. Meldet ein Verwaltungsagent nach einer Fehleranalyse eine konkrete, begrenzte Wiederaufnahme- oder Überarbeitungsaufgabe und existiert dafür kein eigener Dashboard-Pfad, wird diese Antwort gezielt an den betroffenen Agenten zurückgegeben. Ein vollständiger Team-Vorschlag bleibt dagegen bei `Auto Stop` und wartet auf die Freigabe des Benutzers. Meldet der Verwaltungsagent selbst einen technischen Fehler oder gibt es keinen gültigen Fortsetzungsweg, stoppt die Automatik sichtbar, anstatt ohne aktive Arbeit eingeschaltet zu bleiben. Der Watchdog greift pro Codex-Turn höchstens einmal ein.
 
-Zusätzlich gehört der interne **Kommunikations-Handwerker** fest zum Orchestrator. Er ist kein Projektagent und erscheint deshalb weder in der Agentenliste noch in einem Projekt-Dashboard. Sein eigener Codex-Task arbeitet ausschließlich im Arbeitsordner des Orchestrators und ist auf folgende technische Bereiche beschränkt:
+Zusätzlich gehört der interne **Kommunikations-Worker** fest zum Orchestrator. Er ist kein Projektagent und erscheint deshalb weder in der Agentenliste noch in einem Projekt-Dashboard. Sein eigener Codex-Task arbeitet ausschließlich im Arbeitsordner des Orchestrators und ist auf folgende technische Diagnosebereiche beschränkt:
 
 - Connector und Codex-App-Server-Protokoll
 - Erstellung, Persistenz, Abfrage und Unterbrechung von Turns
 - Agentenstatus, Zielwarteschlangen und automatische Übergaben
 - Statusrouting, Automatik-Lease und festhängende Workflow-Verarbeitung
 
-Bei einem Watchdog-Eingriff startet der Kommunikations-Handwerker automatisch eine **lesende Diagnose**. Eine Diagnose kann außerdem über die kompakte Schaltfläche `W` am Connector manuell angefordert werden. Der Wartungsbericht nennt Ursache, Indizien, betroffene Komponente und den kleinstmöglichen Reparaturvorschlag. Fachliche Inhalte und Dateien ausgewählter Benutzerprojekte gehören ausdrücklich nicht zu seinem Zuständigkeitsbereich.
+Bei einem Watchdog-Eingriff startet der Kommunikations-Worker automatisch eine **lesende Diagnose**. Eine Diagnose kann außerdem über die kompakte Schaltfläche `W` am Connector manuell angefordert werden. Der Bericht nennt Ursache, Indizien, betroffene Komponente und den kleinstmöglichen Reparaturvorschlag. Fachliche Inhalte und Dateien ausgewählter Benutzerprojekte gehören ausdrücklich nicht zu seinem Zuständigkeitsbereich.
 
-Kommunikations-, Connector- und Routingfehler werden im Hintergrund an den Kommunikations-Handwerker gemeldet, ohne für jeden Fehler ein zusätzliches Dialogfenster zu öffnen. Nur wenn der Watchdog einen festhängenden Codex-Lauf tatsächlich abbricht, erscheint ein kompakter Hinweis mit Agent, Laufzeit und direktem Zugang zum Handwerkerbericht.
+Kommunikations-, Connector- und Routingfehler werden im Hintergrund an den Kommunikations-Worker gemeldet, ohne für jeden Fehler ein zusätzliches Dialogfenster zu öffnen. Nur wenn der Watchdog einen festhängenden Codex-Lauf tatsächlich abbricht, erscheint ein kompakter Hinweis mit Agent, Laufzeit und direktem Zugang zum Diagnosebericht.
 
-Neben der Schaltfläche zeigt die Oberfläche den aktuellen Wartungszustand dauerhaft an: `Bereit`, `Diagnose`, `Reparatur`, `Bericht` oder `Fehler`. So bleibt auch bei geschlossenem Wartungsfenster sichtbar, ob der Kommunikations-Handwerker arbeitet oder eine Benutzerentscheidung benötigt.
+Neben der Schaltfläche zeigt die Oberfläche den aktuellen Wartungszustand dauerhaft an: `Bereit`, `Diagnose`, `Bericht` oder `Fehler`. So bleibt auch bei geschlossenem Wartungsfenster sichtbar, ob der Kommunikations-Worker arbeitet oder ein Bericht vorliegt.
 
-Der Wartungsagent verändert niemals allein Quellcode und startet keinen Prozess eigenmächtig neu. Die Oberfläche trennt deshalb drei Stufen:
+Der Worker ist strikt diagnose-only: Er darf keine Datei ändern, keine Workflow-Verbindung erzeugen oder bearbeiten, keine Reparatur ausführen und keinen Prozess neu starten. Bei einer automatischen, eindeutig einem Projektagenten zugeordneten Diagnose übergibt der Connector den fertigen Bericht an genau einen zuständigen und freien Verwaltungsagenten beziehungsweise CEO. Ist die Zuständigkeit nicht eindeutig oder der CEO beschäftigt, bleibt die Übergabe sichtbar ausstehend und wird beim nächsten Statusabruf erneut geprüft.
 
-1. Diagnose ohne Änderung
-2. ausdrücklich bestätigte Reparatur innerhalb des Orchestrator-Codes, weiterhin ohne Git und ohne Neustart
-3. separat bestätigter Connector-Neustart
-
-Für Reparatur und Neustart erscheint jeweils eine zusätzliche Bestätigung mit dem genauen erlaubten Eingriff. Der Wartungszustand wird im Connector gespeichert, sodass ein Diagnosebericht auch nach einem Browser-Neuladen erhalten bleibt.
+Der CEO bewertet Ursache und Reparaturvorschlag. Bei bereits konfigurierten Fehlerpfaden kann eine begrenzte Wiederaufnahmeanweisung über den vorhandenen Rückgabepfad an den betroffenen Agenten gehen. Fehlt ein gültiger Fortsetzungsweg, bleibt die Automatik gestoppt. Dauerhafte Änderungen an Agenten, Statusfiltern oder Verbindungen muss der CEO als vollständigen Teamplan vorschlagen; nur der Orchestrator darf diesen nach Benutzerfreigabe validieren und anwenden. Die Oberfläche erzeugt keine automatischen Reparaturrouten mehr. Der Wartungszustand wird im Connector gespeichert, sodass Diagnose und Übergabestatus auch nach einem Browser-Neuladen erhalten bleiben.
 
 ## Zeitpläne
 

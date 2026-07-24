@@ -10,6 +10,13 @@ export const EMPTY_MAINTENANCE_STATE = Object.freeze({
   origin: 'automatic',
   incident: '',
   report: '',
+  projectPath: '',
+  sourceAgentId: '',
+  reportDeliveryStatus: 'not-applicable',
+  reportForwardedAt: '',
+  reportForwardedToAgentId: '',
+  reportForwardedTurnId: '',
+  reportDeliveryError: '',
   error: '',
   updatedAt: '',
 })
@@ -22,13 +29,20 @@ export function stoppedMaintenanceState(state) {
     origin: 'manual',
     incident: '',
     report: '',
+    projectPath: '',
+    sourceAgentId: '',
+    reportDeliveryStatus: 'not-applicable',
+    reportForwardedAt: '',
+    reportForwardedToAgentId: '',
+    reportForwardedTurnId: '',
+    reportDeliveryError: '',
     error: '',
   }
 }
 
 export function maintenanceDiagnosticPrompt(incident, context = '') {
   return [
-    'Du bist der interne Kommunikations-Handwerker des Codex Workflow Orchestrators.',
+    'Du bist der interne Diagnose-Worker für die Kommunikation des Codex Workflow Orchestrators.',
     'Dein Zuständigkeitsbereich ist strikt begrenzt auf die technische Verarbeitung und Kommunikation der Agenten:',
     '- Codex-Connector und App-Server-Protokoll',
     '- Turn-Erstellung, Persistenz, Ergebnisabfrage und Unterbrechung',
@@ -45,16 +59,43 @@ export function maintenanceDiagnosticPrompt(incident, context = '') {
   ].filter(Boolean).join('\n')
 }
 
-export function maintenanceRepairPrompt(report) {
+export function findMaintenanceReportManager(state, agents) {
+  if (!state.projectPath || !state.sourceAgentId || state.reportForwardedAt) return null
+
+  const normalizePath = (value) => value.trim().replaceAll('\\', '/').replace(/\/$/, '').toLowerCase()
+  const projectPath = normalizePath(state.projectPath)
+  const sourceExists = agents.some((agent) => (
+    agent.id === state.sourceAgentId && normalizePath(agent.projectPath ?? '') === projectPath
+  ))
+  if (!sourceExists) return null
+
+  const managers = agents.filter((agent) => (
+    agent.id !== state.sourceAgentId &&
+    agent.assignment === 'management' &&
+    normalizePath(agent.projectPath ?? '') === projectPath &&
+    typeof agent.threadId === 'string' &&
+    agent.threadId.trim()
+  ))
+  if (managers.length !== 1) return null
+
+  const manager = managers[0]
+  return manager.status === 'laeuft' || manager.pendingTurnId ? null : manager
+}
+
+export function maintenanceReportPrompt({ incident, report, sourceAgentId }) {
   return [
-    'Der Benutzer hat die Umsetzung des folgenden Wartungsberichts ausdrücklich bestätigt.',
-    'Arbeite ausschließlich im Codex Workflow Orchestrator und ausschließlich an Verarbeitung und Agentenkommunikation.',
-    'Ändere keine fachlichen Benutzerprojekte. Führe keine Git-Operation und keinen Prozessneustart aus.',
-    'Setze die kleinste belastbare Korrektur um und prüfe sie mit den vorhandenen Tests, Lint und Build.',
-    'Dokumentiere danach geänderte Dateien, Prüfungen und ob weiterhin ein Neustart erforderlich ist.',
+    'Der diagnose-only Kommunikationsworker hat den folgenden technischen Bericht erstellt.',
+    'Der Worker hat nichts geändert, repariert oder neu gestartet.',
+    'Du bist als CEO für die Bewertung und die nächsten Schritte verantwortlich.',
+    'Prüfe den Bericht, entscheide über eine begrenzte Wiederaufnahmeanweisung und gib sie an den betroffenen Agenten zurück.',
+    'Sind dauerhafte Änderungen an Agenten, Statusfiltern oder Verbindungen erforderlich, liefere einen vollständigen Teamplan. Nur der Orchestrator darf ihn nach Benutzerfreigabe anwenden.',
+    'Nimm keine unkontrollierte Änderung an der Workflow-Topologie vor.',
     '',
-    'Bestätigter Wartungsbericht:',
-    report.trim(),
+    `Betroffener Agent: ${sourceAgentId || 'unbekannt'}`,
+    `Vorfall: ${incident.trim() || 'Technischer Kommunikationsfehler'}`,
+    '',
+    'Diagnosebericht:',
+    report.trim() || 'Kein Diagnoseinhalt vorhanden.',
   ].join('\n')
 }
 
@@ -64,6 +105,15 @@ export function createMaintenanceStateStore(filePath) {
   const read = async () => {
     try {
       const parsed = JSON.parse(await readFile(filePath, 'utf8'))
+      if (parsed.status === 'repairing') {
+        return {
+          ...EMPTY_MAINTENANCE_STATE,
+          ...parsed,
+          turnId: '',
+          status: 'failed',
+          error: 'Eine alte Worker-Reparatur wurde beendet. Der Worker dient jetzt ausschließlich der Diagnose.',
+        }
+      }
       return { ...EMPTY_MAINTENANCE_STATE, ...parsed }
     } catch (error) {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
