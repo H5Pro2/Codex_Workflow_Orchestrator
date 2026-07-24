@@ -338,32 +338,40 @@ function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
 const workflowNodeTypes = { workflow: WorkflowNode }
 
 function WorkflowConnectionLine({
+  fromHandle,
+  fromNode,
   fromX,
   fromY,
-  toX,
-  toY,
   fromPosition,
   toPosition,
 }: ConnectionLineComponentProps) {
   const cursorRef = useRef<HTMLSpanElement>(null)
   const pathRef = useRef<SVGPathElement>(null)
   const initialGeometryRef = useRef({
+    fromHandleId: fromHandle.id ?? '',
+    fromNodeId: fromNode.id,
     fromPosition,
     fromX,
     fromY,
     toPosition,
-    toX,
-    toY,
   })
 
   useLayoutEffect(() => {
     const geometry = initialGeometryRef.current
-    const pane = document.querySelector<HTMLElement>('.workflowDashboard .react-flow__pane')
-    const paneBounds = pane?.getBoundingClientRect()
-    const paneLeft = paneBounds?.left ?? 0
-    const paneTop = paneBounds?.top ?? 0
-    const source = { x: paneLeft + geometry.fromX, y: paneTop + geometry.fromY }
-    const initialTarget = { x: paneLeft + geometry.toX, y: paneTop + geometry.toY }
+    const sourceHandle = Array.from(
+      document.querySelectorAll<HTMLElement>('.workflowDashboard .react-flow__handle'),
+    ).find((handle) =>
+      handle.dataset.nodeid === geometry.fromNodeId &&
+      (handle.dataset.handleid ?? '') === geometry.fromHandleId,
+    )
+    const sourceBounds = sourceHandle?.getBoundingClientRect()
+    const handleScale = sourceBounds ? sourceBounds.width / 14 : 1
+    const source = sourceBounds
+      ? {
+          x: sourceBounds.left + sourceBounds.width / 2,
+          y: sourceBounds.top + sourceBounds.height / 2 - 2.5 * handleScale,
+        }
+      : { x: geometry.fromX, y: geometry.fromY }
     const syncConnection = (clientX: number, clientY: number) => {
       const [path] = getSmoothStepPath({
         sourceX: source.x,
@@ -387,7 +395,6 @@ function WorkflowConnectionLine({
       syncConnection(latest.clientX, latest.clientY)
     }
 
-    syncConnection(initialTarget.x, initialTarget.y)
     const listenerOptions = { capture: true, passive: true }
     window.addEventListener('pointerrawupdate', syncPointer, listenerOptions)
     window.addEventListener('pointermove', syncPointer, listenerOptions)
