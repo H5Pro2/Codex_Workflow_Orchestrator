@@ -23,8 +23,11 @@ import {
   MANAGEMENT_ERROR_STATUS_MEANING,
   MANAGEMENT_ERROR_STATUS_NAME,
   buildTeamTopology,
+  findAuthorizedManagementTeamPlan,
+  isExplicitTeamProvisioningRequest,
   looksLikeManagementTeamPlan,
   parseManagementTeamPlan,
+  repairManagementStartTopology,
 } from './team-plan.ts'
 import { runProvisioningTransaction } from './provisioning-transaction.ts'
 import {
@@ -964,7 +967,7 @@ function managementInstruction(agent: Agent, monitoredAgents: Agent[]) {
     'Bei einer Überwachungsanfrage bewertest du Fortschritt, Blockaden, widersprüchliche Ergebnisse und den sinnvollsten nächsten Schritt.',
     'Wenn dir ein fehlgeschlagener Agent gemeldet wird, entscheide eindeutig zwischen drei Wegen:',
     '1. Kann derselbe Agent fortfahren, gib ihm eine konkrete, kleinere Wiederaufnahme- oder Überarbeitungsaufgabe und beende deine Antwort mit einem passenden, nicht technischen Workflow-Status.',
-    '2. Ist die Aufgabe zu groß oder wird eine weitere Rolle benötigt, liefere einen vollständigen kontrollierten Team-Vorschlag. Der Benutzer muss ihn bei Auto Stop freigeben.',
+    '2. Nutze bei normalen Änderungen, Reparaturen und Weiterentwicklungen immer zuerst das bestehende Team und seine Statuswege. Ein Team-Vorschlag ist nur erlaubt, wenn der Benutzer ausdrücklich einen Teamumbau oder neue Agenten verlangt oder der Orchestrator nach wiederholtem technischem Fehlschlag ausdrücklich eine zusätzliche Rolle anfordert.',
     `3. Ist keine sichere Fortsetzung möglich, melde [Workflow-Status: ${MANAGEMENT_ERROR_STATUS_NAME}]. Der Orchestrator stoppt dann für eine Benutzerentscheidung.`,
     'Du darfst Aufgaben und Rollen vorschlagen. Technische Änderungen an Agenten, Prompts und Verdrahtungen führt weiterhin ausschließlich der Workflow-Orchestrator aus.',
     agent.teamProvisioningEnabled ? managementTeamPlanInstruction() : '',
@@ -981,13 +984,16 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
   return [
     '',
     'Kontrollierter Team-Aufbau:',
-    'Wenn der Benutzer ausdrücklich verlangt, ein Team zusammenzustellen, planst du vollständig: Agenten, Rollen-Prompts, benötigte Statusbefehle, Startanweisung und alle Dashboard-Verbindungen.',
+    'Nur wenn der Benutzer ausdrücklich verlangt, ein Team neu zu erstellen, umzustrukturieren oder Agenten hinzuzufügen beziehungsweise zu ersetzen, planst du vollständig: Agenten, Rollen-Prompts, benötigte Statusbefehle und alle Dashboard-Verbindungen.',
+    'Eine Produktänderung, Weiterentwicklung, Reparatur oder neue Funktion ist niemals ein Team-Aufbau. Nutze dafür immer das vorhandene Team und seine Statuswege. Gib in diesem Fall keinen orchestrator_team_plan aus und ändere weder Rollen-Prompts noch Dashboard-Verbindungen.',
+    'Der Initial-Baustein enthält niemals eine fachliche Aufgabe. Er führt bei Auto Start immer zuerst zum Verwaltungsagenten beziehungsweise CEO. Erst der CEO wählt mit einem normalen Statusbefehl den ersten Fachagenten aus.',
     'Liefere zusätzlich genau einen maschinenlesbaren Vorschlag in diesem Format:',
     '<orchestrator_team_plan>',
     '{',
     '  "projectGoal": "Kurze Zielbeschreibung",',
-    '  "startAgent": "Agent, der bei Auto Start zuerst arbeitet",',
-    '  "startInstruction": "Konkrete erste Aufgabe für diesen Agenten",',
+    '  "startAgent": "Erster Fachagent nach der Entscheidung des CEO",',
+    '  "startStatus": "Statusbefehl, mit dem der CEO an diesen Fachagenten übergibt",',
+    '  "startInstruction": "Nur Dokumentation des Projektziels; wird niemals im Initial gespeichert",',
     '  "statusCommands": [',
     '    { "name": "Weiterleitung", "meaning": "Das Ergebnis soll an den nächsten Agenten weitergegeben werden." }',
     '  ],',
@@ -1009,7 +1015,7 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
     'Definiere unter stops mindestens einen ausdrücklichen Abschlussweg. Ein Stop nennt den Quellagenten, den eindeutigen Abschlussstatus und einen kurzen Namen. Ein normaler Weiterleitungsstatus ist kein Abschlussstatus.',
     'Der Arbeitsablauf darf nicht nur aus einer Endlosschleife bestehen. Jeder erfolgreiche Gesamtabschluss muss über einen Status-Filter zu einem Stop führen.',
     `Der Systemstatus "${MANAGEMENT_ERROR_STATUS_NAME}" ist verpflichtend. Verwende ihn mit der Bedeutung: "${MANAGEMENT_ERROR_STATUS_MEANING}". Weise ihn jedem vorgeschlagenen Agenten zu. Der Orchestrator verdrahtet diesen Status automatisch zurück zum Verwaltungsagenten.`,
-    'Wähle ein startAgent aus dem vorgeschlagenen Team und formuliere eine startInstruction, mit der die Arbeit bei Auto Start eindeutig beginnt.',
+    'Wähle ein startAgent aus dem vorgeschlagenen Team und einen startStatus aus statusCommands. Der Orchestrator baut daraus fest Start → CEO → Status-Filter → startAgent. Die startInstruction wird nicht als Initial-Aufgabe ausgeführt.',
     'Verwende nur gültiges JSON. Erfinde keine Projektpfade. Der Orchestrator prüft den Vorschlag und ein Benutzer muss ihn übernehmen.',
   ].join('\n')
 }
@@ -1703,6 +1709,7 @@ function App() {
   const sharedStateDirty = useRef(false)
   const teamPlanApplyingRef = useRef(false)
   const automaticTeamPlanFormatRequests = useRef(new Set<string>())
+  const authorizedTeamPlanRequestAgentIds = useRef(new Set<string>())
   const requestTeamPlanFormatCorrectionRef = useRef<(agent: Agent) => Promise<void>>(async () => {})
   const autoRunRef = useRef(autoRun)
   const automationTabId = useRef(crypto.randomUUID())
@@ -2013,20 +2020,18 @@ function App() {
       if (selectedAgent?.assignment !== 'management' || !selectedAgent.teamProvisioningEnabled) {
         return null
       }
-
-      const persistedPlan = parseManagementTeamPlan(selectedAgent.lastResult)
-      if (persistedPlan) return persistedPlan
-
-      for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
-        const message = chatMessages[index]
-        if (message.role !== 'assistant') continue
-        const conversationPlan = parseManagementTeamPlan(message.text)
-        if (conversationPlan) return conversationPlan
-      }
-      return null
+      return findAuthorizedManagementTeamPlan(chatMessages)
     },
     [chatMessages, selectedAgent],
   )
+  const selectedTeamPlanRequestAuthorized = useMemo(() => {
+    for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
+      if (chatMessages[index].role === 'user') {
+        return isExplicitTeamProvisioningRequest(chatMessages[index].text)
+      }
+    }
+    return false
+  }, [chatMessages])
   const selectedTeamPlanComplete = useMemo(() => {
     if (!selectedAgent || !selectedTeamPlan || !selectedAgent.projectPath) return false
 
@@ -2055,14 +2060,28 @@ function App() {
     }))) return false
 
     const startAgentId = projectAgentByName.get(selectedTeamPlan.plan.startAgent.trim().toLocaleLowerCase('de-DE'))?.id
+    const startStatusId = statusByName.get(selectedTeamPlan.plan.startStatus.trim().toLocaleLowerCase('de-DE'))?.id
     const initial = workflowInitials.find((item) =>
       item.ownerAgentId === selectedAgent.id &&
       samePath(item.projectPath, selectedAgent.projectPath) &&
-      item.instruction.trim() === selectedTeamPlan.plan.startInstruction.trim(),
+      !item.instruction.trim(),
     )
-    if (!startAgentId || !initial || !routes.some((route) =>
+    const startFilter = workflowStatusFilters.find((item) =>
+      item.ownerAgentId === selectedAgent.id &&
+      item.statusId === startStatusId &&
+      item.name === `${selectedTeamPlan.plan.startStatus}: ${selectedAgent.name} → ${selectedTeamPlan.plan.startAgent}`,
+    )
+    if (!startAgentId || !startStatusId || !initial || !startFilter || !routes.some((route) =>
       route.ownerAgentId === selectedAgent.id &&
       route.sourceId === initial.id &&
+      route.targetId === selectedAgent.id,
+    ) || !routes.some((route) =>
+      route.ownerAgentId === selectedAgent.id &&
+      route.sourceId === selectedAgent.id &&
+      route.targetId === startFilter.id,
+    ) || !routes.some((route) =>
+      route.ownerAgentId === selectedAgent.id &&
+      route.sourceId === startFilter.id &&
       route.targetId === startAgentId,
     )) return false
     const managerDashboardAgentIds = workflowBoardAgentIds[selectedAgent.id] ?? []
@@ -2125,11 +2144,13 @@ function App() {
   }, [agents, routes, selectedAgent, selectedTeamPlan, workflowBoardAgentIds, workflowInitials, workflowStatusFilters, workflowStatuses, workflowStops])
   const selectedTeamPlanMalformed = Boolean(
     selectedAgent?.teamProvisioningEnabled &&
+    selectedTeamPlanRequestAuthorized &&
     /<orchestrator_team_plan>/i.test(selectedAgent.lastResult) &&
     !selectedTeamPlan,
   )
   const selectedTeamPlanNeedsFormat = Boolean(
     selectedAgent?.teamProvisioningEnabled &&
+    selectedTeamPlanRequestAuthorized &&
     !selectedTeamPlan &&
     looksLikeManagementTeamPlan(selectedAgent.lastResult),
   )
@@ -2642,6 +2663,37 @@ function App() {
       lastAppliedTeamPlanSignature: selectedTeamPlan.signature,
     })
   }, [selectedAgent, selectedTeamPlan, selectedTeamPlanComplete, updateAgent])
+
+  useEffect(() => {
+    if (!sharedStateReady) return
+    let nextInitials = workflowInitials
+    let nextRoutes = routes
+    let nextPositions = workflowPositions
+    let changed = false
+
+    agents.filter((agent) => agent.assignment === 'management').forEach((manager) => {
+      const repaired = repairManagementStartTopology({
+        manager,
+        projectPath: manager.projectPath,
+        initials: nextInitials,
+        filters: workflowStatusFilters,
+        routes: nextRoutes,
+        boardAgentIds: workflowBoardAgentIds,
+        positions: nextPositions,
+        createId: () => crypto.randomUUID(),
+      })
+      nextInitials = repaired.initials
+      nextRoutes = repaired.routes
+      nextPositions = repaired.positions
+      changed = changed || repaired.changed
+    })
+
+    if (!changed) return
+    sharedStateDirty.current = true
+    setWorkflowInitials(nextInitials)
+    setRoutes(nextRoutes)
+    setWorkflowPositions(nextPositions)
+  }, [agents, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowStatusFilters])
 
   const setAgentTransmission = useCallback((agentId: string, active: boolean) => {
     setTransmittingAgentIds((current) =>
@@ -3482,8 +3534,13 @@ function App() {
         }),
       ]
       const teamCommittedAt = new Date().toISOString()
+      const startStatusId = statusByName.get(plan.startStatus.toLocaleLowerCase('de-DE'))?.id
+      if (!startStatusId) throw new Error(`${tx('Statusbefehl fehlt', 'Missing status command')}: ${plan.startStatus}`)
       const finalAgents = resolvedAgents.map((agent) => ({
         ...agent,
+        workflowStatusIds: agent.id === manager.id && agent.workflowStatusIds !== null
+          ? Array.from(new Set([...agent.workflowStatusIds, startStatusId]))
+          : agent.workflowStatusIds,
         lastAppliedTeamPlanSignature: agent.id === manager.id
           ? signature
           : agent.lastAppliedTeamPlanSignature,
@@ -3954,15 +4011,18 @@ function App() {
     const requestsTeamPlan =
       agent.assignment === 'management' &&
       agent.teamProvisioningEnabled &&
-      /\b(team|agent(?:en)?\s+(?:erstellen|einstellen|anlegen)|teamaufbau|team-plan)\b/i.test(text)
+      isExplicitTeamProvisioningRequest(text)
     const messageParts = [text]
     if (requiresWorkflowStatus) {
       messageParts.push('', workflowStatusInstruction(workflowStatusesForAgent(agent, workflowStatuses)))
     }
     if (requestsTeamPlan) {
+      authorizedTeamPlanRequestAgentIds.current.add(agent.id)
       automaticTeamPlanFormatRequests.current.delete(agent.id)
       clearAutomaticTeamPlanFormatClaim(agent.id)
       messageParts.push('', managementTeamPlanInstruction(projectWorkflowStatuses))
+    } else {
+      authorizedTeamPlanRequestAgentIds.current.delete(agent.id)
     }
     const message = messageParts.join('\n')
     try {
@@ -4457,6 +4517,17 @@ function App() {
     ) {
       return
     }
+    const sourceInitial = workflowInitials.find((initial) => initial.id === connection.source)
+    if (sourceInitial) {
+      const owner = agents.find((agent) => agent.id === sourceInitial.ownerAgentId)
+      if (owner?.assignment !== 'management' || connection.target !== owner.id) {
+        addEvent(
+          'Workflow-Verbindung abgelehnt',
+          'Ein Initial darf ausschließlich direkt mit seinem CEO verbunden werden.',
+        )
+        return
+      }
+    }
     const route: WorkflowRoute = {
       id: crypto.randomUUID(),
       ownerAgentId: activeDashboardOwnerId,
@@ -4464,7 +4535,7 @@ function App() {
       sourceId: connection.source,
       targetId: connection.target,
       condition: 'Immer',
-      prompt: 'Übernimm das Ergebnis, prüfe es gemäß deiner Rolle und arbeite selbstständig weiter.',
+      prompt: sourceInitial ? '' : 'Übernimm das Ergebnis, prüfe es gemäß deiner Rolle und arbeite selbstständig weiter.',
     }
     setRoutes((current) => [...current, route])
     const nodeName = (nodeId: string) =>
@@ -4644,13 +4715,16 @@ function App() {
   }
 
   const addWorkflowInitial = () => {
+    if (selectedAgent?.assignment !== 'management') {
+      addEvent('Initial nicht angelegt', 'Ein neutraler Start gehört ausschließlich in das Dashboard des CEO.')
+      return
+    }
     const initial: WorkflowInitial = {
       id: crypto.randomUUID(),
       ownerAgentId: activeDashboardOwnerId,
       projectPath: selectedProject?.path ?? '',
-      name: 'Initial',
-      instruction:
-        'Ermittle anhand deines Projektkontexts den aktuellen Stand, offene Aufgaben, Risiken und den sinnvollsten nächsten Schritt.',
+      name: 'Start',
+      instruction: '',
     }
     setWorkflowInitials((current) => [...current, initial])
   }
@@ -5186,6 +5260,7 @@ function App() {
                   looksLikeManagementTeamPlan(completedAgent.lastResult))
               if (
                 !autoRun &&
+                authorizedTeamPlanRequestAgentIds.current.has(completedAgent.id) &&
                 teamPlanNeedsFormatCorrection &&
                 !automaticTeamPlanFormatRequests.current.has(completedAgent.id) &&
                 claimAutomaticTeamPlanFormatRequest(
@@ -5474,7 +5549,9 @@ function App() {
         .flatMap((route) => {
           const target = agents.find((agent) => agent.id === route.targetId)
           const owner = agents.find((agent) => agent.id === initial.ownerAgentId)
-          return target ? [{ initial, owner, target }] : []
+          return target && owner?.assignment === 'management' && target.id === owner.id
+            ? [{ initial, owner, target }]
+            : []
         }),
     )
 
@@ -5496,10 +5573,20 @@ function App() {
           return
         }
 
+        const isNeutralManagerStart =
+          !initial.instruction.trim() && owner?.id === target.id && target.assignment === 'management'
+        const initialContext = isNeutralManagerStart
+          ? [
+              'Dies ist ausschließlich das neutrale Workflow-Startsignal und keine neue fachliche Aufgabe.',
+              'Prüfe die jüngste Benutzeranweisung in diesem Chat und den bestehenden Projektstand.',
+              'Nutze das vorhandene Team. Erstelle keinen Team-Vorschlag, außer der Benutzer hat ausdrücklich einen Teamumbau oder neue Agenten verlangt.',
+              'Entscheide mit einem deiner normalen Workflow-Statusbefehle, welcher vorhandene Fachagent die Anweisung als Nächstes bearbeitet.',
+            ]
+          : [initial.instruction]
         const message = [
           `Initial-Anfrage von ${owner?.name ?? 'Workflow-Orchestrator'}`,
           '',
-          initial.instruction,
+          ...initialContext,
           '',
           'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
           agentPromptInstruction(target),
@@ -7773,18 +7860,8 @@ function App() {
                 }
               />
             </label>
-            <label>
-              {tx('Startanweisung', 'Initial instruction')}
-              <textarea
-                rows={7}
-                value={selectedInitial.instruction}
-                onChange={(event) =>
-                  updateWorkflowInitial(selectedInitial.id, { instruction: event.target.value })
-                }
-              />
-            </label>
             <p className="modalHint">
-              {tx('Beim Start der Automatik wird diese Anweisung an jeden direkt verbundenen Agenten gesendet.', 'When automation starts, this instruction is sent to every directly connected agent.')}
+              {tx('Neutraler Start über den CEO. Fachliche Aufgaben stammen ausschließlich aus dem CEO-Chat.', 'Neutral start through the CEO. Project tasks come exclusively from the CEO chat.')}
             </p>
             <div className="modalActions">
               <button className="deleteButton" onClick={() => deleteWorkflowInitial(selectedInitial.id)}>

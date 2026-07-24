@@ -66,7 +66,7 @@ Die Überwachung startet keine eigenmächtigen Änderungen an Agenten, Prompt-Da
 
 #### Kontrollierter Team-Aufbau
 
-Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltungsagenten im Chat ausdrücklich mit der vollständigen Vorbereitung eines Projekts beauftragen. Der Agent erhält dabei die vorhandene projektweite Statusliste, verwendet passende Statusbefehle unverändert wieder und ergänzt nur tatsächlich fehlende Befehle. Er plant Namen, Rollen, vollständige Arbeitsanweisungen, Statuszuweisungen, den ersten auszuführenden Agenten mit Startanweisung, alle Verbindungen und mindestens einen eindeutigen Abschlussweg. Die Oberfläche zeigt diesen validierbaren Team-Vorschlag direkt im Agenten-Chat zur Prüfung und kontrollierten Übernahme an.
+Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltungsagenten im Chat ausdrücklich mit der vollständigen Vorbereitung oder Umstrukturierung eines Teams beauftragen. Normale Produktänderungen, Reparaturen und Weiterentwicklungen autorisieren keinen Team-Vorschlag und verwenden das bestehende Team. Selbst wenn eine CEO-Antwort dabei irrtümlich Teamdaten enthält, bietet die Oberfläche diese ohne vorherige ausdrückliche Team-Anforderung nicht zur Übernahme an. Bei einem berechtigten Team-Aufbau erhält der Agent die vorhandene projektweite Statusliste, verwendet passende Statusbefehle unverändert wieder und ergänzt nur tatsächlich fehlende Befehle. Er plant Namen, Rollen, vollständige Arbeitsanweisungen, Statuszuweisungen, alle Verbindungen und mindestens einen eindeutigen Abschlussweg. Die Oberfläche zeigt diesen validierbaren Team-Vorschlag direkt im Agenten-Chat zur Prüfung und kontrollierten Übernahme an.
 
 `Team übernehmen` führt ausschließlich bei `Auto Stop` folgende Schritte im aktuell ausgewählten Projekt aus:
 
@@ -74,7 +74,8 @@ Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltu
 - noch nicht vorhandene Statusbefehle projektweit anlegen
 - Rollen und Statusbefehle zuweisen
 - Arbeitsanweisungen als `Anweisung.md` speichern, ohne sie als Aufgabe zu starten
-- einen Initial-Baustein mit der geplanten Startanweisung anlegen und mit dem vorgesehenen ersten Agenten verbinden
+- einen neutralen Initial-Baustein ohne fachliche Aufgabe anlegen und ausschließlich mit dem CEO verbinden
+- den CEO über einen normalen Statusfilter mit dem vorgesehenen ersten Fachagenten verbinden
 - den Startpfad beim Verwaltungsagenten und die Folgepfade bei den jeweils sendenden Agenten anordnen
 - jede geplante Übergabe über einen passenden Statusfilter mit dem nächsten Agenten verbinden
 - jeden geplanten Gesamtabschluss über einen eigenen Statusfilter mit einem Stopp-Baustein verbinden
@@ -86,7 +87,7 @@ Der Verwaltungsagent besitzt damit eine systemgestützte Koordinationsfähigkeit
 
 Scheitert derselbe Agent zweimal hintereinander, behandelt der Orchestrator dies als mögliche Überlastung oder als zu großen Arbeitsumfang. Der CEO erhält den letzten verfügbaren Arbeitsstand und den konkreten Fehlerkontext. Er muss die Restarbeit in begrenzte, prüfbare Pakete zerlegen und bei Bedarf einen zusätzlichen Spezialagenten samt Rolle, Prompt, benötigten Statusbefehlen und Dashboard-Verbindungen vorschlagen. Sobald dieser maschinenlesbare Team-Vorschlag vorliegt, wechselt die Automatik auf `Auto Stop`. Erst der Benutzer prüft und übernimmt den Vorschlag; neue Agenten werden weder heimlich angelegt noch automatisch gestartet.
 
-Bei Initial-Anfragen, Zeitplänen, Agentenübergaben und Verwaltungsprüfungen wird die vollständige aktive Prompt-Datei des jeweiligen Zielagenten als verbindliche Arbeitsanweisung mitgesendet. Die kurze Rollenbezeichnung dient nur der Übersicht und ersetzt nicht mehr den eigentlichen Prompt.
+Bei Zeitplänen, Agentenübergaben und Verwaltungsprüfungen wird die vollständige aktive Prompt-Datei des jeweiligen Zielagenten als verbindliche Arbeitsanweisung mitgesendet. Der Initial-Baustein ist davon getrennt: Er enthält niemals eine Prompt-Aufgabe und sendet ausschließlich ein neutrales Startsignal an den CEO. Dieser liest die jüngste Benutzeranweisung in seinem Chat und entscheidet anschließend mit einem normalen Statusbefehl über die Weitergabe an einen bestehenden Fachagenten. Die kurze Rollenbezeichnung dient nur der Übersicht und ersetzt nicht mehr den eigentlichen Prompt.
 
 Mehrere gleichzeitige Übergaben an denselben Zielagenten werden in einer zielbezogenen Warteschlange serialisiert. Ein CEO, Integrator oder anderer Sammelpunkt erhält dadurch erst die nächste Nachricht, wenn sein aktueller Codex-Turn abgeschlossen ist; parallele Rückmeldungen können den laufenden Turn nicht überschreiben.
 

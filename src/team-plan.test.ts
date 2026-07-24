@@ -7,14 +7,18 @@ import { createSharedStateStore } from '../server/shared-state.mjs'
 import {
   MANAGEMENT_ERROR_STATUS_NAME,
   buildTeamTopology,
+  findAuthorizedManagementTeamPlan,
+  isExplicitTeamProvisioningRequest,
   looksLikeManagementTeamPlan,
   parseManagementTeamPlan,
+  repairManagementStartTopology,
 } from './team-plan.ts'
 
 const teamProposal = `<orchestrator_team_plan>
 {
   "projectGoal": "Ein getestetes Browser-Spiel",
   "startAgent": "Architekt",
+  "startStatus": "Weiterleitung",
   "startInstruction": "Erstelle die technische Spezifikation und übergib sie an die Entwicklung.",
   "statusCommands": [
     { "name": "Weiterleitung", "meaning": "Das Ergebnis geht an den nächsten Agenten." },
@@ -36,6 +40,77 @@ const teamProposal = `<orchestrator_team_plan>
   ]
 }
 </orchestrator_team_plan>`
+
+test('requires an explicit team change instead of treating product changes as provisioning', () => {
+  assert.equal(isExplicitTeamProvisioningRequest('Erstelle bitte ein neues Team für das Projekt.'), true)
+  assert.equal(isExplicitTeamProvisioningRequest('Füge einen weiteren Agenten für Audio hinzu.'), true)
+  assert.equal(isExplicitTeamProvisioningRequest('Kann das bestehende Team das Spiel auf Auto-Run umbauen?'), false)
+  assert.equal(isExplicitTeamProvisioningRequest('Ändere bitte die Sprungsteuerung im vorhandenen Spiel.'), false)
+})
+
+test('accepts a team plan only as response to an explicit team request', () => {
+  assert.equal(findAuthorizedManagementTeamPlan([
+    { role: 'user', text: 'Baue die Steuerung des bestehenden Spiels um.' },
+    { role: 'assistant', text: teamProposal },
+  ]), null)
+  assert.ok(findAuthorizedManagementTeamPlan([
+    { role: 'user', text: 'Stelle ein neues Team für dieses Projekt zusammen.' },
+    { role: 'assistant', text: teamProposal },
+  ]))
+  assert.equal(findAuthorizedManagementTeamPlan([
+    { role: 'user', text: 'Stelle ein neues Team für dieses Projekt zusammen.' },
+    { role: 'assistant', text: teamProposal },
+    { role: 'user', text: 'Baue die Steuerung des bestehenden Spiels um.' },
+    { role: 'assistant', text: 'Die bestehende Steuerung wurde angepasst.' },
+  ]), null)
+})
+
+test('repairs an unambiguous legacy CEO start without changing specialist routes', () => {
+  const repaired = repairManagementStartTopology({
+    manager: { id: 'ceo', name: 'CEO' },
+    projectPath: 'C:\\Projects\\game',
+    initials: [{
+      id: 'initial', ownerAgentId: 'ceo', projectPath: 'C:\\Projects\\game',
+      name: 'Team-Start', instruction: 'Erstelle ein neues Jump-and-Run-Spiel.',
+    }],
+    filters: [{
+      id: 'start-filter', ownerAgentId: 'ceo', projectPath: 'C:\\Projects\\game',
+      name: 'Status: Weiterleitung', statusId: 'status-forward',
+    }],
+    routes: [
+      {
+        id: 'legacy-start', ownerAgentId: 'ceo', projectPath: 'C:\\Projects\\game',
+        sourceId: 'initial', targetId: 'ceo', condition: 'Immer', prompt: 'Alte Prompt-Aufgabe',
+      },
+      {
+        id: 'specialist-route', ownerAgentId: 'designer', projectPath: 'C:\\Projects\\game',
+        sourceId: 'designer', targetId: 'qa', condition: 'Immer', prompt: 'Unverändert',
+      },
+    ],
+    boardAgentIds: { ceo: ['ceo', 'designer'] },
+    positions: {},
+    createId: (() => {
+      let id = 0
+      return () => `repair-${++id}`
+    })(),
+  })
+
+  assert.equal(repaired.changed, true)
+  assert.deepEqual(repaired.initials[0], {
+    id: 'initial', ownerAgentId: 'ceo', projectPath: 'C:\\Projects\\game',
+    name: 'Start', instruction: '',
+  })
+  assert.ok(repaired.routes.some((route) => route.sourceId === 'initial' && route.targetId === 'ceo' && route.prompt === ''))
+  assert.ok(repaired.routes.some((route) => route.sourceId === 'ceo' && route.targetId === 'start-filter'))
+  assert.ok(repaired.routes.some((route) => route.sourceId === 'start-filter' && route.targetId === 'designer'))
+  assert.ok(repaired.routes.some((route) => route.id === 'specialist-route' && route.prompt === 'Unverändert'))
+  assert.deepEqual(repaired.positions, {
+    'ceo:initial': { x: 50, y: 90 },
+    'ceo:ceo': { x: 280, y: 90 },
+    'ceo:start-filter': { x: 510, y: 90 },
+    'ceo:designer': { x: 740, y: 90 },
+  })
+})
 
 test('detects a prose-only team proposal that needs format correction', () => {
   assert.equal(looksLikeManagementTeamPlan(`
@@ -121,11 +196,17 @@ test('builds and atomically persists a complete managed team setup', async () =>
   })
 
   assert.equal(topology.initials.length, 1)
-  assert.equal(topology.filters.length, 7)
+  assert.equal(topology.filters.length, 8)
   assert.equal(topology.stops.length, 1)
-  assert.equal(topology.routes.length, 15)
+  assert.equal(topology.routes.length, 17)
   const initial = topology.initials[0]
-  assert.ok(topology.routes.some((route) => route.sourceId === initial.id && route.targetId === 'agent-architect'))
+  assert.equal(initial.name, 'Start')
+  assert.equal(initial.instruction, '')
+  assert.ok(topology.routes.some((route) => route.sourceId === initial.id && route.targetId === manager.id))
+  const startFilter = topology.filters.find((filter) => filter.name === 'Weiterleitung: CEO → Architekt')
+  assert.ok(startFilter)
+  assert.ok(topology.routes.some((route) => route.sourceId === manager.id && route.targetId === startFilter.id))
+  assert.ok(topology.routes.some((route) => route.sourceId === startFilter.id && route.targetId === 'agent-architect'))
   assert.ok(topology.routes.some((route) => {
     const filter = topology.filters.find((item) => item.id === route.sourceId)
     return filter?.name === 'Weiterleitung: Architekt → Entwickler' && route.targetId === 'agent-developer'
@@ -145,8 +226,9 @@ test('builds and atomically persists a complete managed team setup', async () =>
   assert.deepEqual(topology.boardAgentIds['agent-developer'], ['agent-developer', 'agent-qa', 'agent-ceo'])
   assert.deepEqual(topology.boardAgentIds['agent-qa'], ['agent-qa', 'agent-developer', 'agent-ceo'])
   assert.deepEqual(topology.positions[`agent-ceo:${initial.id}`], { x: 50, y: 90 })
-  assert.deepEqual(topology.positions['agent-ceo:agent-architect'], { x: 280, y: 90 })
-  assert.deepEqual(topology.positions['agent-ceo:agent-ceo'], { x: 50, y: 260 })
+  assert.deepEqual(topology.positions['agent-ceo:agent-ceo'], { x: 280, y: 90 })
+  assert.deepEqual(topology.positions[`agent-ceo:${startFilter.id}`], { x: 510, y: 90 })
+  assert.deepEqual(topology.positions['agent-ceo:agent-architect'], { x: 740, y: 90 })
 
   const directory = await mkdtemp(join(tmpdir(), 'codex-orchestrator-team-'))
   try {

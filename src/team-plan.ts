@@ -29,11 +29,42 @@ export type ManagementTeamPlanStop = {
 export type ManagementTeamPlan = {
   projectGoal: string
   startAgent: string
+  startStatus: string
   startInstruction: string
   statusCommands: ManagementTeamPlanStatusCommand[]
   agents: ManagementTeamPlanAgent[]
   connections: ManagementTeamPlanConnection[]
   stops: ManagementTeamPlanStop[]
+}
+
+export function isExplicitTeamProvisioningRequest(text: string) {
+  const normalized = text.trim().toLocaleLowerCase('de-DE')
+  if (!normalized) return false
+
+  return Boolean(
+    /\b(?:teamvorschlag|team-plan|teamplan)\b/.test(normalized) ||
+    /\b(?:team|projektteam)\b.{0,48}\b(?:erstellen|anlegen|aufbauen|zusammenstellen|restrukturieren|ersetzen)\b/.test(normalized) ||
+    /\b(?:erstelle|erstellen|lege|anlegen|baue|aufbauen|stelle|zusammenstellen|restrukturiere|ersetze)\b.{0,48}\b(?:team|projektteam)\b/.test(normalized) ||
+    /\b(?:neuen|weiteren|zusaetzlichen|zusätzlichen)\s+agent(?:en)?\b/.test(normalized) ||
+    /\bagent(?:en)?\b.{0,32}\b(?:hinzufuegen|hinzufügen|anlegen|erstellen|ersetzen)\b/.test(normalized)
+  )
+}
+
+export function findAuthorizedManagementTeamPlan(messages: Array<{ role: string; text: string }>) {
+  for (let assistantIndex = messages.length - 1; assistantIndex >= 0; assistantIndex -= 1) {
+    const assistantMessage = messages[assistantIndex]
+    if (assistantMessage.role !== 'assistant') continue
+    const parsed = parseManagementTeamPlan(assistantMessage.text)
+    if (!parsed) return null
+
+    for (let requestIndex = assistantIndex - 1; requestIndex >= 0; requestIndex -= 1) {
+      const request = messages[requestIndex]
+      if (request.role !== 'user') continue
+      return isExplicitTeamProvisioningRequest(request.text) ? parsed : null
+    }
+    return null
+  }
+  return null
 }
 
 export type TeamAgentRef = { id: string; name: string }
@@ -50,6 +81,91 @@ export type TeamRoute = {
   condition: string
   prompt: string
   lastForwardedTask?: string
+}
+
+type ManagementStartRepairInput = {
+  manager: TeamAgentRef
+  projectPath: string
+  initials: TeamInitial[]
+  filters: TeamStatusFilter[]
+  routes: TeamRoute[]
+  boardAgentIds: Record<string, string[]>
+  positions: Record<string, { x: number; y: number }>
+  createId: () => string
+}
+
+export function repairManagementStartTopology(input: ManagementStartRepairInput) {
+  const managerInitials = input.initials.filter((initial) =>
+    initial.ownerAgentId === input.manager.id && samePath(initial.projectPath, input.projectPath),
+  )
+  if (managerInitials.length === 0) {
+    return { initials: input.initials, routes: input.routes, positions: input.positions, changed: false }
+  }
+
+  let changed = false
+  const managerInitialIds = new Set(managerInitials.map((initial) => initial.id))
+  const initials = input.initials.map((initial) => {
+    if (!managerInitialIds.has(initial.id) || (initial.name === 'Start' && !initial.instruction)) return initial
+    changed = true
+    return { ...initial, name: 'Start', instruction: '' }
+  })
+  let routes = input.routes.flatMap((route) => {
+    if (!managerInitialIds.has(route.sourceId)) return [route]
+    if (route.targetId !== input.manager.id) {
+      changed = true
+      return []
+    }
+    if (route.ownerAgentId === input.manager.id && route.prompt === '') return [route]
+    changed = true
+    return [{ ...route, ownerAgentId: input.manager.id, prompt: '' }]
+  })
+  const positions = { ...input.positions }
+  const setPosition = (nodeId: string, position: { x: number; y: number }) => {
+    const key = `${input.manager.id}:${nodeId}`
+    const current = positions[key]
+    if (current?.x === position.x && current.y === position.y) return
+    changed = true
+    positions[key] = position
+  }
+
+  managerInitials.forEach((initial, index) => {
+    setPosition(initial.id, { x: 50, y: 90 + index * 130 })
+    if (routes.some((route) => route.sourceId === initial.id && route.targetId === input.manager.id)) return
+    changed = true
+    routes.push({
+      id: input.createId(), ownerAgentId: input.manager.id, projectPath: input.projectPath,
+      sourceId: initial.id, targetId: input.manager.id, condition: 'Immer', prompt: '',
+    })
+  })
+
+  const startFilters = input.filters.filter((filter) =>
+    filter.ownerAgentId === input.manager.id && samePath(filter.projectPath, input.projectPath),
+  )
+  const specialistIds = (input.boardAgentIds[input.manager.id] ?? []).filter((id) => id !== input.manager.id)
+  if (startFilters.length === 1 && specialistIds.length === 1) {
+    const [startFilter] = startFilters
+    const [specialistId] = specialistIds
+    setPosition(input.manager.id, { x: 280, y: 90 })
+    setPosition(startFilter.id, { x: 510, y: 90 })
+    setPosition(specialistId, { x: 740, y: 90 })
+    if (!routes.some((route) => route.sourceId === input.manager.id && route.targetId === startFilter.id)) {
+      changed = true
+      routes.push({
+        id: input.createId(), ownerAgentId: input.manager.id, projectPath: input.projectPath,
+        sourceId: input.manager.id, targetId: startFilter.id, condition: 'Immer', prompt: '',
+      })
+    }
+    if (!routes.some((route) => route.sourceId === startFilter.id && route.targetId === specialistId)) {
+      changed = true
+      routes.push({
+        id: input.createId(), ownerAgentId: input.manager.id, projectPath: input.projectPath,
+        sourceId: startFilter.id, targetId: specialistId, condition: 'Immer',
+        prompt: 'Übernimm die vom CEO freigegebene Aufgabe und bearbeite sie gemäß deiner Rolle.',
+      })
+    }
+  }
+
+  return { initials, routes, positions, changed }
 }
 
 function normalizedName(value: string) {
@@ -153,10 +269,16 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
     const projectGoal = typeof raw.projectGoal === 'string' ? raw.projectGoal.trim() : ''
     const requestedStartAgent = typeof raw.startAgent === 'string' ? raw.startAgent.trim() : ''
     const startAgent = agents.find((agent) => normalizedName(agent.name) === normalizedName(requestedStartAgent))?.name ?? agents[0].name
+    const requestedStartStatus = typeof raw.startStatus === 'string' ? raw.startStatus.trim() : ''
+    const startStatus = statusCommands.find((status) => normalizedName(status.name) === normalizedName(requestedStartStatus))?.name ??
+      statusCommands.find((status) => normalizedName(status.name) !== normalizedName(MANAGEMENT_ERROR_STATUS_NAME))?.name ?? ''
+    if (!startStatus || normalizedName(startStatus) === normalizedName(MANAGEMENT_ERROR_STATUS_NAME)) {
+      throw new Error('invalid start status')
+    }
     const startInstruction = typeof raw.startInstruction === 'string' && raw.startInstruction.trim()
       ? raw.startInstruction.trim()
       : `Beginne mit der dir zugewiesenen Arbeit für dieses Projektziel: ${projectGoal || 'Setze den beschriebenen Teamauftrag um.'}`
-    const plan = { projectGoal, startAgent, startInstruction, statusCommands, agents, connections, stops }
+    const plan = { projectGoal, startAgent, startStatus, startInstruction, statusCommands, agents, connections, stops }
       return { plan, signature: JSON.stringify(plan) }
     } catch {
       continue
@@ -216,10 +338,22 @@ export function buildTeamTopology(input: TeamTopologyInput) {
   const startAgent = agentByName.get(normalizedName(plan.startAgent))
   if (!startAgent) throw new Error(`Start-Agent fehlt: ${plan.startAgent}`)
 
-  const existingInitial = input.initials.find((item) => item.ownerAgentId === manager.id && item.name === 'Team-Start')
+  const existingInitial = input.initials.find((item) =>
+    item.ownerAgentId === manager.id && (item.name === 'Start' || item.name === 'Team-Start'),
+  )
   const configuredInitial = {
     id: existingInitial?.id ?? createId(), ownerAgentId: manager.id, projectPath,
-    name: 'Team-Start', instruction: plan.startInstruction,
+    name: 'Start', instruction: '',
+  }
+  const startStatus = statusByName.get(normalizedName(plan.startStatus))
+  if (!startStatus) throw new Error(`Statusbefehl fehlt: ${plan.startStatus}`)
+  const startFilterName = `${plan.startStatus}: ${manager.name} → ${startAgent.name}`
+  const existingStartFilter = input.filters.find((item) =>
+    item.ownerAgentId === manager.id && samePath(item.projectPath, projectPath) && item.name === startFilterName,
+  )
+  const startFilter = {
+    id: existingStartFilter?.id ?? createId(), ownerAgentId: manager.id, projectPath,
+    name: startFilterName, statusId: startStatus.id,
   }
   const planFilters = plan.connections.map((connection) => {
     const status = statusByName.get(normalizedName(connection.status))
@@ -254,7 +388,9 @@ export function buildTeamTopology(input: TeamTopologyInput) {
     return { id: existing?.id ?? createId(), ownerAgentId: source.id, projectPath, name, statusId: status.id, stopId: planStops[index].id }
   })
   const newRoutes: TeamRoute[] = [
-    { id: createId(), ownerAgentId: manager.id, projectPath, sourceId: configuredInitial.id, targetId: startAgent.id, condition: 'Immer', prompt: plan.startInstruction },
+    { id: createId(), ownerAgentId: manager.id, projectPath, sourceId: configuredInitial.id, targetId: manager.id, condition: 'Immer', prompt: '' },
+    { id: createId(), ownerAgentId: manager.id, projectPath, sourceId: manager.id, targetId: startFilter.id, condition: 'Immer', prompt: '' },
+    { id: createId(), ownerAgentId: manager.id, projectPath, sourceId: startFilter.id, targetId: startAgent.id, condition: 'Immer', prompt: 'Übernimm die vom CEO freigegebene Aufgabe und bearbeite sie gemäß deiner Rolle.' },
     ...plan.connections.flatMap((connection, index) => {
       const source = agentByName.get(normalizedName(connection.from))!
       const target = agentByName.get(normalizedName(connection.to))!
@@ -302,8 +438,9 @@ export function buildTeamTopology(input: TeamTopologyInput) {
   const positions = {
     ...retainedPositions,
     [`${manager.id}:${configuredInitial.id}`]: { x: 50, y: 90 },
-    [`${manager.id}:${startAgent.id}`]: { x: 280, y: 90 },
-    [`${manager.id}:${manager.id}`]: { x: 50, y: 260 },
+    [`${manager.id}:${manager.id}`]: { x: 280, y: 90 },
+    [`${manager.id}:${startFilter.id}`]: { x: 510, y: 90 },
+    [`${manager.id}:${startAgent.id}`]: { x: 740, y: 90 },
     ...Object.fromEntries(plan.connections.flatMap((connection, index) => {
       const source = agentByName.get(normalizedName(connection.from))!
       const target = agentByName.get(normalizedName(connection.to))!
@@ -320,7 +457,7 @@ export function buildTeamTopology(input: TeamTopologyInput) {
 
   return {
     initials: [...input.initials.filter((item) => !samePath(item.projectPath, projectPath)), configuredInitial],
-    filters: [...input.filters.filter((item) => !samePath(item.projectPath, projectPath)), ...planFilters, ...errorFilters, ...stopFilters.map(({ stopId: _stopId, ...filter }) => filter)],
+    filters: [...input.filters.filter((item) => !samePath(item.projectPath, projectPath)), startFilter, ...planFilters, ...errorFilters, ...stopFilters.map(({ stopId: _stopId, ...filter }) => filter)],
     stops: [...input.stops.filter((item) => !samePath(item.projectPath, projectPath)), ...planStops],
     routes: [...input.routes.filter((item) => !samePath(item.projectPath, projectPath)), ...newRoutes],
     boardAgentIds,
