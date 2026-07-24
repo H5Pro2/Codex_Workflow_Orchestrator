@@ -1744,20 +1744,35 @@ label {
 }
 
 .workflowCanvas .react-flow__handle {
-  background: var(--accent);
-  border: 3px solid var(--surface-inset);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
-  box-sizing: border-box;
+  --workflow-handle-color: var(--accent);
+  background: transparent;
+  border: 0;
   height: 14px;
   top: 50%;
+  width: 14px;
+}
+
+.workflowCanvas .react-flow__handle::before {
+  background: var(--workflow-handle-color);
+  border: 3px solid var(--surface-inset);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--workflow-handle-color) 60%, transparent);
+  box-sizing: border-box;
+  content: "";
+  height: 14px;
+  left: 50%;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, calc(-50% - 2.5px));
   transition: background-color 120ms ease, box-shadow 120ms ease;
   width: 14px;
 }
 
-.workflowCanvas .react-flow__handle:hover,
-.workflowCanvas .react-flow__handle.connectingto,
-.workflowCanvas .react-flow__handle.connectingfrom {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+.workflowCanvas .react-flow__handle:hover::before,
+.workflowCanvas .react-flow__handle.connectingto::before,
+.workflowCanvas .react-flow__handle.connectingfrom::before {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--workflow-handle-color) 22%, transparent);
 }
 
 .workflowNodeContent {
@@ -1806,7 +1821,7 @@ label {
 }
 
 .workflowCanvas .react-flow__node.prompt .react-flow__handle {
-  background: #facc15;
+  --workflow-handle-color: #facc15;
 }
 
 .workflowCanvas .react-flow__node.initial {
@@ -1824,7 +1839,7 @@ label {
 }
 
 .workflowCanvas .react-flow__node.initial .react-flow__handle {
-  background: #facc15;
+  --workflow-handle-color: #facc15;
 }
 
 .workflowCanvas .react-flow__node.statusFilter {
@@ -1838,7 +1853,7 @@ label {
 }
 
 .workflowCanvas .react-flow__node.statusFilter .react-flow__handle {
-  background: #60a5fa;
+  --workflow-handle-color: #60a5fa;
 }
 
 .workflowCanvas .react-flow__node.stop {
@@ -1852,7 +1867,7 @@ label {
 }
 
 .workflowCanvas .react-flow__node.stop .react-flow__handle {
-  background: #fb7185;
+  --workflow-handle-color: #fb7185;
 }
 
 .workflowCanvas .react-flow__node.timer {
@@ -1875,7 +1890,7 @@ label {
 }
 
 .workflowCanvas .react-flow__node.timer .react-flow__handle {
-  background: #f4c96b;
+  --workflow-handle-color: #f4c96b;
 }
 
 .timerModal {
@@ -2022,6 +2037,35 @@ label {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2.5;
+}
+
+.workflowConnectionCursorHalo {
+  animation: workflowConnectionPulse 900ms ease-in-out infinite;
+  fill: color-mix(in srgb, var(--accent) 20%, transparent);
+  pointer-events: none;
+  stroke: color-mix(in srgb, var(--accent) 50%, transparent);
+  stroke-width: 1px;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.workflowConnectionCursor {
+  fill: var(--accent);
+  pointer-events: none;
+  stroke: var(--surface-inset);
+  stroke-width: 3px;
+}
+
+@keyframes workflowConnectionPulse {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
 }
 
 .workflowCanvas .react-flow__edge.selectedRoute .react-flow__edge-path,

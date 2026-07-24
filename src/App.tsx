@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
-  ConnectionLineType,
   Controls,
   Handle,
   Position,
   ReactFlow,
+  ReactFlowProvider,
+  getSmoothStepPath,
   type Connection,
+  type ConnectionLineComponentProps,
   type Edge,
   type Node,
   type NodeProps,
   type ReactFlowInstance,
   useEdgesState,
   useNodesState,
+  useUpdateNodeInternals,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './App.css'
@@ -328,6 +331,33 @@ function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
 }
 
 const workflowNodeTypes = { workflow: WorkflowNode }
+
+function WorkflowConnectionLine({
+  fromX,
+  fromY,
+  toX,
+  toY,
+  fromPosition,
+  toPosition,
+}: ConnectionLineComponentProps) {
+  const [path] = getSmoothStepPath({
+    sourceX: fromX,
+    sourceY: fromY,
+    sourcePosition: fromPosition,
+    targetX: toX,
+    targetY: toY,
+    targetPosition: toPosition,
+    borderRadius: 10,
+  })
+
+  return (
+    <g className="workflowConnectionPreview">
+      <path className="react-flow__connection-path" d={path} fill="none" />
+      <circle className="workflowConnectionCursorHalo" cx={toX} cy={toY} r="11" />
+      <circle className="workflowConnectionCursor" cx={toX} cy={toY} r="7" />
+    </g>
+  )
+}
 
 const STORAGE_KEY = 'codex-workflow-orchestrator'
 const LANGUAGE_STORAGE_KEY = 'codex-workflow-orchestrator-language'
@@ -1236,6 +1266,8 @@ function WorkflowDashboard({
         ...agents.map((agent, index) => ({
           id: agent.id,
           type: 'workflow',
+          width: 190,
+          height: 64,
           position: positions[agent.id] ?? { x: 70 + (index % 3) * 220, y: 70 + Math.floor(index / 3) * 150 },
           data: { label: agent.name, kind: 'agent' as const, status: agent.status, kindLabel: 'Agent' },
           className: `workflowNode agent ${agent.status} ${agent.id === selectedAgentNodeId ? 'nodeSelected' : ''}`,
@@ -1243,6 +1275,8 @@ function WorkflowDashboard({
         ...prompts.map((prompt, index) => ({
           id: prompt.id,
           type: 'workflow',
+          width: 190,
+          height: 64,
           position: positions[prompt.id] ?? { x: 180 + (index % 3) * 220, y: 250 + Math.floor(index / 3) * 150 },
           data: { label: prompt.name, kind: 'prompt' as const, kindLabel: language === 'de' ? 'Prompt / Bedingung' : 'Prompt / condition' },
           className: 'workflowNode prompt',
@@ -1250,6 +1284,8 @@ function WorkflowDashboard({
         ...initials.map((initial, index) => ({
           id: initial.id,
           type: 'workflow',
+          width: 190,
+          height: 64,
           position: positions[initial.id] ?? { x: 40, y: 70 + index * 130 },
           data: { label: initial.name, kind: 'initial' as const, kindLabel: language === 'de' ? 'Start' : 'Start' },
           className: 'workflowNode initial',
@@ -1259,6 +1295,8 @@ function WorkflowDashboard({
           return {
             id: filter.id,
             type: 'workflow',
+            width: 190,
+            height: 64,
             position: positions[filter.id] ?? { x: 260 + (index % 3) * 220, y: 430 + Math.floor(index / 3) * 130 },
             data: { label: status?.name || filter.name, kind: 'status' as const, kindLabel: language === 'de' ? 'Status-Filter' : 'Status filter' },
             className: 'workflowNode statusFilter',
@@ -1267,6 +1305,8 @@ function WorkflowDashboard({
         ...stops.map((stop, index) => ({
           id: stop.id,
           type: 'workflow',
+          width: 190,
+          height: 64,
           position: positions[stop.id] ?? { x: 700, y: 120 + index * 130 },
           data: { label: stop.name, kind: 'stop' as const, kindLabel: language === 'de' ? 'Pfad beenden' : 'End path' },
           className: 'workflowNode stop',
@@ -1274,6 +1314,8 @@ function WorkflowDashboard({
         ...timers.map((timer, index) => ({
           id: timer.id,
           type: 'workflow',
+          width: 190,
+          height: 64,
           position: positions[timer.id] ?? { x: 40, y: 240 + index * 130 },
           data: { label: timer.name, kind: 'timer' as const, kindLabel: language === 'de' ? 'Zeitsteuerung' : 'Schedule' },
           className: `workflowNode timer ${timer.enabled ? 'enabled' : 'disabled'}`,
@@ -1298,6 +1340,7 @@ function WorkflowDashboard({
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+  const updateNodeInternals = useUpdateNodeInternals()
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null)
   const [agentDragOver, setAgentDragOver] = useState(false)
   const initialNodesRef = useRef(initialNodes)
@@ -1343,6 +1386,14 @@ function WorkflowDashboard({
     }, 40)
     return () => window.clearTimeout(timer)
   }, [dashboardId, flowInstance, nodeSignature])
+
+  useEffect(() => {
+    if (!nodeSignature) return
+    const frame = window.requestAnimationFrame(() => {
+      initialNodesRef.current.forEach((node) => updateNodeInternals(node.id))
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [dashboardId, nodeSignature, updateNodeInternals])
 
   return (
     <div
@@ -1413,8 +1464,9 @@ function WorkflowDashboard({
           isNodeDraggingRef.current = false
           onNodePositionChange(node.id, node.position)
         }}
+        autoPanOnConnect={false}
+        connectionLineComponent={WorkflowConnectionLine}
         connectionLineStyle={{ stroke: '#a1a1aa', strokeWidth: 2.5 }}
-        connectionLineType={ConnectionLineType.SmoothStep}
         connectionRadius={26}
         fitView
         fitViewOptions={{ padding: 0.22 }}
@@ -7333,83 +7385,85 @@ function App() {
                 </div>
               </div>
             </div>
-            <WorkflowDashboard
-              agents={dashboardAgents}
-              prompts={dashboardPrompts}
-              initials={projectInitials}
-              statusFilters={projectStatusFilters}
-              stops={projectStops}
-              timers={projectTimers}
-              statuses={projectWorkflowStatuses}
-              positions={dashboardPositions}
-              dashboardId={activeDashboardOwnerId}
-              layoutRevision={layoutRevision}
-              autoRun={autoRun}
-              routes={dashboardRoutes}
-              selectedRouteId={selectedRouteId}
-              onConnectAgents={connectAgents}
-              onSelectRoute={(routeId) => {
-                setSelectedRouteId(routeId)
-                setSelectedWorkflowAgentId('')
-                setSelectedInitialId('')
-                setSelectedStatusFilterId('')
-                setSelectedStopId('')
-              }}
-              onSelectPrompt={(promptId) => {
-                setSelectedPromptId(promptId)
-                setSelectedWorkflowAgentId('')
-                setSelectedInitialId('')
-                setSelectedStatusFilterId('')
-                setSelectedStopId('')
-              }}
-              onSelectAgent={(agentId) => {
-                setSelectedWorkflowAgentId(agentId)
-                setSelectedRouteId('')
-                setSelectedInitialId('')
-                setSelectedStatusFilterId('')
-                setSelectedStopId('')
-              }}
-              onSelectInitial={(initialId) => {
-                setSelectedInitialId(initialId)
-                setSelectedWorkflowAgentId('')
-                setSelectedRouteId('')
-                setSelectedStatusFilterId('')
-                setSelectedStopId('')
-              }}
-              onSelectStatusFilter={(filterId) => {
-                setSelectedStatusFilterId(filterId)
-                setSelectedWorkflowAgentId('')
-                setSelectedRouteId('')
-                setSelectedInitialId('')
-                setSelectedStopId('')
-              }}
-              onSelectStop={(stopId) => {
-                setSelectedStopId(stopId)
-                setSelectedWorkflowAgentId('')
-                setSelectedRouteId('')
-                setSelectedInitialId('')
-                setSelectedStatusFilterId('')
-                setSelectedTimerId('')
-              }}
-              onSelectTimer={(timerId) => {
-                setSelectedTimerId(timerId)
-                setSelectedWorkflowAgentId('')
-                setSelectedRouteId('')
-                setSelectedInitialId('')
-                setSelectedStatusFilterId('')
-                setSelectedStopId('')
-              }}
-              onNodePositionChange={(nodeId, position) =>
-                setWorkflowPositions((current) => ({
-                  ...current,
-                  [`${activeDashboardOwnerId}:${nodeId}`]: position,
-                }))
-              }
-              onAgentDrop={dropAgentIntoDashboard}
-              draggedAgentId={draggedAgentId}
-              selectedAgentNodeId={selectedWorkflowAgentId}
-              language={language}
-            />
+            <ReactFlowProvider>
+              <WorkflowDashboard
+                agents={dashboardAgents}
+                prompts={dashboardPrompts}
+                initials={projectInitials}
+                statusFilters={projectStatusFilters}
+                stops={projectStops}
+                timers={projectTimers}
+                statuses={projectWorkflowStatuses}
+                positions={dashboardPositions}
+                dashboardId={activeDashboardOwnerId}
+                layoutRevision={layoutRevision}
+                autoRun={autoRun}
+                routes={dashboardRoutes}
+                selectedRouteId={selectedRouteId}
+                onConnectAgents={connectAgents}
+                onSelectRoute={(routeId) => {
+                  setSelectedRouteId(routeId)
+                  setSelectedWorkflowAgentId('')
+                  setSelectedInitialId('')
+                  setSelectedStatusFilterId('')
+                  setSelectedStopId('')
+                }}
+                onSelectPrompt={(promptId) => {
+                  setSelectedPromptId(promptId)
+                  setSelectedWorkflowAgentId('')
+                  setSelectedInitialId('')
+                  setSelectedStatusFilterId('')
+                  setSelectedStopId('')
+                }}
+                onSelectAgent={(agentId) => {
+                  setSelectedWorkflowAgentId(agentId)
+                  setSelectedRouteId('')
+                  setSelectedInitialId('')
+                  setSelectedStatusFilterId('')
+                  setSelectedStopId('')
+                }}
+                onSelectInitial={(initialId) => {
+                  setSelectedInitialId(initialId)
+                  setSelectedWorkflowAgentId('')
+                  setSelectedRouteId('')
+                  setSelectedStatusFilterId('')
+                  setSelectedStopId('')
+                }}
+                onSelectStatusFilter={(filterId) => {
+                  setSelectedStatusFilterId(filterId)
+                  setSelectedWorkflowAgentId('')
+                  setSelectedRouteId('')
+                  setSelectedInitialId('')
+                  setSelectedStopId('')
+                }}
+                onSelectStop={(stopId) => {
+                  setSelectedStopId(stopId)
+                  setSelectedWorkflowAgentId('')
+                  setSelectedRouteId('')
+                  setSelectedInitialId('')
+                  setSelectedStatusFilterId('')
+                  setSelectedTimerId('')
+                }}
+                onSelectTimer={(timerId) => {
+                  setSelectedTimerId(timerId)
+                  setSelectedWorkflowAgentId('')
+                  setSelectedRouteId('')
+                  setSelectedInitialId('')
+                  setSelectedStatusFilterId('')
+                  setSelectedStopId('')
+                }}
+                onNodePositionChange={(nodeId, position) =>
+                  setWorkflowPositions((current) => ({
+                    ...current,
+                    [`${activeDashboardOwnerId}:${nodeId}`]: position,
+                  }))
+                }
+                onAgentDrop={dropAgentIntoDashboard}
+                draggedAgentId={draggedAgentId}
+                selectedAgentNodeId={selectedWorkflowAgentId}
+                language={language}
+              />
+            </ReactFlowProvider>
           </section>
         </div>
       )}
