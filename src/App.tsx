@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
+  ConnectionLineType,
   Controls,
   Handle,
   Position,
@@ -1286,6 +1287,10 @@ function WorkflowDashboard({
         id: route.id,
         source: route.sourceId,
         target: route.targetId,
+        sourceHandle: 'output',
+        targetHandle: 'input',
+        type: 'smoothstep',
+        interactionWidth: 28,
         animated: autoRun,
         className: route.id === selectedRouteId ? 'selectedRoute' : '',
       })),
@@ -1408,10 +1413,13 @@ function WorkflowDashboard({
           isNodeDraggingRef.current = false
           onNodePositionChange(node.id, node.position)
         }}
-        connectionRadius={18}
+        connectionLineStyle={{ stroke: '#a1a1aa', strokeWidth: 2.5 }}
+        connectionLineType={ConnectionLineType.SmoothStep}
+        connectionRadius={26}
         fitView
         fitViewOptions={{ padding: 0.22 }}
-        nodeDragThreshold={1}
+        nodeDragThreshold={4}
+        reconnectRadius={26}
         snapToGrid={false}
       >
         <Controls showInteractive={false} />

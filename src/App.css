@@ -1712,6 +1712,7 @@ label {
   color: var(--text);
   font-size: 13px;
   font-weight: 750;
+  height: 64px;
   padding: 0;
   width: 190px;
 }
@@ -1736,17 +1737,29 @@ label {
 
 .workflowCanvas .react-flow__handle {
   background: var(--accent);
-  border: 2px solid var(--surface-inset);
-  height: 10px;
+  border: 3px solid var(--surface-inset);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+  box-sizing: border-box;
+  height: 14px;
   top: 50%;
-  width: 10px;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+  width: 14px;
+}
+
+.workflowCanvas .react-flow__handle:hover,
+.workflowCanvas .react-flow__handle.connectingto,
+.workflowCanvas .react-flow__handle.connectingfrom {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .workflowNodeContent {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-height: 54px;
+  height: 100%;
+  justify-content: center;
+  min-height: 0;
   padding: 11px 38px;
   position: relative;
   text-align: center;
@@ -1991,13 +2004,22 @@ label {
 
 .workflowCanvas .react-flow__edge-path {
   stroke: #a1a1aa;
-  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+}
+
+.workflowCanvas .react-flow__connection-path {
+  stroke: #a1a1aa;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
 }
 
 .workflowCanvas .react-flow__edge.selectedRoute .react-flow__edge-path,
 .workflowCanvas .react-flow__edge.selected .react-flow__edge-path {
   stroke: #22c55e;
-  stroke-width: 3;
+  stroke-width: 3.5;
 }
 
 .workflowCanvas .react-flow__edge-text {

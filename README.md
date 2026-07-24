@@ -326,6 +326,8 @@ Sie verwenden ausschließlich temporäre Dateien und verändern keine Projekte o
 
 Die Produktionsausgabe wird unter `dist/` erzeugt.
 
+Im Workflow-Dashboard verwenden alle Knoten eine stabile Geometrie mit vergrößerten Anschlussflächen. Verbindungen docken mittig an den sichtbaren Ein- und Ausgängen an und werden als gut erkennbare, abgerundete Pfade dargestellt. Eine höhere Ziehschwelle reduziert unbeabsichtigte Sprünge beim Verschieben und Verbinden.
+
 ## Bekannte Grenzen
 
 - Bereits geöffnete Codex-Ansichten können eine eigene Aktualisierung benötigen, obwohl der Connector eine Änderung bereits verarbeitet hat.
