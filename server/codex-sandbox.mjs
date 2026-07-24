@@ -1,5 +1,11 @@
 import { resolve } from 'node:path'
 
+export const PROJECT_WORKSPACE_DIRECTORY = 'workspace'
+
+export function projectWorkspacePath(cwd) {
+  return resolve(cwd, PROJECT_WORKSPACE_DIRECTORY)
+}
+
 export function projectThreadExecutionParams(cwd) {
   return {
     cwd: resolve(cwd),
@@ -9,13 +15,13 @@ export function projectThreadExecutionParams(cwd) {
 }
 
 export function projectTurnExecutionParams(cwd) {
-  const projectRoot = resolve(cwd)
+  const workspaceRoot = projectWorkspacePath(cwd)
   return {
-    cwd: projectRoot,
+    cwd: workspaceRoot,
     approvalPolicy: 'never',
     sandboxPolicy: {
       type: 'workspaceWrite',
-      writableRoots: [projectRoot],
+      writableRoots: [workspaceRoot],
       readOnlyAccess: { type: 'fullAccess' },
       networkAccess: false,
       excludeTmpdirEnvVar: false,

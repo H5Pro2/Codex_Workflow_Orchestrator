@@ -96,7 +96,7 @@ Die vollständige Team-Konfiguration wird nach erfolgreicher Einrichtung als ein
 
 Der neutrale Setup-Turn bestätigt ausschließlich die dauerhafte Registrierung eines neuen Codex-Chats und löst keine Workflow-Weitergabe aus. Der Orchestrator startet danach weder die Automatik noch eine fachliche Aufgabe. `Auto Start` bleibt eine bewusste Benutzeraktion. Ein neues Projektverzeichnis wird nicht automatisch erzeugt, weil dessen Speicherort vom Benutzer beziehungsweise von Codex festgelegt werden muss.
 
-Projektagenten starten mit einem expliziten, auf ihren Projektordner begrenzten Schreibbereich. Dadurch können sie die beauftragten Dateien im ausgewählten Projekt anlegen und bearbeiten, ohne Schreibzugriff auf andere Projekte oder den Orchestrator zu erhalten. Diese Ausführungsregel wird bei jeder Chat-Nachricht, Prompt-Übergabe und automatischen Workflow-Aufgabe erneut gesetzt, sodass auch bereits vorhandene Codex-Chats korrekt arbeiten.
+Projektagenten starten mit einem expliziten, auf `workspace` innerhalb ihres Projektordners begrenzten Schreibbereich. Der Orchestrator legt diesen Unterordner automatisch an. Fachliche Dateien und Anwendungscode entstehen dadurch getrennt von `.codex-orchestrator`, Git-Metadaten und der übrigen Agentenkonfiguration. Diese Ausführungsregel wird bei jeder Chat-Nachricht, Prompt-Übergabe und automatischen Workflow-Aufgabe erneut gesetzt, sodass auch bereits vorhandene Codex-Chats korrekt im gemeinsamen Arbeitsordner arbeiten.
 
 Während ein Agent erstellt wird, bleibt der Dialog geöffnet und zeigt einen deutlich sichtbaren, rotierenden Einrichtungsstatus. Eingabe und Schaltflächen sind bis zur Bestätigung des neuen Codex-Chats gesperrt, damit keine doppelten Erstellungsaufträge entstehen.
 

@@ -8,7 +8,11 @@ import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import { createProvisioningJournal } from './provisioning-journal.mjs'
 import { createSharedStateStore } from './shared-state.mjs'
-import { projectThreadExecutionParams, projectTurnExecutionParams } from './codex-sandbox.mjs'
+import {
+  projectThreadExecutionParams,
+  projectTurnExecutionParams,
+  projectWorkspacePath,
+} from './codex-sandbox.mjs'
 import {
   MAINTENANCE_THREAD_NAME,
   createMaintenanceStateStore,
@@ -370,6 +374,7 @@ async function finalizeCreatedThreadName(threadId, turnId, name) {
 
 async function startTurn(threadId, text, model = '', cwd = '') {
   const previousTurnIds = await readThreadTurnIds(threadId)
+  if (cwd) await mkdir(projectWorkspacePath(cwd), { recursive: true })
   const turnParams = {
     threadId,
     input: [{ type: 'text', text, text_elements: [] }],
@@ -422,6 +427,7 @@ async function migrateLegacyThreadAndStart(thread, text, model = '') {
   } catch {
     previousResult = null
   }
+  await mkdir(projectWorkspacePath(thread.cwd), { recursive: true })
   const started = await request('thread/start', {
     ...projectThreadExecutionParams(thread.cwd),
     experimentalRawEvents: false,
@@ -811,6 +817,7 @@ const server = createServer(async (incoming, response) => {
         return
       }
       await ready
+      await mkdir(projectWorkspacePath(body.cwd), { recursive: true })
       const result = await request('thread/start', {
         ...projectThreadExecutionParams(body.cwd),
         experimentalRawEvents: false,
