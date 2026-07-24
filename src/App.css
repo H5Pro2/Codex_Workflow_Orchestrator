@@ -1530,7 +1530,17 @@ label {
 }
 
 .dashboardActionGroup {
+  align-items: center;
   border-left: 1px solid var(--line-strong);
+  display: flex;
+  gap: 10px;
+  padding-left: 10px;
+}
+
+.dashboardCloseGroup {
+  align-items: center;
+  border-left: 1px solid var(--line-strong);
+  display: flex;
   padding-left: 10px;
 }
 
@@ -1540,8 +1550,6 @@ label {
 
 .dashboardTools,
 .dashboardStatusMenu {
-  border-left: 1px solid var(--line-strong);
-  padding-left: 10px;
   position: relative;
 }
 
@@ -3531,7 +3539,7 @@ summary:focus-visible {
   .dashboardActions {
     display: grid;
     gap: 6px;
-    grid-template-columns: minmax(0, 1fr) repeat(4, 34px);
+    grid-template-columns: minmax(0, 1fr) auto auto;
     width: 100%;
   }
 
@@ -3540,11 +3548,9 @@ summary:focus-visible {
     overflow: hidden;
   }
 
-  .dashboardActionGroup,
   .dashboardStatusMenu,
   .dashboardTools {
-    border-left: 0;
-    padding-left: 0;
+    position: relative;
   }
 
   .settingsPage {

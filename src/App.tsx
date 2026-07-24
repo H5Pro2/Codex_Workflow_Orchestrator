@@ -7205,8 +7205,7 @@ function App() {
                   >
                     A
                   </button>
-                </div>
-                <details className="dashboardStatusMenu">
+                  <details className="dashboardStatusMenu">
                   <summary
                     aria-label={tx('Statuseinstellung öffnen', 'Open status settings')}
                     title={tx('Statuseinstellung', 'Status settings')}
@@ -7242,8 +7241,8 @@ function App() {
                       })
                     )}
                   </div>
-                </details>
-                <details className="dashboardTools">
+                  </details>
+                  <details className="dashboardTools">
                   <summary
                     aria-label={tx('Tools öffnen', 'Open tools')}
                     title="Tools"
@@ -7319,16 +7318,19 @@ function App() {
                       </button>
                     )}
                   </div>
-                </details>
-                <button
-                  aria-label={tx('Workflow-Dashboard schließen', 'Close workflow dashboard')}
-                  className="dashboardClose"
-                  onClick={() => setDashboardOpen(false)}
-                  title={tx('Workflow-Dashboard schließen', 'Close workflow dashboard')}
-                  type="button"
-                >
-                  ×
-                </button>
+                  </details>
+                </div>
+                <div className="dashboardCloseGroup">
+                  <button
+                    aria-label={tx('Workflow-Dashboard schließen', 'Close workflow dashboard')}
+                    className="dashboardClose"
+                    onClick={() => setDashboardOpen(false)}
+                    title={tx('Workflow-Dashboard schließen', 'Close workflow dashboard')}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
             </div>
             <WorkflowDashboard
