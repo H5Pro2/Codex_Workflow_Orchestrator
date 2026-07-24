@@ -2039,31 +2039,41 @@ label {
   stroke-width: 2.5;
 }
 
-.workflowConnectionCursorHalo {
-  animation: workflowConnectionPulse 900ms ease-in-out infinite;
-  fill: color-mix(in srgb, var(--accent) 20%, transparent);
+.workflowConnectionCursor {
+  background: #fff;
+  border: 3px solid #27272a;
+  border-radius: 50%;
+  box-sizing: border-box;
+  height: 14px;
+  left: 0;
+  opacity: 0;
   pointer-events: none;
-  stroke: color-mix(in srgb, var(--accent) 50%, transparent);
-  stroke-width: 1px;
-  transform-box: fill-box;
-  transform-origin: center;
+  position: fixed;
+  top: 0;
+  width: 14px;
+  will-change: transform;
+  z-index: 9999;
 }
 
-.workflowConnectionCursor {
-  fill: var(--accent);
-  pointer-events: none;
-  stroke: var(--surface-inset);
-  stroke-width: 3px;
+.workflowConnectionCursor::before {
+  animation: workflowConnectionPulse 900ms ease-in-out infinite;
+  border: 1px solid rgb(255 255 255 / 70%);
+  border-radius: 50%;
+  content: "";
+  inset: -5px;
+  position: absolute;
 }
 
 @keyframes workflowConnectionPulse {
   0%, 100% {
-    opacity: 0.45;
-    transform: scale(0.82);
+    box-shadow: 0 0 0 0 rgb(255 255 255 / 24%);
+    opacity: 0.55;
+    transform: scale(0.86);
   }
 
   50% {
-    opacity: 0.9;
+    box-shadow: 0 0 0 3px rgb(255 255 255 / 10%);
+    opacity: 1;
     transform: scale(1);
   }
 }

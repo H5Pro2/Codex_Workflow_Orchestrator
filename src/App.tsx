@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Controls,
   Handle,
@@ -340,6 +341,7 @@ function WorkflowConnectionLine({
   fromPosition,
   toPosition,
 }: ConnectionLineComponentProps) {
+  const cursorRef = useRef<HTMLSpanElement>(null)
   const [path] = getSmoothStepPath({
     sourceX: fromX,
     sourceY: fromY,
@@ -350,12 +352,31 @@ function WorkflowConnectionLine({
     borderRadius: 10,
   })
 
+  useLayoutEffect(() => {
+    const syncCursor = (event: Event) => {
+      const pointerEvent = event as PointerEvent
+      const samples = pointerEvent.getCoalescedEvents?.()
+      const latest = samples?.[samples.length - 1] ?? pointerEvent
+      const cursor = cursorRef.current
+      if (!cursor) return
+      cursor.style.opacity = '1'
+      cursor.style.transform = `translate3d(${latest.clientX - 7}px, ${latest.clientY - 7}px, 0)`
+    }
+
+    const listenerOptions = { capture: true, passive: true }
+    window.addEventListener('pointerrawupdate', syncCursor, listenerOptions)
+    window.addEventListener('pointermove', syncCursor, listenerOptions)
+    return () => {
+      window.removeEventListener('pointerrawupdate', syncCursor, listenerOptions)
+      window.removeEventListener('pointermove', syncCursor, listenerOptions)
+    }
+  }, [])
+
   return (
-    <g className="workflowConnectionPreview">
+    <>
       <path className="react-flow__connection-path" d={path} fill="none" />
-      <circle className="workflowConnectionCursorHalo" cx={toX} cy={toY} r="11" />
-      <circle className="workflowConnectionCursor" cx={toX} cy={toY} r="7" />
-    </g>
+      {createPortal(<span ref={cursorRef} className="workflowConnectionCursor" aria-hidden="true" />, document.body)}
+    </>
   )
 }
 
