@@ -2,9 +2,28 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   hasStableTerminalResult,
+  isAgentWorking,
   resolvePendingTurnStartedAt,
   shouldPollPendingTurn,
 } from './pending-turn.ts'
+
+test('shows manual agent work independently of automation mode', () => {
+  assert.equal(isAgentWorking({
+    status: 'laeuft',
+    pendingTurnId: 'turn-2',
+    isTransmitting: false,
+  }), true)
+  assert.equal(isAgentWorking({
+    status: 'wartet',
+    pendingTurnId: '',
+    isTransmitting: true,
+  }), true)
+  assert.equal(isAgentWorking({
+    status: 'wartet',
+    pendingTurnId: '',
+    isTransmitting: false,
+  }), false)
+})
 
 test('polls a pending turn independently of the visible agent status', () => {
   assert.equal(shouldPollPendingTurn({

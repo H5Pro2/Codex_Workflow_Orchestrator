@@ -50,6 +50,7 @@ import {
 import { isDeliveryTargetBusy } from './delivery-availability.ts'
 import {
   hasStableTerminalResult,
+  isAgentWorking,
   resolvePendingTurnStartedAt,
   shouldPollPendingTurn,
 } from './pending-turn.ts'
@@ -2650,11 +2651,11 @@ function App() {
     )
   }, [])
 
-  const isAgentBusy = (agent: Agent) =>
-    autoRun && (
-      (agent.status === 'laeuft' && Boolean(agent.pendingTurnId)) ||
-      transmittingAgentIds.includes(agent.id)
-    )
+  const isAgentBusy = (agent: Agent) => isAgentWorking({
+    status: agent.status,
+    pendingTurnId: agent.pendingTurnId,
+    isTransmitting: transmittingAgentIds.includes(agent.id),
+  })
 
   const activePromptDocument = (agent: Agent) =>
     agent.promptDocuments.find((document) => document.id === agent.activePromptDocumentId) ??

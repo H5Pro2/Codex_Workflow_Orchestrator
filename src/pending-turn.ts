@@ -5,6 +5,20 @@ type PendingTurnInput = {
   isAlreadyPolling: boolean
 }
 
+type AgentWorkingInput = {
+  status: string
+  pendingTurnId: string
+  isTransmitting: boolean
+}
+
+export function isAgentWorking({
+  status,
+  pendingTurnId,
+  isTransmitting,
+}: AgentWorkingInput) {
+  return isTransmitting || (status === 'laeuft' && Boolean(pendingTurnId))
+}
+
 export function shouldPollPendingTurn({
   threadId,
   pendingTurnId,
