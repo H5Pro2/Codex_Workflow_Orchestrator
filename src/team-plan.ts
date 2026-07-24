@@ -303,6 +303,7 @@ export function buildTeamTopology(input: TeamTopologyInput) {
     ...retainedPositions,
     [`${manager.id}:${configuredInitial.id}`]: { x: 50, y: 90 },
     [`${manager.id}:${startAgent.id}`]: { x: 280, y: 90 },
+    [`${manager.id}:${manager.id}`]: { x: 50, y: 260 },
     ...Object.fromEntries(plan.connections.flatMap((connection, index) => {
       const source = agentByName.get(normalizedName(connection.from))!
       const target = agentByName.get(normalizedName(connection.to))!

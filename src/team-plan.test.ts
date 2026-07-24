@@ -144,6 +144,9 @@ test('builds and atomically persists a complete managed team setup', async () =>
   assert.deepEqual(topology.boardAgentIds['agent-architect'], ['agent-architect', 'agent-developer', 'agent-ceo'])
   assert.deepEqual(topology.boardAgentIds['agent-developer'], ['agent-developer', 'agent-qa', 'agent-ceo'])
   assert.deepEqual(topology.boardAgentIds['agent-qa'], ['agent-qa', 'agent-developer', 'agent-ceo'])
+  assert.deepEqual(topology.positions[`agent-ceo:${initial.id}`], { x: 50, y: 90 })
+  assert.deepEqual(topology.positions['agent-ceo:agent-architect'], { x: 280, y: 90 })
+  assert.deepEqual(topology.positions['agent-ceo:agent-ceo'], { x: 50, y: 260 })
 
   const directory = await mkdtemp(join(tmpdir(), 'codex-orchestrator-team-'))
   try {

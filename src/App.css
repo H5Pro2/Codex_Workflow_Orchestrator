@@ -3525,6 +3525,31 @@ summary:focus-visible {
 }
 
 @media (max-width: 680px) {
+  .dashboardHeader {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .dashboardActions {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) repeat(4, 34px);
+    width: 100%;
+  }
+
+  .dashboardMetric {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .dashboardActionGroup,
+  .dashboardStatusMenu,
+  .dashboardTools {
+    border-left: 0;
+    padding-left: 0;
+  }
+
   .settingsPage {
     grid-template-columns: 1fr;
   }

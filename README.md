@@ -199,7 +199,7 @@ Bleibt eine zunächst gemeldete Turn-ID trotz einer bereits abgeschlossenen Code
 
 ### Systemüberwachung
 
-Eine deterministische Systemüberwachung beobachtet den tatsächlich gespeicherten Codex-Turn. Bleibt dessen sichtbarer Fortschritt zehn Minuten unverändert oder überschreitet ein Lauf 45 Minuten, unterbricht der Connector genau diesen Turn kontrolliert. Der Agent erhält den Status `Fehler`; ein vorhandener Fehlerpfad führt die Diagnose an den Verwaltungsagenten beziehungsweise CEO zurück. Technische Fehler werden pro Codex-Turn erneut gemeldet. Die normale Duplikat-Sperre verhindert weiterhin identische fachliche Endlosschleifen, blockiert aber keine neue Abbruchmeldung.
+Eine deterministische Systemüberwachung beobachtet den tatsächlich gespeicherten Codex-Turn. Bleibt dessen sichtbarer Fortschritt drei Minuten unverändert oder überschreitet ein Lauf 45 Minuten, unterbricht der Connector genau diesen Turn kontrolliert. Der Agent erhält den Status `Fehler`; ein vorhandener Fehlerpfad führt die Diagnose an den Verwaltungsagenten beziehungsweise CEO zurück. Technische Fehler werden pro Codex-Turn erneut gemeldet. Die normale Duplikat-Sperre verhindert weiterhin identische fachliche Endlosschleifen, blockiert aber keine neue Abbruchmeldung.
 
 Der Orchestrator merkt sich bei einer Übergabe zusätzlich den unmittelbar sendenden Agenten. Meldet ein Verwaltungsagent nach einer Fehleranalyse eine konkrete, begrenzte Wiederaufnahme- oder Überarbeitungsaufgabe und existiert dafür kein eigener Dashboard-Pfad, wird diese Antwort gezielt an den betroffenen Agenten zurückgegeben. Ein vollständiger Team-Vorschlag bleibt dagegen bei `Auto Stop` und wartet auf die Freigabe des Benutzers. Meldet der Verwaltungsagent selbst einen technischen Fehler oder gibt es keinen gültigen Fortsetzungsweg, stoppt die Automatik sichtbar, anstatt ohne aktive Arbeit eingeschaltet zu bleiben. Der Watchdog greift pro Codex-Turn höchstens einmal ein.
 
@@ -317,16 +317,16 @@ npm run build
 npm test
 ```
 
-`npm test` prueft die atomare Zustandsspeicherung, monotone Versionsstaende und den
-Schutz vor ueberschreibenden Aenderungen aus veralteten Browser-Tabs. Die Tests
-pruefen ausserdem einen vollstaendigen Team-Aufbau mit Rollen-Prompts, Statusbefehlen,
+`npm test` prüft die atomare Zustandsspeicherung, monotone Versionsstände und den
+Schutz vor überschreibenden Änderungen aus veralteten Browser-Tabs. Die Tests
+prüfen außerdem einen vollständigen Team-Aufbau mit Rollen-Prompts, Statusbefehlen,
 Start-, Fehler-, Arbeits- und Abschlusswegen sowie individuellen Dashboard-Zuordnungen.
-Ein simulierter Connector-Abbruch prueft, dass bereits erstellte Codex-Chats wieder
-archiviert werden und keine unvollstaendige Teamkonfiguration sichtbar wird.
-Der Connector fuehrt dafuer ein lokales Transaktionsjournal. Nach einem Browser- oder
+Ein simulierter Connector-Abbruch prüft, dass bereits erstellte Codex-Chats wieder
+archiviert werden und keine unvollständige Teamkonfiguration sichtbar wird.
+Der Connector führt dafür ein lokales Transaktionsjournal. Nach einem Browser- oder
 Connector-Neustart werden unterbrochene Team-Erstellungen automatisch bereinigt;
 bereits atomar gespeicherte Teams werden anhand ihrer Team-Signatur beibehalten.
-Sie verwenden ausschliesslich temporaere Dateien und veraendern keine Projekte oder Chats.
+Sie verwenden ausschließlich temporäre Dateien und verändern keine Projekte oder Chats.
 
 Die Produktionsausgabe wird unter `dist/` erzeugt.
 

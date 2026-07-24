@@ -2168,6 +2168,13 @@ function App() {
       workflowPositions[`${activeDashboardOwnerId}:${node.id}`],
     ]).filter((entry) => Boolean(entry[1])),
   ) as Record<string, { x: number; y: number }>
+  if (
+    activeDashboardOwnerId &&
+    projectInitials.length > 0 &&
+    !dashboardPositions[activeDashboardOwnerId]
+  ) {
+    dashboardPositions[activeDashboardOwnerId] = { x: 50, y: 260 }
+  }
   const selectedRoute = projectRoutes.find((route) => route.id === selectedRouteId)
   const selectedPrompt = projectPrompts.find((prompt) => prompt.id === selectedPromptId)
   const selectedInitial = projectInitials.find((initial) => initial.id === selectedInitialId)
@@ -3139,7 +3146,7 @@ function App() {
           if (!rollbackResponse.ok) {
             const rollbackData = await rollbackResponse.json().catch(() => ({}))
             throw new Error(rollbackData.error || tx(
-              'Die unvollstÃ¤ndige Team-Erstellung konnte nicht vollstÃ¤ndig bereinigt werden.',
+              'Die unvollständige Team-Erstellung konnte nicht vollständig bereinigt werden.',
               'The incomplete team setup could not be cleaned up completely.',
             ))
           }
@@ -3442,6 +3449,7 @@ function App() {
         ...workflowPositions,
         [`${manager.id}:${configuredInitial.id}`]: { x: 50, y: 90 },
         [`${manager.id}:${startAgent.id}`]: { x: 280, y: 90 },
+        [`${manager.id}:${manager.id}`]: { x: 50, y: 260 },
         ...Object.fromEntries(plan.connections.flatMap((connection, index) => {
           const source = projectAgentMap.get(connection.from.toLocaleLowerCase('de-DE'))!
           const target = projectAgentMap.get(connection.to.toLocaleLowerCase('de-DE'))!

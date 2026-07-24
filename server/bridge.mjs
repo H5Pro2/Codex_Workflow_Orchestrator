@@ -159,7 +159,7 @@ const provisioningRecoveryReady = ready.then(async () => {
     failures,
   }
   if (archived > 0 || failures > 0) {
-    console.log(`Team-Wiederherstellung: ${archived} unvollstÃ¤ndige Chats archiviert, ${failures} Fehler.`)
+    console.log(`Team-Wiederherstellung: ${archived} unvollständige Chats archiviert, ${failures} Fehler.`)
   }
 }).catch((error) => {
   latestProvisioningRecovery = {
@@ -792,7 +792,7 @@ const server = createServer(async (incoming, response) => {
       )
       if (result.failures.length > 0) {
         sendJson(response, 500, {
-          error: `${result.failures.length} unvollstÃ¤ndige Codex-Chats konnten nicht archiviert werden.`,
+          error: `${result.failures.length} unvollständige Codex-Chats konnten nicht archiviert werden.`,
           archived: result.archived,
         })
         return
@@ -1130,7 +1130,7 @@ const server = createServer(async (incoming, response) => {
         const inventoryStatus = (await listAllThreads()).find((item) => item.id === threadId)?.status ?? ''
         threadStatusType = inventoryStatus || threadStatusType
       } catch {
-        // Das Ergebnis-Fallback bleibt auch bei einem voruebergehend fehlenden Inventar nutzbar.
+        // Das Ergebnis-Fallback bleibt auch bei einem vorübergehend fehlenden Inventar nutzbar.
       }
 
       if (!turn) {
