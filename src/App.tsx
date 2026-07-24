@@ -336,6 +336,7 @@ function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
 }
 
 const workflowNodeTypes = { workflow: WorkflowNode }
+const WORKFLOW_EDGE_BORDER_RADIUS = 18
 
 function WorkflowConnectionLine({
   fromHandle,
@@ -380,7 +381,7 @@ function WorkflowConnectionLine({
         targetX: clientX,
         targetY: clientY,
         targetPosition: geometry.toPosition,
-        borderRadius: 10,
+        borderRadius: WORKFLOW_EDGE_BORDER_RADIUS,
       })
       pathRef.current?.setAttribute('d', path)
       const cursor = cursorRef.current
@@ -1393,6 +1394,7 @@ function WorkflowDashboard({
         sourceHandle: 'output',
         targetHandle: 'input',
         type: 'smoothstep',
+        pathOptions: { borderRadius: WORKFLOW_EDGE_BORDER_RADIUS },
         interactionWidth: 28,
         animated: autoRun,
         className: route.id === selectedRouteId ? 'selectedRoute' : '',
