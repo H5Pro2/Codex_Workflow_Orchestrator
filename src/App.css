@@ -2032,11 +2032,22 @@ label {
   stroke-width: 2.5;
 }
 
-.workflowCanvas .react-flow__connection-path {
+.workflowCanvas .react-flow__connection-path,
+.workflowConnectionOverlay .react-flow__connection-path {
   stroke: #a1a1aa;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2.5;
+}
+
+.workflowConnectionOverlay {
+  height: 100vh;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: fixed;
+  width: 100vw;
+  z-index: 9998;
 }
 
 .workflowConnectionCursor {

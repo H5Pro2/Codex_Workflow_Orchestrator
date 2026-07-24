@@ -15,6 +15,7 @@ import {
   type ReactFlowInstance,
   useEdgesState,
   useNodesState,
+  useReactFlow,
   useUpdateNodeInternals,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -346,41 +347,65 @@ function WorkflowConnectionLine({
   toPosition,
 }: ConnectionLineComponentProps) {
   const cursorRef = useRef<HTMLSpanElement>(null)
-  const [path] = getSmoothStepPath({
-    sourceX: fromX,
-    sourceY: fromY,
-    sourcePosition: fromPosition,
-    targetX: toX,
-    targetY: toY,
-    targetPosition: toPosition,
-    borderRadius: 10,
+  const pathRef = useRef<SVGPathElement>(null)
+  const { flowToScreenPosition } = useReactFlow()
+  const initialGeometryRef = useRef({
+    flowToScreenPosition,
+    fromPosition,
+    fromX,
+    fromY,
+    toPosition,
+    toX,
+    toY,
   })
 
   useLayoutEffect(() => {
-    const syncCursor = (event: Event) => {
-      const pointerEvent = event as PointerEvent
-      const samples = pointerEvent.getCoalescedEvents?.()
-      const latest = samples?.[samples.length - 1] ?? pointerEvent
+    const geometry = initialGeometryRef.current
+    const source = geometry.flowToScreenPosition({ x: geometry.fromX, y: geometry.fromY })
+    const initialTarget = geometry.flowToScreenPosition({ x: geometry.toX, y: geometry.toY })
+    const syncConnection = (clientX: number, clientY: number) => {
+      const [path] = getSmoothStepPath({
+        sourceX: source.x,
+        sourceY: source.y,
+        sourcePosition: geometry.fromPosition,
+        targetX: clientX,
+        targetY: clientY,
+        targetPosition: geometry.toPosition,
+        borderRadius: 10,
+      })
+      pathRef.current?.setAttribute('d', path)
       const cursor = cursorRef.current
       if (!cursor) return
       cursor.style.opacity = '1'
-      cursor.style.transform = `translate3d(${latest.clientX - 7}px, ${latest.clientY - 7}px, 0)`
+      cursor.style.transform = `translate3d(${clientX - 7}px, ${clientY - 7}px, 0)`
+    }
+    const syncPointer = (event: Event) => {
+      const pointerEvent = event as PointerEvent
+      const samples = pointerEvent.getCoalescedEvents?.()
+      const latest = samples?.[samples.length - 1] ?? pointerEvent
+      syncConnection(latest.clientX, latest.clientY)
     }
 
+    syncConnection(initialTarget.x, initialTarget.y)
     const listenerOptions = { capture: true, passive: true }
-    window.addEventListener('pointerrawupdate', syncCursor, listenerOptions)
-    window.addEventListener('pointermove', syncCursor, listenerOptions)
+    window.addEventListener('pointerrawupdate', syncPointer, listenerOptions)
+    window.addEventListener('pointermove', syncPointer, listenerOptions)
     return () => {
-      window.removeEventListener('pointerrawupdate', syncCursor, listenerOptions)
-      window.removeEventListener('pointermove', syncCursor, listenerOptions)
+      window.removeEventListener('pointerrawupdate', syncPointer, listenerOptions)
+      window.removeEventListener('pointermove', syncPointer, listenerOptions)
     }
+    // Geometry is fixed for this drag. Later React Flow toX/toY renders lag behind
+    // native pointer events and must not overwrite the overlay position.
   }, [])
 
-  return (
+  return createPortal(
     <>
-      <path className="react-flow__connection-path" d={path} fill="none" />
-      {createPortal(<span ref={cursorRef} className="workflowConnectionCursor" aria-hidden="true" />, document.body)}
-    </>
+      <svg className="workflowConnectionOverlay" aria-hidden="true">
+        <path ref={pathRef} className="react-flow__connection-path" fill="none" />
+      </svg>
+      <span ref={cursorRef} className="workflowConnectionCursor" aria-hidden="true" />
+    </>,
+    document.body,
   )
 }
 
