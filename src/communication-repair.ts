@@ -1,5 +1,6 @@
 type CommunicationRepairInput = {
   sourceAgentId: string
+  sourceIsManagement: boolean
   activeRouteCount: number
   resultStatusIds: string[]
   dashboardAgentIds: string[]
@@ -8,12 +9,13 @@ type CommunicationRepairInput = {
 
 export function resolveDeterministicCommunicationRepairTarget({
   sourceAgentId,
+  sourceIsManagement,
   activeRouteCount,
   resultStatusIds,
   dashboardAgentIds,
   knownAgentIds,
 }: CommunicationRepairInput) {
-  if (activeRouteCount > 0 || resultStatusIds.length !== 1) return ''
+  if (sourceIsManagement || activeRouteCount > 0 || resultStatusIds.length !== 1) return ''
 
   const knownIds = new Set(knownAgentIds)
   const candidates = [...new Set(dashboardAgentIds)].filter(
@@ -21,4 +23,3 @@ export function resolveDeterministicCommunicationRepairTarget({
   )
   return candidates.length === 1 ? candidates[0] : ''
 }
-

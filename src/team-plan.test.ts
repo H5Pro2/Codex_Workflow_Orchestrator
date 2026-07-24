@@ -50,6 +50,29 @@ test('detects a prose-only team proposal that needs format correction', () => {
   assert.equal(looksLikeManagementTeamPlan(teamProposal), false)
 })
 
+test('detects an alternative machine-readable team schema that needs format correction', () => {
+  assert.equal(looksLikeManagementTeamPlan(`
+    {
+      "proposal_type": "controlled_team_takeover",
+      "status_commands": [{ "label": "Weitergabe" }],
+      "workflow_dashboard_connections": [{ "from": "ceo", "to": "implementation" }],
+      "takeover_state": { "ready_for_controlled_takeover": true }
+    }
+  `), true)
+})
+
+test('uses the newest valid team proposal when the chat contains revisions', () => {
+  const revisedProposal = teamProposal
+    .replace('Ein getestetes Browser-Spiel', 'Die neueste Projektfassung')
+    .replace('Erstelle die technische Spezifikation und übergib sie an die Entwicklung.', 'Beginne mit der freigegebenen Revision.')
+
+  const parsed = parseManagementTeamPlan(`${teamProposal}\n\n${revisedProposal}`)
+
+  assert.ok(parsed)
+  assert.equal(parsed.plan.projectGoal, 'Die neueste Projektfassung')
+  assert.equal(parsed.plan.startInstruction, 'Beginne mit der freigegebenen Revision.')
+})
+
 test('builds and atomically persists a complete managed team setup', async () => {
   const parsed = parseManagementTeamPlan(teamProposal)
   assert.ok(parsed)

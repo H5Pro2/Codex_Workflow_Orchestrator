@@ -7,6 +7,7 @@ import {
   createMaintenanceStateStore,
   maintenanceDiagnosticPrompt,
   maintenanceRepairPrompt,
+  stoppedMaintenanceState,
 } from './maintenance-agent.mjs'
 
 test('diagnosis prompt keeps the maintenance agent inside its communication scope', () => {
@@ -15,6 +16,21 @@ test('diagnosis prompt keeps the maintenance agent inside its communication scop
   assert.match(prompt, /Ändere keine Datei/)
   assert.match(prompt, /Turn bleibt aktiv/)
   assert.match(prompt, /Agent CEO/)
+})
+
+test('stopping automatic maintenance clears the active operation', () => {
+  const state = stoppedMaintenanceState({
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    status: 'diagnosing',
+    origin: 'automatic',
+    incident: 'Stalled turn',
+    report: '',
+    error: '',
+  })
+  assert.equal(state.status, 'idle')
+  assert.equal(state.turnId, '')
+  assert.equal(state.threadId, 'thread-1')
 })
 
 test('repair prompt requires prior confirmation and forbids restart and git', () => {

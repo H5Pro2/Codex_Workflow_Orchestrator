@@ -8,11 +8,13 @@ import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import { createProvisioningJournal } from './provisioning-journal.mjs'
 import { createSharedStateStore } from './shared-state.mjs'
+import { projectThreadExecutionParams, projectTurnExecutionParams } from './codex-sandbox.mjs'
 import {
   MAINTENANCE_THREAD_NAME,
   createMaintenanceStateStore,
   maintenanceDiagnosticPrompt,
   maintenanceRepairPrompt,
+  stoppedMaintenanceState,
 } from './maintenance-agent.mjs'
 
 const PORT = Number(process.env.CODEX_BRIDGE_PORT || 4317)
@@ -366,12 +368,13 @@ async function finalizeCreatedThreadName(threadId, turnId, name) {
   await request('thread/name/set', { threadId, name })
 }
 
-async function startTurn(threadId, text, model = '') {
+async function startTurn(threadId, text, model = '', cwd = '') {
   const previousTurnIds = await readThreadTurnIds(threadId)
   const turnParams = {
     threadId,
     input: [{ type: 'text', text, text_elements: [] }],
     ...(model ? { model } : {}),
+    ...(cwd ? projectTurnExecutionParams(cwd) : {}),
   }
   try {
     const started = await request('turn/start', turnParams)
@@ -420,7 +423,7 @@ async function migrateLegacyThreadAndStart(thread, text, model = '') {
     previousResult = null
   }
   const started = await request('thread/start', {
-    cwd: thread.cwd,
+    ...projectThreadExecutionParams(thread.cwd),
     experimentalRawEvents: false,
     persistExtendedHistory: true,
   })
@@ -434,6 +437,7 @@ async function migrateLegacyThreadAndStart(thread, text, model = '') {
   const turn = await request('turn/start', {
     threadId: started.thread.id,
     ...(model ? { model } : {}),
+    ...projectTurnExecutionParams(thread.cwd),
     input: [{
       type: 'text',
       text: [
@@ -633,11 +637,34 @@ const server = createServer(async (incoming, response) => {
         threadId,
         turnId: started.turn?.id ?? '',
         status: 'diagnosing',
+        origin: body.automatic === true ? 'automatic' : 'manual',
         incident: typeof body.incident === 'string' ? body.incident.trim() : '',
         report: '',
         error: '',
       })
       sendJson(response, 202, state)
+      return
+    }
+
+    if (incoming.method === 'POST' && url.pathname === '/api/system-maintenance/interrupt') {
+      const body = await readJson(incoming)
+      const current = await refreshMaintenanceState()
+      if (!['diagnosing', 'repairing'].includes(current.status)) {
+        sendJson(response, 200, current)
+        return
+      }
+      if (body.automaticOnly === true && current.origin !== 'automatic') {
+        sendJson(response, 200, current)
+        return
+      }
+      if (current.threadId && current.turnId) {
+        await request('turn/interrupt', {
+          threadId: current.threadId,
+          turnId: current.turnId,
+        }).catch(() => undefined)
+      }
+      const state = await maintenanceStateStore.write(stoppedMaintenanceState(current))
+      sendJson(response, 200, state)
       return
     }
 
@@ -785,7 +812,7 @@ const server = createServer(async (incoming, response) => {
       }
       await ready
       const result = await request('thread/start', {
-        cwd: body.cwd,
+        ...projectThreadExecutionParams(body.cwd),
         experimentalRawEvents: false,
         persistExtendedHistory: true,
       })
@@ -805,6 +832,7 @@ const server = createServer(async (incoming, response) => {
         ? null
         : await request('turn/start', {
             threadId: result.thread.id,
+            ...projectTurnExecutionParams(body.cwd),
             input: [
               {
                 type: 'text',
@@ -929,6 +957,7 @@ const server = createServer(async (incoming, response) => {
         decodeURIComponent(messageMatch[1]),
         body.text,
         typeof body.model === 'string' ? body.model : '',
+        typeof body.cwd === 'string' ? body.cwd : '',
       )
       sendJson(response, 202, {
         turn: result.turn,

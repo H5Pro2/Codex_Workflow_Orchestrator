@@ -1,4 +1,4 @@
-export const TURN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000
+export const TURN_INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000
 export const TURN_MAX_RUNTIME_MS = 45 * 60 * 1000
 
 export type TurnActivityObservation = {

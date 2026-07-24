@@ -62,12 +62,13 @@ function samePath(left: string, right: string) {
 }
 
 export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPlan; signature: string } | null {
-  const match = text.match(/<orchestrator_team_plan>\s*([\s\S]*?)\s*<\/orchestrator_team_plan>/i)
-  if (!match) return null
+  const matches = [...text.matchAll(/<orchestrator_team_plan>\s*([\s\S]*?)\s*<\/orchestrator_team_plan>/gi)]
+  if (matches.length === 0) return null
 
-  try {
+  for (const match of matches.reverse()) {
+    try {
     const raw = JSON.parse(match[1]) as Record<string, unknown>
-    if (!Array.isArray(raw.agents) || raw.agents.length === 0 || raw.agents.length > 12) return null
+    if (!Array.isArray(raw.agents) || raw.agents.length === 0 || raw.agents.length > 12) throw new Error('invalid agents')
     const agents = raw.agents.map((entry) => {
       if (!entry || typeof entry !== 'object') throw new Error('invalid agent')
       const item = entry as Record<string, unknown>
@@ -85,7 +86,7 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
       }
     })
     const normalizedNames = agents.map((agent) => normalizedName(agent.name))
-    if (new Set(normalizedNames).size !== normalizedNames.length) return null
+    if (new Set(normalizedNames).size !== normalizedNames.length) throw new Error('duplicate agents')
 
     const statusCommands = Array.isArray(raw.statusCommands)
       ? raw.statusCommands.map((entry) => {
@@ -97,7 +98,7 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
           return { name, meaning }
         })
       : []
-    if (statusCommands.length > 20) return null
+    if (statusCommands.length > 20) throw new Error('too many status commands')
     if (!statusCommands.some((status) => normalizedName(status.name) === normalizedName(MANAGEMENT_ERROR_STATUS_NAME))) {
       statusCommands.push({ name: MANAGEMENT_ERROR_STATUS_NAME, meaning: MANAGEMENT_ERROR_STATUS_MEANING })
     }
@@ -106,9 +107,9 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
         agent.workflowStatuses.push(MANAGEMENT_ERROR_STATUS_NAME)
       }
     })
-    if (statusCommands.length > 20) return null
+    if (statusCommands.length > 20) throw new Error('too many status commands')
     const normalizedStatusNames = statusCommands.map((status) => normalizedName(status.name))
-    if (new Set(normalizedStatusNames).size !== normalizedStatusNames.length) return null
+    if (new Set(normalizedStatusNames).size !== normalizedStatusNames.length) throw new Error('duplicate status commands')
 
     const fallbackStatus = statusCommands[0]?.name ?? ''
     const connections = Array.isArray(raw.connections)
@@ -142,7 +143,7 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
           return { from, status, name }
         })
       : []
-    if (stops.length > 12) return null
+    if (stops.length > 12) throw new Error('too many stops')
     ;[...connections, ...stops].forEach((path) => {
       const source = agents.find((agent) => normalizedName(agent.name) === normalizedName(path.from))
       if (source && !source.workflowStatuses.some((status) => normalizedName(status) === normalizedName(path.status))) {
@@ -156,10 +157,13 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
       ? raw.startInstruction.trim()
       : `Beginne mit der dir zugewiesenen Arbeit für dieses Projektziel: ${projectGoal || 'Setze den beschriebenen Teamauftrag um.'}`
     const plan = { projectGoal, startAgent, startInstruction, statusCommands, agents, connections, stops }
-    return { plan, signature: JSON.stringify(plan) }
-  } catch {
-    return null
+      return { plan, signature: JSON.stringify(plan) }
+    } catch {
+      continue
+    }
   }
+
+  return null
 }
 
 export function looksLikeManagementTeamPlan(text: string) {
@@ -168,10 +172,15 @@ export function looksLikeManagementTeamPlan(text: string) {
 
   const planningSignals = [
     'teamvorschlag',
+    'teamproposal',
+    'controlled_team_takeover',
     'statusbefehle',
+    'status_commands',
     'workflow-dashboard',
     'workflow dashboard',
+    'workflow_dashboard_connections',
     'startbereit',
+    'ready_for_controlled_takeover',
   ]
   return planningSignals.filter((signal) => normalized.includes(signal)).length >= 3
 }

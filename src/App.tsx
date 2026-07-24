@@ -39,7 +39,17 @@ import {
   nextConsecutiveFailedRuns,
   shouldEscalateWorkload,
 } from './workload-escalation.ts'
-import { resolveManagementRecoveryTargetId } from './management-recovery.ts'
+import {
+  isCompletedManagementObservation,
+  resolveCommunicationEscalationTargetId,
+  resolveManagementRecoveryTargetId,
+} from './management-recovery.ts'
+import { isDeliveryTargetBusy } from './delivery-availability.ts'
+import {
+  hasStableTerminalResult,
+  resolvePendingTurnStartedAt,
+  shouldPollPendingTurn,
+} from './pending-turn.ts'
 
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
@@ -181,6 +191,7 @@ type MaintenanceState = {
   threadId: string
   turnId: string
   status: 'idle' | 'diagnosing' | 'ready' | 'repairing' | 'failed'
+  origin?: 'automatic' | 'manual'
   incident: string
   report: string
   error: string
@@ -317,7 +328,35 @@ const STORAGE_KEY = 'codex-workflow-orchestrator'
 const LANGUAGE_STORAGE_KEY = 'codex-workflow-orchestrator-language'
 const PROGRAM_SETTINGS_STORAGE_KEY = 'codex-workflow-orchestrator-program-settings'
 const MAINTENANCE_READ_STORAGE_KEY = 'codex-workflow-orchestrator-maintenance-read'
+const TEAM_PLAN_FORMAT_CLAIM_PREFIX = 'codex-orchestrator-team-plan-format-v1:'
 const PROMPT_NODES_ENABLED = false
+
+function teamPlanFormatClaimKey(agentId: string, sourceTurnId: string) {
+  return `${TEAM_PLAN_FORMAT_CLAIM_PREFIX}${agentId}:${sourceTurnId || 'unknown'}`
+}
+
+function claimAutomaticTeamPlanFormatRequest(agentId: string, sourceTurnId: string) {
+  try {
+    const key = teamPlanFormatClaimKey(agentId, sourceTurnId)
+    if (window.localStorage.getItem(key)) return false
+    window.localStorage.setItem(key, new Date().toISOString())
+    return true
+  } catch {
+    return true
+  }
+}
+
+function clearAutomaticTeamPlanFormatClaim(agentId: string) {
+  try {
+    const prefix = `${TEAM_PLAN_FORMAT_CLAIM_PREFIX}${agentId}:`
+    for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.localStorage.key(index)
+      if (key?.startsWith(prefix)) window.localStorage.removeItem(key)
+    }
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts.
+  }
+}
 
 const defaultProgramSettings: ProgramSettings = {
   displayName: '',
@@ -1421,6 +1460,7 @@ function App() {
   const [teamPlanFormatRequesting, setTeamPlanFormatRequesting] = useState(false)
   const [teamPlanError, setTeamPlanError] = useState('')
   const [teamPlanProgress, setTeamPlanProgress] = useState('')
+  const [dismissedTeamPlanSignature, setDismissedTeamPlanSignature] = useState('')
   const [teamReadyNotice, setTeamReadyNotice] = useState<{ project: string; agents: number; statuses: number; connections: number; stops: number } | null>(null)
   const [autoRun, setAutoRun] = useState(storedState.autoRun)
   const [projectFilter, setProjectFilter] = useState(storedState.selectedProjectId)
@@ -1577,6 +1617,8 @@ function App() {
   const sharedStateVersion = useRef('')
   const sharedStateDirty = useRef(false)
   const teamPlanApplyingRef = useRef(false)
+  const automaticTeamPlanFormatRequests = useRef(new Set<string>())
+  const requestTeamPlanFormatCorrectionRef = useRef<(agent: Agent) => Promise<void>>(async () => {})
   const autoRunRef = useRef(autoRun)
   const automationTabId = useRef(crypto.randomUUID())
   const automationLeaderRef = useRef(false)
@@ -1882,10 +1924,23 @@ function App() {
     [projectAgents, selectedId],
   )
   const selectedTeamPlan = useMemo(
-    () => selectedAgent?.assignment === 'management' && selectedAgent.teamProvisioningEnabled
-      ? parseManagementTeamPlan(selectedAgent.lastResult)
-      : null,
-    [selectedAgent],
+    () => {
+      if (selectedAgent?.assignment !== 'management' || !selectedAgent.teamProvisioningEnabled) {
+        return null
+      }
+
+      const persistedPlan = parseManagementTeamPlan(selectedAgent.lastResult)
+      if (persistedPlan) return persistedPlan
+
+      for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
+        const message = chatMessages[index]
+        if (message.role !== 'assistant') continue
+        const conversationPlan = parseManagementTeamPlan(message.text)
+        if (conversationPlan) return conversationPlan
+      }
+      return null
+    },
+    [chatMessages, selectedAgent],
   )
   const selectedTeamPlanComplete = useMemo(() => {
     if (!selectedAgent || !selectedTeamPlan || !selectedAgent.projectPath) return false
@@ -2363,8 +2418,21 @@ function App() {
     void fetch('/api/system-maintenance/diagnose', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ incident, context: context.join('\n') }),
+      body: JSON.stringify({ incident, context: context.join('\n'), automatic: true }),
     }).catch(() => undefined)
+  }, [])
+
+  const stopAutomaticMaintenance = useCallback(() => {
+    void fetch('/api/system-maintenance/interrupt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ automaticOnly: true }),
+    })
+      .then(async (response) => {
+        if (!response.ok) return
+        setMaintenanceState(await response.json())
+      })
+      .catch(() => undefined)
   }, [])
 
   const updateAgent = useCallback((id: string, patch: Partial<Agent>) => {
@@ -2397,8 +2465,9 @@ function App() {
   useEffect(() => {
     if (!autoRun) {
       resetInactiveAgentStatuses()
+      stopAutomaticMaintenance()
     }
-  }, [autoRun, resetInactiveAgentStatuses])
+  }, [autoRun, resetInactiveAgentStatuses, stopAutomaticMaintenance])
 
   useEffect(() => {
     const managementAgents = new Map(
@@ -3495,6 +3564,13 @@ function App() {
     }
   }
 
+  const dismissManagementTeamPlan = () => {
+    if (!selectedTeamPlan || teamPlanApplying) return
+    setDismissedTeamPlanSignature(selectedTeamPlan.signature)
+    setTeamPlanError('')
+    setTeamPlanProgress('')
+  }
+
   const setThreadVisibility = (thread: CodexThread, visible: boolean) => {
     if (visible) {
       setHiddenThreadIds((current) => current.filter((id) => id !== thread.id))
@@ -3720,7 +3796,7 @@ function App() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: instruction, model: agent.model || undefined }),
+          body: JSON.stringify({ text: instruction, model: agent.model || undefined, cwd: agent.projectPath }),
         },
       )
       const data = await response.json()
@@ -3781,6 +3857,8 @@ function App() {
       messageParts.push('', workflowStatusInstruction(workflowStatusesForAgent(agent, workflowStatuses)))
     }
     if (requestsTeamPlan) {
+      automaticTeamPlanFormatRequests.current.delete(agent.id)
+      clearAutomaticTeamPlanFormatClaim(agent.id)
       messageParts.push('', managementTeamPlanInstruction(projectWorkflowStatuses))
     }
     const message = messageParts.join('\n')
@@ -3790,7 +3868,7 @@ function App() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: message, model: agent.model || undefined }),
+          body: JSON.stringify({ text: message, model: agent.model || undefined, cwd: agent.projectPath }),
         },
       )
       const data = await response.json()
@@ -3842,7 +3920,7 @@ function App() {
       const response = await fetch(`/api/threads/${encodeURIComponent(agent.threadId)}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: message, model: agent.model || undefined }),
+        body: JSON.stringify({ text: message, model: agent.model || undefined, cwd: agent.projectPath }),
       })
       const data = await response.json()
       if (!response.ok) {
@@ -3867,6 +3945,7 @@ function App() {
       setAgentTransmission(agent.id, false)
     }
   }
+  requestTeamPlanFormatCorrectionRef.current = requestTeamPlanFormatCorrection
 
   const renameCodexThread = useCallback(async (agent: Agent) => {
     if (!agent.threadId || agent.name === agent.threadTitle) {
@@ -3986,6 +4065,7 @@ function App() {
     })
     const repairTargetId = resolveDeterministicCommunicationRepairTarget({
       sourceAgentId: agent.id,
+      sourceIsManagement: agent.assignment === 'management',
       activeRouteCount: activeRoutes.length,
       resultStatusIds,
       dashboardAgentIds: workflowBoardAgentIds[agent.id] ?? [],
@@ -4060,9 +4140,13 @@ function App() {
       item.assignment === 'management' &&
       samePath(item.projectPath, agent.projectPath),
     )
-    const escalationTarget = !deterministicRepairDelivery && configuredDeliveries.length === 0 && projectManagers.length === 1
-      ? projectManagers[0]
-      : null
+    const escalationTargetId = resolveCommunicationEscalationTargetId({
+      inboundSourceAgentId: agent.lastInboundAgentId,
+      configuredDeliveryCount: configuredDeliveries.length,
+      hasDeterministicRepair: Boolean(deterministicRepairDelivery),
+      projectManagerIds: projectManagers.map((item) => item.id),
+    })
+    const escalationTarget = projectManagers.find((item) => item.id === escalationTargetId) ?? null
     const escalationDelivery: WorkflowDelivery | null = escalationTarget
       ? {
           target: escalationTarget,
@@ -4094,6 +4178,26 @@ function App() {
       ...(managementRecoveryDelivery ? [managementRecoveryDelivery] : []),
       ...(escalationDelivery ? [escalationDelivery] : []),
     ]
+
+    if (isCompletedManagementObservation({
+      isManagementAgent: agent.assignment === 'management',
+      inboundSourceAgentId: agent.lastInboundAgentId,
+      reportsTechnicalFailure,
+      configuredDeliveryCount: deliveries.length,
+      resultStatusCount: resultStatusIds.length,
+    })) {
+      updateAgent(agent.id, {
+        status: 'wartet',
+        pendingTurnId: '',
+        runStartedAt: '',
+      })
+      sharedStateDirty.current = true
+      addEvent(
+        'Agentenüberwachung abgeschlossen',
+        `${agent.name}: Kein Eingriff erforderlich. Die Automatik läuft weiter.`,
+      )
+      return
+    }
 
     if (deliveries.length === 0) {
       const availableStatuses = resultStatusIds.length > 0
@@ -4194,10 +4298,11 @@ function App() {
     }
 
     const readyAgentDeliveries = agentDeliveries.filter(({ target }) => {
-      const targetBusy =
-        activeDeliveryTargetIds.current.has(target.id) ||
-        Boolean(target.pendingTurnId) ||
-        target.status === 'laeuft'
+      const targetBusy = isDeliveryTargetBusy({
+        targetId: target.id,
+        activeTargetIds: activeDeliveryTargetIds.current,
+        agents: agentsRef.current,
+      })
       if (!targetBusy) {
         activeDeliveryTargetIds.current.add(target.id)
         return true
@@ -4252,7 +4357,7 @@ function App() {
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: message, model: target.model || undefined }),
+            body: JSON.stringify({ text: message, model: target.model || undefined, cwd: target.projectPath }),
           },
         )
         const data = await response.json()
@@ -4807,12 +4912,12 @@ function App() {
       await Promise.all(
         agents
           .filter(
-            (agent) =>
-              agent.status === 'laeuft' &&
-              Boolean(agent.threadId) &&
-              Boolean(agent.pendingTurnId) &&
-              agent.pendingTurnId !== agent.lastCompletedTurnId &&
-              !pollingTurnIds.current.has(agent.pendingTurnId),
+            (agent) => shouldPollPendingTurn({
+              threadId: agent.threadId,
+              pendingTurnId: agent.pendingTurnId,
+              lastCompletedTurnId: agent.lastCompletedTurnId,
+              isAlreadyPolling: pollingTurnIds.current.has(agent.pendingTurnId),
+            }),
           )
           .map(async (agent) => {
             pollingTurnIds.current.add(agent.pendingTurnId)
@@ -4825,8 +4930,12 @@ function App() {
                 throw new Error(data.error || 'Codex-Ergebnis konnte nicht gelesen werden.')
               }
               if (data.status === 'inProgress') {
-                const runAgeMs = agent.runStartedAt
-                  ? Date.now() - new Date(agent.runStartedAt).getTime()
+                const persistedRunStartedAt = resolvePendingTurnStartedAt(
+                  agent.runStartedAt,
+                  agent.updatedAt,
+                )
+                const runAgeMs = persistedRunStartedAt
+                  ? Math.max(0, Date.now() - persistedRunStartedAt)
                   : 0
                 let activeTurnId = agent.pendingTurnId
                 let activitySignature = ''
@@ -4871,11 +4980,8 @@ function App() {
                     now,
                   )
                   turnActivityObservations.current.set(agent.id, observation)
-                  const runStartedAt = agent.runStartedAt
-                    ? new Date(agent.runStartedAt).getTime()
-                    : 0
                   if (
-                    turnNeedsWatchdogIntervention(observation, runStartedAt, now) &&
+                    turnNeedsWatchdogIntervention(observation, persistedRunStartedAt, now) &&
                     !watchdogInterventionTurnIds.current.has(activeTurnId)
                   ) {
                     watchdogInterventionTurnIds.current.add(activeTurnId)
@@ -4943,13 +5049,14 @@ function App() {
                 watchdogInterventionTurnIds.current.delete(data.turnId)
               }
               if (data.status !== 'completed') {
-                const runAgeMs = agent.runStartedAt
-                  ? Date.now() - new Date(agent.runStartedAt).getTime()
-                  : 0
                 const observations =
                   (terminalResultObservations.current.get(agent.pendingTurnId) ?? 0) + 1
                 terminalResultObservations.current.set(agent.pendingTurnId, observations)
-                if (runAgeMs < 6000 || observations < 2) {
+                if (!hasStableTerminalResult({
+                  runStartedAt: agent.runStartedAt,
+                  observations,
+                  now: Date.now(),
+                })) {
                   return
                 }
                 terminalResultObservations.current.delete(agent.pendingTurnId)
@@ -5049,6 +5156,29 @@ function App() {
               const pendingTeamPlan = completedAgent.assignment === 'management'
                 ? parseManagementTeamPlan(completedAgent.lastResult)
                 : null
+              const teamPlanNeedsFormatCorrection =
+                completedAgent.assignment === 'management' &&
+                completedAgent.teamProvisioningEnabled &&
+                !pendingTeamPlan &&
+                (/<orchestrator_team_plan>/i.test(completedAgent.lastResult) ||
+                  looksLikeManagementTeamPlan(completedAgent.lastResult))
+              if (
+                !autoRun &&
+                teamPlanNeedsFormatCorrection &&
+                !automaticTeamPlanFormatRequests.current.has(completedAgent.id) &&
+                claimAutomaticTeamPlanFormatRequest(
+                  completedAgent.id,
+                  completedAgent.lastCompletedTurnId,
+                )
+              ) {
+                automaticTeamPlanFormatRequests.current.add(completedAgent.id)
+                addEvent(
+                  'Team-Vorschlag wird korrigiert',
+                  `${completedAgent.name}: Alternatives Teamformat erkannt; Orchestrator-Format wird einmalig automatisch angefordert.`,
+                )
+                await requestTeamPlanFormatCorrectionRef.current(completedAgent)
+                return
+              }
               if (autoRun && pendingTeamPlan) {
                 sharedStateDirty.current = true
                 autoRunRef.current = false
@@ -5171,7 +5301,10 @@ function App() {
         managementDispatchIds.current.add(manager.id)
         setAgentTransmission(manager.id, true)
         const dispatchedAt = new Date().toISOString()
-        updateAgent(manager.id, { lastMonitoringAt: dispatchedAt })
+        updateAgent(manager.id, {
+          lastMonitoringAt: dispatchedAt,
+          lastInboundAgentId: '',
+        })
         try {
           const message = buildMonitoringMessage(
             manager,
@@ -5181,7 +5314,7 @@ function App() {
           const response = await fetch(`/api/threads/${encodeURIComponent(manager.threadId)}/messages`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: message, model: manager.model || undefined }),
+            body: JSON.stringify({ text: message, model: manager.model || undefined, cwd: manager.projectPath }),
           })
           const data = await response.json()
           if (!response.ok) {
@@ -5193,6 +5326,7 @@ function App() {
             runStartedAt: dispatchedAt,
             pendingTurnId: data.turn?.id ?? '',
             lastMonitoringAt: dispatchedAt,
+            lastInboundAgentId: '',
           })
           addEvent(
             'Agentenüberwachung ausgeführt',
@@ -5275,7 +5409,7 @@ function App() {
             const response = await fetch(`/api/threads/${encodeURIComponent(target.threadId)}/messages`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: message, model: target.model || undefined }),
+              body: JSON.stringify({ text: message, model: target.model || undefined, cwd: target.projectPath }),
             })
             const data = await response.json()
             if (!response.ok) throw new Error(data.error || 'Zeitgesteuerte Aufgabe konnte nicht gesendet werden.')
@@ -5361,7 +5495,7 @@ function App() {
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: message, model: target.model || undefined }),
+              body: JSON.stringify({ text: message, model: target.model || undefined, cwd: target.projectPath }),
             },
           )
           const data = await response.json()
@@ -5396,6 +5530,7 @@ function App() {
       setTransmittingAgentIds([])
       queuedSourceAgentIdsByTarget.current.clear()
       resetInactiveAgentStatuses()
+      stopAutomaticMaintenance()
       releaseAutomationLease()
       addEvent('Automatik gestoppt', 'Weitere fertige Ergebnisse werden nicht automatisch weitergegeben.')
       return
@@ -6616,7 +6751,8 @@ function App() {
                       )}</p>
                     )}
 
-                    {selectedAgent.teamProvisioningEnabled && selectedTeamPlan && !selectedTeamPlanComplete && (
+                    {selectedAgent.teamProvisioningEnabled && selectedTeamPlan && !selectedTeamPlanComplete &&
+                      selectedTeamPlan.signature !== dismissedTeamPlanSignature && (
                       <div className="managementTeamPlan">
                         <div className="managementTeamPlanTitle">
                           <div>
@@ -6643,17 +6779,27 @@ function App() {
                             'Erstellt fehlende Codex-Chats und Statusbefehle, speichert Prompt-Dateien und übernimmt Verbindungen. Die Automatik bleibt aus.',
                             'Creates missing Codex chats and status commands, saves prompt files, and applies connections. Automation remains off.',
                           )}</small>
-                          <button
-                            className="primary"
-                            disabled={autoRun || teamPlanApplying}
-                            onClick={() => void applyManagementTeamPlan(selectedAgent)}
-                          >
-                            {teamPlanApplying
-                              ? tx('Team wird erstellt…', 'Creating team…')
-                              : selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature
-                                ? tx('Einrichtung vervollständigen', 'Complete setup')
-                                : tx('Team übernehmen', 'Apply team')}
-                          </button>
+                          <div className="teamPlanActions">
+                            {teamPlanError && !teamPlanApplying && (
+                              <button onClick={dismissManagementTeamPlan} type="button">
+                                {tx('Abbrechen', 'Cancel')}
+                              </button>
+                            )}
+                            <button
+                              className="primary"
+                              disabled={autoRun || teamPlanApplying}
+                              onClick={() => void applyManagementTeamPlan(selectedAgent)}
+                              type="button"
+                            >
+                              {teamPlanApplying
+                                ? tx('Team wird erstellt…', 'Creating team…')
+                                : teamPlanError
+                                  ? tx('Erneut versuchen', 'Try again')
+                                  : selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature
+                                    ? tx('Einrichtung vervollständigen', 'Complete setup')
+                                    : tx('Team übernehmen', 'Apply team')}
+                            </button>
+                          </div>
                         </div>
                         {teamPlanApplying && (
                           <div className="teamPlanProgress" role="status">
@@ -6734,7 +6880,8 @@ function App() {
                     {isAgentBusy(selectedAgent) ? tx('Antwort wird erstellt', 'Generating response') : tx('Aktuell', 'Current')}
                   </span>
                 </div>
-                {selectedAgent.teamProvisioningEnabled && selectedTeamPlan && !selectedTeamPlanComplete && (
+                {selectedAgent.teamProvisioningEnabled && selectedTeamPlan && !selectedTeamPlanComplete &&
+                  selectedTeamPlan.signature !== dismissedTeamPlanSignature && (
                   <section
                     aria-busy={teamPlanApplying}
                     aria-live="polite"
@@ -6762,20 +6909,27 @@ function App() {
                         <span>{teamPlanProgress}</span>
                       </div>
                     ) : (
-                      <button
-                        className="primary"
-                        disabled={autoRun}
-                        onClick={() => void applyManagementTeamPlan(selectedAgent)}
-                        type="button"
-                      >
-                        {selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature
-                          ? tx('Einrichtung vervollständigen', 'Complete setup')
-                          : teamPlanError
-                            ? tx('Erneut versuchen', 'Try again')
-                          : autoRun
-                            ? tx('Auto Stop erforderlich', 'Auto Stop required')
-                            : tx('Team übernehmen', 'Apply team')}
-                      </button>
+                      <div className="teamPlanActions">
+                        {teamPlanError && (
+                          <button onClick={dismissManagementTeamPlan} type="button">
+                            {tx('Abbrechen', 'Cancel')}
+                          </button>
+                        )}
+                        <button
+                          className="primary"
+                          disabled={autoRun}
+                          onClick={() => void applyManagementTeamPlan(selectedAgent)}
+                          type="button"
+                        >
+                          {selectedTeamPlan.signature === selectedAgent.lastAppliedTeamPlanSignature
+                            ? tx('Einrichtung vervollständigen', 'Complete setup')
+                            : teamPlanError
+                              ? tx('Erneut versuchen', 'Try again')
+                            : autoRun
+                              ? tx('Auto Stop erforderlich', 'Auto Stop required')
+                              : tx('Team übernehmen', 'Apply team')}
+                        </button>
+                      </div>
                     )}
                     {teamPlanError && <p className="formError">{teamPlanError}</p>}
                   </section>

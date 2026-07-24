@@ -6,11 +6,25 @@ export const EMPTY_MAINTENANCE_STATE = Object.freeze({
   threadId: '',
   turnId: '',
   status: 'idle',
+  // Active states from older versions had no origin and were triggered by automation.
+  origin: 'automatic',
   incident: '',
   report: '',
   error: '',
   updatedAt: '',
 })
+
+export function stoppedMaintenanceState(state) {
+  return {
+    ...state,
+    turnId: '',
+    status: 'idle',
+    origin: 'manual',
+    incident: '',
+    report: '',
+    error: '',
+  }
+}
 
 export function maintenanceDiagnosticPrompt(incident, context = '') {
   return [

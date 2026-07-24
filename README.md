@@ -96,6 +96,8 @@ Die vollständige Team-Konfiguration wird nach erfolgreicher Einrichtung als ein
 
 Der neutrale Setup-Turn bestätigt ausschließlich die dauerhafte Registrierung eines neuen Codex-Chats und löst keine Workflow-Weitergabe aus. Der Orchestrator startet danach weder die Automatik noch eine fachliche Aufgabe. `Auto Start` bleibt eine bewusste Benutzeraktion. Ein neues Projektverzeichnis wird nicht automatisch erzeugt, weil dessen Speicherort vom Benutzer beziehungsweise von Codex festgelegt werden muss.
 
+Projektagenten starten mit einem expliziten, auf ihren Projektordner begrenzten Schreibbereich. Dadurch können sie die beauftragten Dateien im ausgewählten Projekt anlegen und bearbeiten, ohne Schreibzugriff auf andere Projekte oder den Orchestrator zu erhalten. Diese Ausführungsregel wird bei jeder Chat-Nachricht, Prompt-Übergabe und automatischen Workflow-Aufgabe erneut gesetzt, sodass auch bereits vorhandene Codex-Chats korrekt arbeiten.
+
 Während ein Agent erstellt wird, bleibt der Dialog geöffnet und zeigt einen deutlich sichtbaren, rotierenden Einrichtungsstatus. Eingabe und Schaltflächen sind bis zur Bestätigung des neuen Codex-Chats gesperrt, damit keine doppelten Erstellungsaufträge entstehen.
 
 Beim Löschen bestätigt der Benutzer den Vorgang in einem anwendungseigenen Dialog. Ein verknüpfter Codex-Chat wird anschließend archiviert und aus der aktiven Projektansicht entfernt.
@@ -185,6 +187,7 @@ Eine Übergabe gilt erst als erfolgreich, wenn der Connector für den Ziel-Chat 
 - keine neue automatische Weitergabe
 - ruhende Verbindungsanimationen
 - keine manuelle oder verwaltete Erstellung neuer Agenten
+- keine weiterlaufende, automatisch gestartete Wartungsdiagnose
 
 Ein Agent, der beim Stoppen bereits arbeitet, darf seinen laufenden Codex-Turn noch abschließen. Danach wird keine weitere Route gestartet und sein Laufstatus auf `Warten` zurückgesetzt. Auch alle bereits abgeschlossenen Agentenstatus werden bei `Auto Stop` auf `Warten` gesetzt; nur wirklich laufende Turns bleiben bis zu ihrem Abschluss aktiv sichtbar. Direkte Chat-Nachrichten und manuelle Prompt-Übergaben bleiben auch bei ausgeschalteter Automatik verfügbar.
 
@@ -264,7 +267,7 @@ Am einfachsten startet die Anwendung per Doppelklick auf:
 start.bat
 ```
 
-Das Skript installiert fehlende Abhängigkeiten, startet den Connector auf Port `4317`, startet die Weboberfläche auf Port `5173` und öffnet anschließend:
+Das Skript installiert fehlende Abhängigkeiten, startet den überwachten Connector auf Port `4317`, startet die Weboberfläche auf Port `5173` und öffnet anschließend:
 
 ```text
 http://127.0.0.1:5173/
@@ -277,6 +280,8 @@ npm install
 npm run bridge
 npm run dev -- --host 127.0.0.1
 ```
+
+`npm run bridge` startet einen lokalen Supervisor. Er prüft den Connector regelmäßig über `/api/health`, protokolliert Prozessfehler unter `server/logs/bridge-supervisor.log` und startet die Bridge nach einem Absturz oder mehreren fehlgeschlagenen Gesundheitsprüfungen automatisch neu. Für eine gezielte Diagnose ohne automatische Wiederherstellung steht `npm run bridge:direct` zur Verfügung.
 
 ## Architektur
 
@@ -296,9 +301,10 @@ Codex-Projekte und Codex-Chats
 Wichtige Bereiche:
 
 ```text
-src/                 React-Oberfläche und Workflow-Logik
-server/bridge.mjs    Lokaler Connector zum Codex-App-Server
-start.bat            Windows-Startskript
+src/                          React-Oberfläche und Workflow-Logik
+server/bridge.mjs             Lokaler Connector zum Codex-App-Server
+server/bridge-supervisor.mjs  Health-Check, Fehlerprotokoll und automatischer Neustart
+start.bat                     Windows-Startskript
 ```
 
 Der Orchestrator-Zustand wird lokal gespeichert. Prompt-Dateien werden im jeweiligen Projekt unter `.codex-orchestrator/prompts/` verwaltet. Lokale Zustände, Zugangsdaten und Chatdaten werden nicht versioniert.

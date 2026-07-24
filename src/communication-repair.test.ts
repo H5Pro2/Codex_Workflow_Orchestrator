@@ -5,6 +5,7 @@ import { resolveDeterministicCommunicationRepairTarget } from './communication-r
 test('repairs a missing route only when status and target are unambiguous', () => {
   assert.equal(resolveDeterministicCommunicationRepairTarget({
     sourceAgentId: 'ceo',
+    sourceIsManagement: false,
     activeRouteCount: 0,
     resultStatusIds: ['forward'],
     dashboardAgentIds: ['ceo', 'implementation'],
@@ -15,6 +16,7 @@ test('repairs a missing route only when status and target are unambiguous', () =
 test('rejects ambiguous or already configured communication paths', () => {
   const base = {
     sourceAgentId: 'ceo',
+    sourceIsManagement: false,
     activeRouteCount: 0,
     resultStatusIds: ['forward'],
     dashboardAgentIds: ['ceo', 'implementation'],
@@ -35,3 +37,13 @@ test('rejects ambiguous or already configured communication paths', () => {
   }), '')
 })
 
+test('never invents an automatic repair route for a management agent', () => {
+  assert.equal(resolveDeterministicCommunicationRepairTarget({
+    sourceAgentId: 'ceo',
+    sourceIsManagement: true,
+    activeRouteCount: 0,
+    resultStatusIds: ['forward'],
+    dashboardAgentIds: ['ceo', 'project-management'],
+    knownAgentIds: ['ceo', 'project-management'],
+  }), '')
+})

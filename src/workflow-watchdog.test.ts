@@ -23,6 +23,16 @@ test('intervenes after prolonged inactivity', () => {
   assert.equal(turnNeedsWatchdogIntervention(observation, 500, now), true)
 })
 
+test('does not interrupt a turn that showed activity less than three minutes ago', () => {
+  const now = Date.now()
+  const observation = observeTurnActivity(undefined, 'turn-1', 'recent', now - 1_000)
+
+  assert.equal(
+    turnNeedsWatchdogIntervention(observation, now - 30 * 60 * 1000, now),
+    false,
+  )
+})
+
 test('enforces a maximum runtime even while activity changes', () => {
   const now = TURN_MAX_RUNTIME_MS + 10_000
   const observation = observeTurnActivity(undefined, 'turn-1', 'recent', now - 1_000)

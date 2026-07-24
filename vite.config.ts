@@ -10,7 +10,7 @@ function codexBridge(): Plugin {
     name: 'codex-bridge',
     async configureServer(server) {
       const startBridge = () => {
-        bridge = spawn(process.execPath, ['server/bridge.mjs'], {
+        bridge = spawn(process.execPath, ['server/bridge-supervisor.mjs'], {
           cwd: process.cwd(),
           stdio: 'inherit',
           windowsHide: true,
@@ -26,9 +26,9 @@ function codexBridge(): Plugin {
         startBridge()
       }
 
-      server.watcher.add('server/bridge.mjs')
+      server.watcher.add(['server/bridge.mjs', 'server/bridge-supervisor.mjs'])
       server.watcher.on('change', (path) => {
-        if (path.endsWith('server/bridge.mjs')) {
+        if (path.endsWith('server/bridge.mjs') || path.endsWith('server/bridge-supervisor.mjs')) {
           bridge?.kill()
           startBridge()
         }

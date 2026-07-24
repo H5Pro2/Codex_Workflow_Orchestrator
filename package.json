@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "bridge": "node server/bridge.mjs",
+    "bridge": "node server/bridge-supervisor.mjs",
+    "bridge:direct": "node server/bridge.mjs",
     "test": "node --test server/*.test.mjs src/*.test.ts",
     "build": "tsc -b && vite build",
     "lint": "oxlint",

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { resolveManagementRecoveryTargetId } from './management-recovery.ts'
+import {
+  isCompletedManagementObservation,
+  resolveCommunicationEscalationTargetId,
+  resolveManagementRecoveryTargetId,
+} from './management-recovery.ts'
 
 test('returns a management response to the agent that reported the failure', () => {
   assert.equal(resolveManagementRecoveryTargetId({
@@ -46,4 +50,59 @@ test('rejects stale or non-management recovery sources', () => {
     configuredDeliveryCount: 0,
     knownAgentIds: ['implementation'],
   }), '')
+})
+
+test('keeps automation running after an uneventful management observation', () => {
+  assert.equal(isCompletedManagementObservation({
+    isManagementAgent: true,
+    inboundSourceAgentId: '',
+    reportsTechnicalFailure: false,
+    configuredDeliveryCount: 0,
+    resultStatusCount: 0,
+  }), true)
+})
+
+test('does not treat actionable management results as observations', () => {
+  const base = {
+    isManagementAgent: true,
+    inboundSourceAgentId: '',
+    reportsTechnicalFailure: false,
+    configuredDeliveryCount: 0,
+    resultStatusCount: 0,
+  }
+
+  assert.equal(isCompletedManagementObservation({
+    ...base,
+    inboundSourceAgentId: 'implementation',
+  }), false)
+  assert.equal(isCompletedManagementObservation({
+    ...base,
+    reportsTechnicalFailure: true,
+  }), false)
+  assert.equal(isCompletedManagementObservation({
+    ...base,
+    configuredDeliveryCount: 1,
+  }), false)
+  assert.equal(isCompletedManagementObservation({
+    ...base,
+    resultStatusCount: 1,
+  }), false)
+})
+
+test('does not escalate a management response back to the same manager', () => {
+  assert.equal(resolveCommunicationEscalationTargetId({
+    inboundSourceAgentId: 'ceo',
+    configuredDeliveryCount: 0,
+    hasDeterministicRepair: false,
+    projectManagerIds: ['ceo'],
+  }), '')
+})
+
+test('escalates a new ambiguous communication problem exactly once', () => {
+  assert.equal(resolveCommunicationEscalationTargetId({
+    inboundSourceAgentId: 'implementation',
+    configuredDeliveryCount: 0,
+    hasDeterministicRepair: false,
+    projectManagerIds: ['ceo'],
+  }), 'ceo')
 })

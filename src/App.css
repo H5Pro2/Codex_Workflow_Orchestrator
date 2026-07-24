@@ -858,6 +858,17 @@ h2 {
   margin: 0;
 }
 
+.teamPlanActions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-self: end;
+}
+
+.teamPlanActions > button {
+  white-space: nowrap;
+}
+
 .teamPlanProgress {
   align-items: center;
   color: var(--text);
