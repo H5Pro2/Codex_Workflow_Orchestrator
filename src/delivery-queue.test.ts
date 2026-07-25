@@ -4,6 +4,8 @@ import {
   dequeueDelivery,
   enqueueDelivery,
   normalizeDeliveryQueue,
+  pruneDeliveryQueue,
+  removeDeliveryAgent,
   removeDeliveryTarget,
 } from './delivery-queue.ts'
 
@@ -30,5 +32,14 @@ test('normalizes a persisted queue after restart', () => {
 test('removes failed or completed delivery targets', () => {
   assert.deepEqual(removeDeliveryTarget({ qa: ['frontend'], ceo: ['qa'] }, 'qa'), {
     ceo: ['qa'],
+  })
+})
+
+test('removes a deleted agent as delivery target and source', () => {
+  assert.deepEqual(removeDeliveryAgent({ deleted: ['ceo'], qa: ['deleted', 'frontend'] }, 'deleted'), {
+    qa: ['frontend'],
+  })
+  assert.deepEqual(pruneDeliveryQueue({ missing: ['ceo'], qa: ['missing', 'frontend'] }, ['qa', 'frontend']), {
+    qa: ['frontend'],
   })
 })

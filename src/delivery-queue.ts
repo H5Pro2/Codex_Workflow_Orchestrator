@@ -40,3 +40,33 @@ export function removeDeliveryTarget(queue: DeliveryQueue, targetId: string) {
   delete nextQueue[targetId]
   return nextQueue
 }
+
+export function removeDeliveryAgent(queue: DeliveryQueue, agentId: string) {
+  let changed = agentId in queue
+  const nextQueue = Object.fromEntries(
+    Object.entries(queue).flatMap(([targetId, sourceIds]) => {
+      if (targetId === agentId) return []
+      const remaining = sourceIds.filter((sourceId) => sourceId !== agentId)
+      if (remaining.length !== sourceIds.length) changed = true
+      return remaining.length > 0 ? [[targetId, remaining]] : []
+    }),
+  )
+  return changed ? nextQueue : queue
+}
+
+export function pruneDeliveryQueue(queue: DeliveryQueue, validAgentIds: readonly string[]) {
+  const validIds = new Set(validAgentIds)
+  let changed = false
+  const nextQueue = Object.fromEntries(
+    Object.entries(queue).flatMap(([targetId, sourceIds]) => {
+      if (!validIds.has(targetId)) {
+        changed = true
+        return []
+      }
+      const remaining = sourceIds.filter((sourceId) => validIds.has(sourceId))
+      if (remaining.length !== sourceIds.length) changed = true
+      return remaining.length > 0 ? [[targetId, remaining]] : []
+    }),
+  )
+  return changed ? nextQueue : queue
+}

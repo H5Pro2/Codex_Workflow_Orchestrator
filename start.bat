@@ -39,10 +39,17 @@ if errorlevel 1 (
   echo Codex-Connector läuft bereits.
 )
 
+for /L %%G in (1,1,20) do (
+  netstat -ano | findstr /R /C:":4317 .*LISTENING" >nul && goto bridge_ready
+  timeout /t 1 /nobreak >nul
+)
+
+:bridge_ready
+
 netstat -ano | findstr /R /C:":5173 .*LISTENING" >nul
 if errorlevel 1 (
   echo Weboberfläche wird gestartet...
-  start "Codex Orchestrator - Weboberfläche" /min cmd /k "cd /d ""%~dp0"" && npm.cmd run dev -- --host 127.0.0.1"
+  start "Codex Orchestrator - Weboberfläche" /min cmd /k "cd /d ""%~dp0"" && npm.cmd run dev -- --host 127.0.0.1 --port 5173 --strictPort"
 ) else (
   echo Weboberfläche läuft bereits.
 )

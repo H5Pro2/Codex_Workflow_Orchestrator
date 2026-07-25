@@ -42,6 +42,8 @@ function codexBridge(): Plugin {
 export default defineConfig({
   plugins: [react(), codexBridge()],
   server: {
+    port: 5173,
+    strictPort: true,
     proxy: {
       '/api': 'http://127.0.0.1:4317',
     },

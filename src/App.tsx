@@ -56,9 +56,12 @@ import {
   dequeueDelivery,
   enqueueDelivery,
   normalizeDeliveryQueue,
+  pruneDeliveryQueue,
+  removeDeliveryAgent,
   removeDeliveryTarget,
   type DeliveryQueue,
 } from './delivery-queue.ts'
+import { pruneWorkflowBoardAgentIds, pruneWorkflowPositions } from './workflow-state.ts'
 import {
   parseWorkflowSignal,
   workflowSignalIssue,
@@ -779,7 +782,6 @@ function loadStoredState() {
       workflowStops: [] as WorkflowStop[],
       workflowTimers: [] as WorkflowTimer[],
       workflowPositions: {} as Record<string, { x: number; y: number }>,
-      hiddenWorkflowAgentIds: [] as string[],
       workflowBoardAgentIds: {} as Record<string, string[]>,
       deliveryQueue: {} as DeliveryQueue,
       selectedProjectId: '',
@@ -806,9 +808,6 @@ function loadStoredState() {
         parsed.workflowPositions && typeof parsed.workflowPositions === 'object'
           ? parsed.workflowPositions
           : {},
-      hiddenWorkflowAgentIds: Array.isArray(parsed.hiddenWorkflowAgentIds)
-        ? parsed.hiddenWorkflowAgentIds
-        : [],
       workflowBoardAgentIds:
         parsed.workflowBoardAgentIds && typeof parsed.workflowBoardAgentIds === 'object'
           ? parsed.workflowBoardAgentIds
@@ -831,7 +830,6 @@ function loadStoredState() {
       workflowStops: [] as WorkflowStop[],
       workflowTimers: [] as WorkflowTimer[],
       workflowPositions: {} as Record<string, { x: number; y: number }>,
-      hiddenWorkflowAgentIds: [] as string[],
       workflowBoardAgentIds: {} as Record<string, string[]>,
       deliveryQueue: {} as DeliveryQueue,
       selectedProjectId: '',
@@ -1880,6 +1878,21 @@ function App() {
 
   const selectedProject = codexProjects.find((project) => project.id === projectFilter)
   const selectedProjectPath = selectedProject?.path ?? ''
+
+  useEffect(() => {
+    const agentIds = agents.map((agent) => agent.id)
+    const nodeIds = [
+      ...agentIds,
+      ...workflowPrompts.map((node) => node.id),
+      ...workflowInitials.map((node) => node.id),
+      ...workflowStatusFilters.map((node) => node.id),
+      ...workflowStops.map((node) => node.id),
+      ...workflowTimers.map((node) => node.id),
+    ]
+    setWorkflowBoardAgentIds((current) => pruneWorkflowBoardAgentIds(current, agentIds))
+    setWorkflowPositions((current) => pruneWorkflowPositions(current, agentIds, nodeIds))
+    updateDeliveryQueue((current) => pruneDeliveryQueue(current, agentIds))
+  }, [agents, updateDeliveryQueue, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStops, workflowTimers])
 
   useEffect(() => {
     if (!selectedProjectPath) {
@@ -3752,21 +3765,42 @@ function App() {
       }
     }
 
+    const ownedNodeIds = new Set([
+      ...workflowPrompts.filter((node) => node.ownerAgentId === agent.id).map((node) => node.id),
+      ...workflowInitials.filter((node) => node.ownerAgentId === agent.id).map((node) => node.id),
+      ...workflowStatusFilters.filter((node) => node.ownerAgentId === agent.id).map((node) => node.id),
+      ...workflowStops.filter((node) => node.ownerAgentId === agent.id).map((node) => node.id),
+      ...workflowTimers.filter((node) => node.ownerAgentId === agent.id).map((node) => node.id),
+    ])
+    const removedNodeIds = new Set([agent.id, ...ownedNodeIds])
     const remaining = agents.filter((item) => item.id !== agent.id)
     setAgents(
       remaining.map((item) => {
         const talkTo = item.talkTo.filter((targetId) => targetId !== agent.id)
         const monitoredAgentIds = item.monitoredAgentIds.filter((targetId) => targetId !== agent.id)
-        return talkTo.length !== item.talkTo.length || monitoredAgentIds.length !== item.monitoredAgentIds.length
-          ? { ...item, talkTo, monitoredAgentIds, updatedAt: new Date().toISOString() }
+        const lastInboundAgentId = item.lastInboundAgentId === agent.id ? '' : item.lastInboundAgentId
+        return talkTo.length !== item.talkTo.length ||
+          monitoredAgentIds.length !== item.monitoredAgentIds.length ||
+          lastInboundAgentId !== item.lastInboundAgentId
+          ? { ...item, talkTo, monitoredAgentIds, lastInboundAgentId, updatedAt: new Date().toISOString() }
           : item
       }),
     )
     setRoutes((current) =>
-      current.filter((route) => route.sourceId !== agent.id && route.targetId !== agent.id),
+      current.filter((route) =>
+        route.ownerAgentId !== agent.id &&
+        !removedNodeIds.has(route.sourceId) &&
+        !removedNodeIds.has(route.targetId),
+      ),
+    )
+    setWorkflowPrompts((current) =>
+      current.filter((prompt) => prompt.ownerAgentId !== agent.id),
     )
     setWorkflowInitials((current) =>
       current.filter((initial) => initial.ownerAgentId !== agent.id),
+    )
+    setWorkflowStatusFilters((current) =>
+      current.filter((filter) => filter.ownerAgentId !== agent.id),
     )
     setWorkflowStops((current) =>
       current.filter((stop) => stop.ownerAgentId !== agent.id),
@@ -3776,9 +3810,14 @@ function App() {
     )
     setWorkflowPositions((current) => {
       return Object.fromEntries(
-        Object.entries(current).filter(([key]) => !key.endsWith(`:${agent.id}`)),
+        Object.entries(current).filter(([key]) => {
+          if (key.startsWith(`${agent.id}:`)) return false
+          return !Array.from(removedNodeIds).some((nodeId) => key.endsWith(`:${nodeId}`))
+        }),
       )
     })
+    setWorkflowBoardAgentIds((current) => pruneWorkflowBoardAgentIds(current, remaining.map((item) => item.id)))
+    updateDeliveryQueue((current) => removeDeliveryAgent(current, agent.id))
     setSelectedId(remaining[0]?.id ?? '')
     addEvent(
       'Agent gelöscht',
@@ -4597,6 +4636,15 @@ function App() {
     const filterIds = workflowStatusFilters.filter((filter) => filter.statusId === statusId).map((filter) => filter.id)
     setWorkflowStatusFilters((current) => current.filter((filter) => filter.statusId !== statusId))
     setRoutes((current) => current.filter((route) => !filterIds.includes(route.sourceId) && !filterIds.includes(route.targetId)))
+    setAgents((current) => current.map((agent) => {
+      if (!agent.workflowStatusIds?.includes(statusId)) return agent
+      return {
+        ...agent,
+        workflowStatusIds: agent.workflowStatusIds.filter((id) => id !== statusId),
+        workflowStatusUpdatedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    }))
     setSelectedStatusFilterId('')
     addEvent('Workflow-Status gelöscht', status?.name ?? 'Status')
   }
@@ -4776,6 +4824,10 @@ function App() {
   }
 
   const removeAgentFromDashboard = (agentId: string) => {
+    if (agentId === activeDashboardOwnerId) {
+      addEvent('Agent nicht entfernt', 'Der Dashboard-Eigentümer muss in seinem eigenen Workflow sichtbar bleiben.')
+      return
+    }
     setWorkflowBoardAgentIds((current) => ({
       ...current,
       [activeDashboardOwnerId]: (current[activeDashboardOwnerId] ?? [activeDashboardOwnerId])
@@ -4788,6 +4840,11 @@ function App() {
           (route.sourceId !== agentId && route.targetId !== agentId),
       ),
     )
+    setWorkflowPositions((current) => {
+      const next = { ...current }
+      delete next[`${activeDashboardOwnerId}:${agentId}`]
+      return next
+    })
     setSelectedWorkflowAgentId('')
     setSelectedRouteId('')
     addEvent(

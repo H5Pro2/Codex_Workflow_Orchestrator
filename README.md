@@ -318,6 +318,7 @@ src/workflow-protocol.ts      Strikte Auswertung der Workflow-Statussignale
 src/workflow-routing.ts       Technische Auflösung von Statusfiltern und Zielpfaden
 src/workflow-decision.ts      Fortsetzen-, Beobachten- oder Stoppen-Entscheidung
 src/delivery-queue.ts         Persistierbare Warteschlange paralleler Übergaben
+src/workflow-state.ts         Bereinigung verwaister Dashboard- und Positionsreferenzen
 server/bridge.mjs             Lokaler Connector zum Codex-App-Server
 server/bridge-supervisor.mjs  Health-Check, Fehlerprotokoll und automatischer Neustart
 start.bat                     Windows-Startskript
