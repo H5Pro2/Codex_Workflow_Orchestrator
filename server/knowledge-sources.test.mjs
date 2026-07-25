@@ -7,6 +7,7 @@ import {
   knowledgeSourcesFile,
   normalizeKnowledgeSources,
   readKnowledgeSources,
+  validateKnowledgeSourceLocations,
   writeKnowledgeSources,
 } from './knowledge-sources.mjs'
 
@@ -43,4 +44,32 @@ test('stores knowledge sources inside the selected project', async () => {
   } finally {
     await rm(projectPath, { recursive: true, force: true })
   }
+})
+
+test('rejects every local source that overlaps the writable workspace', () => {
+  const projectPath = 'C:\\Projects\\MCM'
+  const source = (location) => [{
+    id: 'source', name: 'Quelle', type: 'repository', location, description: '', enabled: true,
+  }]
+  assert.throws(
+    () => validateKnowledgeSourceLocations(projectPath, source('C:\\Projects\\MCM\\workspace\\research')),
+    /beschreibbaren Projekt-Workspace/,
+  )
+  assert.throws(
+    () => validateKnowledgeSourceLocations(projectPath, source('C:\\Projects\\MCM')),
+    /beschreibbaren Projekt-Workspace/,
+  )
+  assert.doesNotThrow(
+    () => validateKnowledgeSourceLocations(projectPath, source('D:\\Research\\MCM')),
+  )
+})
+
+test('accepts only absolute local paths and HTTP web links', () => {
+  const projectPath = 'C:\\Projects\\MCM'
+  const source = (type, location) => [{
+    id: 'source', name: 'Quelle', type, location, description: '', enabled: true,
+  }]
+  assert.throws(() => validateKnowledgeSourceLocations(projectPath, source('file', 'notes.md')), /absoluten lokalen Pfad/)
+  assert.throws(() => validateKnowledgeSourceLocations(projectPath, source('url', 'file:///C:/notes.md')), /HTTP- oder HTTPS-URL/)
+  assert.doesNotThrow(() => validateKnowledgeSourceLocations(projectPath, source('url', 'https://example.com/study')))
 })

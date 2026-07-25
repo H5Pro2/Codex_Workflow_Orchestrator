@@ -7361,7 +7361,7 @@ function App() {
               <div className="workflowStatusHeader">
                 <div>
                   <strong>{selectedProject?.label ?? tx('Kein Projekt', 'No project')}</strong>
-                  <small>{tx('Aktive Einträge stehen allen Agenten dieses Projekts zur Recherche zur Verfügung.', 'Active entries are available to every agent in this project for research.')}</small>
+                  <small>{tx('Aktive Einträge stehen allen Agenten ausschließlich lesend zur Verfügung.', 'Active entries are available to every agent as read-only sources.')}</small>
                 </div>
                 <small>{projectKnowledgeSources.filter((source) => source.enabled).length}/{projectKnowledgeSources.length} {tx('aktiv', 'active')}</small>
               </div>

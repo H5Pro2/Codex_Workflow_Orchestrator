@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { projectWorkspacePath } from './codex-sandbox.mjs'
 
 const SOURCE_TYPES = new Set(['folder', 'repository', 'file', 'url'])
 
@@ -31,6 +32,37 @@ export function normalizeKnowledgeSources(value) {
   })
 }
 
+function isSameOrInside(candidate, parent) {
+  const pathFromParent = relative(parent, candidate)
+  return pathFromParent === '' || (!pathFromParent.startsWith('..') && !isAbsolute(pathFromParent))
+}
+
+export function validateKnowledgeSourceLocations(projectPath, sources) {
+  const workspacePath = projectWorkspacePath(projectPath)
+  for (const source of sources) {
+    if (source.type === 'url') {
+      let url
+      try {
+        url = new URL(source.location)
+      } catch {
+        throw new Error(`Die Wissensquelle "${source.name}" enthält keine gültige URL.`)
+      }
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        throw new Error(`Die Wissensquelle "${source.name}" muss eine HTTP- oder HTTPS-URL verwenden.`)
+      }
+      continue
+    }
+
+    if (!isAbsolute(source.location)) {
+      throw new Error(`Die Wissensquelle "${source.name}" benötigt einen absoluten lokalen Pfad.`)
+    }
+    const sourcePath = resolve(source.location)
+    if (isSameOrInside(sourcePath, workspacePath) || isSameOrInside(workspacePath, sourcePath)) {
+      throw new Error(`Die Wissensquelle "${source.name}" überschneidet sich mit dem beschreibbaren Projekt-Workspace und kann nicht schreibgeschützt eingebunden werden.`)
+    }
+  }
+}
+
 export async function readKnowledgeSources(projectPath) {
   if (typeof projectPath !== 'string' || !projectPath.trim()) return []
   try {
@@ -50,6 +82,7 @@ export async function writeKnowledgeSources(projectPath, sources) {
   if (normalized.length !== sources.length) {
     throw new Error('Mindestens eine Wissensquelle ist ungültig oder doppelt vorhanden.')
   }
+  validateKnowledgeSourceLocations(projectPath, normalized)
 
   const filePath = knowledgeSourcesFile(projectPath)
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`

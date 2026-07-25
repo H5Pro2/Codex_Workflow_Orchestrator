@@ -807,7 +807,13 @@ const server = createServer(async (incoming, response) => {
         sendJson(response, 400, { error: 'Registrierter Projektpfad und Quellenliste sind erforderlich.' })
         return
       }
-      sendJson(response, 200, { sources: await writeKnowledgeSources(projectPath, body.sources) })
+      try {
+        sendJson(response, 200, { sources: await writeKnowledgeSources(projectPath, body.sources) })
+      } catch (error) {
+        sendJson(response, 400, {
+          error: error instanceof Error ? error.message : 'Wissensquellen sind ungültig.',
+        })
+      }
       return
     }
 
