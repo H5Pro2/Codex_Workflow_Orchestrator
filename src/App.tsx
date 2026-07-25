@@ -8010,9 +8010,6 @@ function App() {
                 }
               />
             </label>
-            <p className="modalHint">
-              {tx('Neutraler Start über den CEO. Nur du kannst optional eine zusätzliche Startanweisung hinterlegen; das System und Agenten füllen dieses Feld nicht.', 'Neutral start through the CEO. Only you can optionally provide an additional start instruction; the system and agents do not fill this field.')}
-            </p>
             <label>
               {tx('Optionale Anweisung', 'Optional instruction')}
               <textarea
