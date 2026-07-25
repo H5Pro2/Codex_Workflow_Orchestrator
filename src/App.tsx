@@ -351,9 +351,11 @@ const getWorkflowEdgeGeometry = ({
   targetY,
   targetPosition,
 }: Pick<EdgeProps, 'sourceX' | 'sourceY' | 'sourcePosition' | 'targetX' | 'targetY' | 'targetPosition'>) => {
-  const horizontalNodeDistance = Math.abs(targetX - sourceX + WORKFLOW_NODE_WIDTH)
+  const horizontalNodeOffset = targetX - sourceX + WORKFLOW_NODE_WIDTH
+  const horizontalNodeDistance = Math.abs(horizontalNodeOffset)
   const orientationRatio = Math.abs(targetY - sourceY) / Math.max(horizontalNodeDistance, 1)
-  const verticalBlend = orientationRatio > 0.58 ? 1 : 0
+  const routesBackward = horizontalNodeOffset <= 0
+  const verticalBlend = routesBackward || orientationRatio > 0.58 ? 1 : 0
   return {
     bezierPath: getBezierPath({
       sourceX,
