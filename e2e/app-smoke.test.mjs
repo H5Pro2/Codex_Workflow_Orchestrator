@@ -1,0 +1,154 @@
+import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { createServer } from 'node:net'
+import { join } from 'node:path'
+import { test } from 'node:test'
+import { chromium } from 'playwright-core'
+
+const projectRoot = process.cwd()
+const chromeCandidates = [
+  process.env.CHROME_PATH,
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+].filter(Boolean)
+
+async function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer()
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      server.close(() => resolve(address.port))
+    })
+  })
+}
+
+async function waitForServer(url) {
+  const deadline = Date.now() + 15_000
+  while (Date.now() < deadline) {
+    try {
+      if ((await fetch(url)).ok) return
+    } catch {
+      // Vite is still starting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150))
+  }
+  throw new Error(`Vite wurde nicht rechtzeitig erreichbar: ${url}`)
+}
+
+function fixtureState() {
+  return {
+    agents: [{
+      id: 'ceo',
+      name: 'CEO',
+      role: 'du bist CEO',
+      projectId: 'project-1',
+      projectPath: 'C:\\fixture-project',
+      threadTitle: 'CEO',
+      threadId: 'thread-ceo',
+      assignment: 'management',
+      managementInstructionRules: [
+        'Nutze das vorhandene Team.',
+        'Prüfe zuerst die Eignung des Teams.',
+        'Verwende einen Workflow-Status.',
+      ],
+    }],
+    events: [],
+    hiddenThreadIds: [],
+    routes: [],
+    workflowPrompts: [],
+    workflowInitials: [],
+    workflowStatuses: [],
+    workflowStatusFilters: [],
+    workflowStops: [],
+    workflowTimers: [],
+    workflowPositions: {},
+    workflowBoardAgentIds: {},
+    deliveryQueue: {},
+    selectedProjectId: 'project-1',
+    autoRun: false,
+  }
+}
+
+test('manages internal CEO instructions through the real UI', { timeout: 30_000 }, async (t) => {
+  const executablePath = chromeCandidates.find((candidate) => existsSync(candidate))
+  if (!executablePath) {
+    t.skip('Kein unterstützter lokaler Chromium-Browser gefunden.')
+    return
+  }
+
+  const port = await freePort()
+  const vite = spawn(
+    process.execPath,
+    [join(projectRoot, 'node_modules', 'vite', 'bin', 'vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+    { cwd: projectRoot, stdio: 'ignore' },
+  )
+  t.after(() => vite.kill())
+  await waitForServer(`http://127.0.0.1:${port}/`)
+
+  let sharedState = fixtureState()
+  let version = '2026-07-25T12:00:00.000Z'
+  const browser = await chromium.launch({ executablePath, headless: true })
+  t.after(() => browser.close())
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+  await context.addInitScript((state) => {
+    window.localStorage.setItem('codex-workflow-orchestrator', JSON.stringify(state))
+  }, sharedState)
+  const page = await context.newPage()
+  await page.route('**/api/**', async (route) => {
+    const request = route.request()
+    const pathname = new URL(request.url()).pathname
+    if (pathname === '/api/state' && request.method() === 'GET') {
+      await route.fulfill({ json: { state: sharedState, updatedAt: version } })
+      return
+    }
+    if (pathname === '/api/state' && request.method() === 'PUT') {
+      sharedState = request.postDataJSON().state
+      version = '2026-07-25T12:00:01.000Z'
+      await route.fulfill({ json: { ok: true, state: sharedState, updatedAt: version } })
+      return
+    }
+    if (pathname === '/api/projects') {
+      await route.fulfill({ json: { projects: [{ id: 'project-1', label: 'Fixture', path: 'C:\\fixture-project' }] } })
+      return
+    }
+    if (pathname === '/api/threads') {
+      await route.fulfill({ json: { threads: [{ id: 'thread-ceo', name: 'CEO', cwd: 'C:\\fixture-project', status: 'idle' }] } })
+      return
+    }
+    if (pathname === '/api/provisioning-recovery') {
+      await route.fulfill({ json: { status: 'idle', archived: 0, preserved: 0, failures: 0 } })
+      return
+    }
+    if (pathname === '/api/models') {
+      await route.fulfill({ json: { models: [] } })
+      return
+    }
+    if (pathname === '/api/usage') {
+      await route.fulfill({ json: { rateLimits: null } })
+      return
+    }
+    if (pathname === '/api/account') {
+      await route.fulfill({ json: { suggestedName: '' } })
+      return
+    }
+    await route.fulfill({ json: {} })
+  })
+
+  await page.goto(`http://127.0.0.1:${port}/`)
+  await page.getByRole('button', { name: 'Setup öffnen' }).click()
+  await page.getByRole('button', { name: 'Bearbeiten' }).click()
+  const dialog = page.getByRole('dialog', { name: 'CEO-Anweisungen bearbeiten' })
+  await dialog.waitFor()
+  assert.equal(await dialog.locator('.managementInstructionItem').count(), 3)
+
+  await dialog.getByLabel('Neue Anweisung').fill('Berichte knapp und prüfbar.')
+  await dialog.getByRole('button', { name: 'Hinzufügen' }).click()
+  assert.equal(await dialog.locator('.managementInstructionItem').count(), 4)
+
+  await dialog.getByRole('button', { name: 'Löschen' }).first().click()
+  assert.equal(await dialog.locator('.managementInstructionItem').count(), 3)
+  await dialog.getByRole('button', { name: 'Fertig' }).click()
+  await page.getByText('3 Einträge · intern angewendet und im Chat ausgeblendet').waitFor()
+})

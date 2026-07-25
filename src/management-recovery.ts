@@ -8,6 +8,7 @@ type ManagementRecoveryInput = {
 
 type ManagementObservationInput = {
   isManagementAgent: boolean
+  runPurpose: string
   inboundSourceAgentId: string
   reportsTechnicalFailure: boolean
   configuredDeliveryCount: number
@@ -36,6 +37,7 @@ export function resolveManagementRecoveryTargetId({
 
 export function isCompletedManagementObservation({
   isManagementAgent,
+  runPurpose,
   inboundSourceAgentId,
   reportsTechnicalFailure,
   configuredDeliveryCount,
@@ -43,6 +45,7 @@ export function isCompletedManagementObservation({
 }: ManagementObservationInput) {
   return (
     isManagementAgent &&
+    runPurpose === 'monitoring' &&
     !inboundSourceAgentId &&
     !reportsTechnicalFailure &&
     configuredDeliveryCount === 0 &&

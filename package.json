@@ -7,7 +7,7 @@
     "dev": "vite",
     "bridge": "node server/bridge-supervisor.mjs",
     "bridge:direct": "node server/bridge.mjs",
-    "test": "node --test server/*.test.mjs src/*.test.ts",
+    "test": "node --test server/*.test.mjs src/*.test.ts e2e/*.test.mjs",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
@@ -24,6 +24,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "oxlint": "^1.71.0",
+    "playwright-core": "^1.54.0",
     "typescript": "~6.0.2",
     "vite": "^8.1.1"
   }

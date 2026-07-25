@@ -1,20 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
-  BaseEdge,
   Controls,
-  Handle,
-  Position,
   ReactFlow,
   ReactFlowProvider,
-  getBezierPath,
-  getSmoothStepPath,
   type Connection,
-  type ConnectionLineComponentProps,
   type Edge,
-  type EdgeProps,
   type Node,
-  type NodeProps,
   type ReactFlowInstance,
   useEdgesState,
   useNodesState,
@@ -61,6 +52,25 @@ import {
 } from './management-recovery.ts'
 import { isDeliveryTargetBusy } from './delivery-availability.ts'
 import {
+  dequeueDelivery,
+  enqueueDelivery,
+  normalizeDeliveryQueue,
+  removeDeliveryTarget,
+  type DeliveryQueue,
+} from './delivery-queue.ts'
+import {
+  parseWorkflowSignal,
+  workflowSignalIssue,
+  workflowStatusInstruction,
+} from './workflow-protocol.ts'
+import { resolveConfiguredDeliveries } from './workflow-routing.ts'
+import { decideWorkflowContinuation } from './workflow-decision.ts'
+import {
+  WorkflowConnectionLine,
+  WorkflowEdge,
+  WorkflowNode,
+} from './workflow-canvas.tsx'
+import {
   hasStableTerminalResult,
   isAgentWorking,
   resolvePendingTurnStartedAt,
@@ -70,8 +80,12 @@ import {
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
 type AgentAssignment = 'agent' | 'management'
+type AgentRunPurpose = '' | 'chat' | 'handoff' | 'initial' | 'monitoring' | 'prompt' | 'timer'
 type ThemeMode = 'system' | 'light' | 'dark'
 type SettingsSection = 'general' | 'profile' | 'appearance'
+
+const workflowNodeTypes = { workflow: WorkflowNode }
+const workflowEdgeTypes = { workflow: WorkflowEdge }
 
 const INVENTORY_RECONCILIATION_GRACE_MS = 5 * 60 * 1000
 const AUTOMATION_LEASE_KEY = 'codex-orchestrator-automation-lease-v1'
@@ -151,6 +165,7 @@ type Agent = {
   completedRuns: number
   consecutiveFailedRuns: number
   pendingTurnId: string
+  runPurpose: AgentRunPurpose
   lastCompletedTurnId: string
   lastInboundAgentId: string
   updatedAt: string
@@ -294,15 +309,6 @@ type WorkflowDelivery = {
   stop?: WorkflowStop
 }
 
-type WorkflowNodeData = {
-  label: string
-  kind: 'agent' | 'prompt' | 'initial' | 'status' | 'stop' | 'timer'
-  status?: AgentStatus
-  kindLabel?: string
-  hasInstruction?: boolean
-  instructionIndicatorLabel?: string
-}
-
 function chatMessageIdentity(message: ChatMessage, agentName: string, language: UiLanguage) {
   if (message.role === 'assistant') {
     return {
@@ -337,210 +343,6 @@ function chatMessageIdentity(message: ChatMessage, agentName: string, language: 
   }
 
   return { name: 'Orchestrator', label: language === 'de' ? 'Eingang' : 'Input' }
-}
-
-function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
-  const isInitial = data.kind === 'initial'
-  const isStop = data.kind === 'stop'
-  const isTimer = data.kind === 'timer'
-  return (
-    <div className={`workflowNodeContent ${data.kind}`}>
-      {isInitial && data.hasInstruction && (
-        <span
-          className="initialInstructionIndicator nodrag"
-          role="img"
-          aria-label={data.instructionIndicatorLabel}
-          title={data.instructionIndicatorLabel}
-        />
-      )}
-      {!isInitial && !isTimer && <Handle id="input" type="target" position={Position.Left} />}
-      {!isInitial && !isTimer && <span className="portLabel input">In</span>}
-      <strong>{data.label}</strong>
-      <span className="nodeKind">{data.kindLabel ?? data.kind}</span>
-      {!isStop && <span className="portLabel output">Out</span>}
-      {!isStop && <Handle id="output" type="source" position={Position.Right} />}
-    </div>
-  )
-}
-
-const workflowNodeTypes = { workflow: WorkflowNode }
-const WORKFLOW_NODE_WIDTH = 190
-const WORKFLOW_EDGE_CURVATURE = 0.35
-const WORKFLOW_EDGE_BORDER_RADIUS = 18
-
-const getWorkflowEdgeGeometry = ({
-  sourceX,
-  sourceY,
-  sourcePosition,
-  targetX,
-  targetY,
-  targetPosition,
-}: Pick<EdgeProps, 'sourceX' | 'sourceY' | 'sourcePosition' | 'targetX' | 'targetY' | 'targetPosition'>) => {
-  const horizontalNodeOffset = targetX - sourceX + WORKFLOW_NODE_WIDTH
-  const horizontalNodeDistance = Math.abs(horizontalNodeOffset)
-  const orientationRatio = Math.abs(targetY - sourceY) / Math.max(horizontalNodeDistance, 1)
-  const routesBackward = horizontalNodeOffset <= 0
-  const verticalBlend = routesBackward || orientationRatio > 0.58 ? 1 : 0
-  return {
-    bezierPath: getBezierPath({
-      sourceX,
-      sourceY,
-      sourcePosition,
-      targetX,
-      targetY,
-      targetPosition,
-      curvature: WORKFLOW_EDGE_CURVATURE,
-    })[0],
-    smoothStepPath: getSmoothStepPath({
-      sourceX,
-      sourceY,
-      sourcePosition,
-      targetX,
-      targetY,
-      targetPosition,
-      borderRadius: WORKFLOW_EDGE_BORDER_RADIUS,
-    })[0],
-    verticalBlend,
-  }
-}
-
-function WorkflowEdge({
-  id,
-  sourceX,
-  sourceY,
-  sourcePosition,
-  targetX,
-  targetY,
-  targetPosition,
-  markerEnd,
-  markerStart,
-  style,
-  interactionWidth,
-}: EdgeProps) {
-  const { bezierPath, smoothStepPath, verticalBlend } = getWorkflowEdgeGeometry({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-  })
-  return (
-    <>
-      <BaseEdge
-        id={`${id}-bezier`}
-        path={bezierPath}
-        markerEnd={markerEnd}
-        markerStart={markerStart}
-        style={{ ...style, opacity: 1 - verticalBlend, transition: 'opacity 160ms ease' }}
-        interactionWidth={interactionWidth}
-      />
-      <BaseEdge
-        id={`${id}-vertical`}
-        path={smoothStepPath}
-        markerEnd={markerEnd}
-        markerStart={markerStart}
-        style={{ ...style, opacity: verticalBlend, transition: 'opacity 160ms ease' }}
-        interactionWidth={interactionWidth}
-      />
-    </>
-  )
-}
-
-const workflowEdgeTypes = { workflow: WorkflowEdge }
-
-function WorkflowConnectionLine({
-  fromHandle,
-  fromNode,
-  fromX,
-  fromY,
-  fromPosition,
-  toPosition,
-}: ConnectionLineComponentProps) {
-  const cursorRef = useRef<HTMLSpanElement>(null)
-  const bezierPathRef = useRef<SVGPathElement>(null)
-  const smoothStepPathRef = useRef<SVGPathElement>(null)
-  const initialGeometryRef = useRef({
-    fromHandleId: fromHandle.id ?? '',
-    fromNodeId: fromNode.id,
-    fromPosition,
-    fromX,
-    fromY,
-    toPosition,
-  })
-
-  useLayoutEffect(() => {
-    const geometry = initialGeometryRef.current
-    const sourceHandle = Array.from(
-      document.querySelectorAll<HTMLElement>('.workflowDashboard .react-flow__handle'),
-    ).find((handle) =>
-      handle.dataset.nodeid === geometry.fromNodeId &&
-      (handle.dataset.handleid ?? '') === geometry.fromHandleId,
-    )
-    const sourceBounds = sourceHandle?.getBoundingClientRect()
-    const handleScale = sourceBounds ? sourceBounds.width / 14 : 1
-    const source = sourceBounds
-      ? {
-          x: sourceBounds.left + sourceBounds.width / 2,
-          y: sourceBounds.top + sourceBounds.height / 2 - 2.5 * handleScale,
-        }
-      : { x: geometry.fromX, y: geometry.fromY }
-    const syncConnection = (clientX: number, clientY: number) => {
-      const { bezierPath, smoothStepPath, verticalBlend } = getWorkflowEdgeGeometry({
-        sourceX: source.x,
-        sourceY: source.y,
-        sourcePosition: geometry.fromPosition,
-        targetX: clientX,
-        targetY: clientY,
-        targetPosition: geometry.toPosition,
-      })
-      bezierPathRef.current?.setAttribute('d', bezierPath)
-      smoothStepPathRef.current?.setAttribute('d', smoothStepPath)
-      if (bezierPathRef.current) bezierPathRef.current.style.opacity = `${1 - verticalBlend}`
-      if (smoothStepPathRef.current) smoothStepPathRef.current.style.opacity = `${verticalBlend}`
-      const cursor = cursorRef.current
-      if (!cursor) return
-      cursor.style.opacity = '1'
-      cursor.style.transform = `translate3d(${clientX - 7}px, ${clientY - 7}px, 0)`
-    }
-    const syncPointer = (event: Event) => {
-      const pointerEvent = event as PointerEvent
-      const samples = pointerEvent.getCoalescedEvents?.()
-      const latest = samples?.[samples.length - 1] ?? pointerEvent
-      syncConnection(latest.clientX, latest.clientY)
-    }
-
-    const listenerOptions = { capture: true, passive: true }
-    window.addEventListener('pointerrawupdate', syncPointer, listenerOptions)
-    window.addEventListener('pointermove', syncPointer, listenerOptions)
-    return () => {
-      window.removeEventListener('pointerrawupdate', syncPointer, listenerOptions)
-      window.removeEventListener('pointermove', syncPointer, listenerOptions)
-    }
-    // Geometry is fixed for this drag. Later React Flow toX/toY renders lag behind
-    // native pointer events and must not overwrite the overlay position.
-  }, [])
-
-  return createPortal(
-    <>
-      <svg className="workflowConnectionOverlay" aria-hidden="true">
-        <path
-          ref={bezierPathRef}
-          className="react-flow__connection-path"
-          fill="none"
-          style={{ transition: 'opacity 160ms ease' }}
-        />
-        <path
-          ref={smoothStepPathRef}
-          className="react-flow__connection-path"
-          fill="none"
-          style={{ transition: 'opacity 160ms ease' }}
-        />
-      </svg>
-      <span ref={cursorRef} className="workflowConnectionCursor" aria-hidden="true" />
-    </>,
-    document.body,
-  )
 }
 
 const STORAGE_KEY = 'codex-workflow-orchestrator'
@@ -908,6 +710,9 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
     completedRuns: agent.completedRuns ?? 0,
     consecutiveFailedRuns: Math.max(0, agent.consecutiveFailedRuns ?? 0),
     pendingTurnId: agent.pendingTurnId ?? '',
+    runPurpose: ['chat', 'handoff', 'initial', 'monitoring', 'prompt', 'timer'].includes(agent.runPurpose ?? '')
+      ? agent.runPurpose as AgentRunPurpose
+      : '',
     lastCompletedTurnId: agent.lastCompletedTurnId ?? '',
     lastInboundAgentId: agent.lastInboundAgentId ?? '',
     updatedAt: agent.updatedAt ?? new Date().toISOString(),
@@ -975,6 +780,7 @@ function loadStoredState() {
       workflowPositions: {} as Record<string, { x: number; y: number }>,
       hiddenWorkflowAgentIds: [] as string[],
       workflowBoardAgentIds: {} as Record<string, string[]>,
+      deliveryQueue: {} as DeliveryQueue,
       selectedProjectId: '',
       autoRun: false,
     }
@@ -1006,6 +812,7 @@ function loadStoredState() {
         parsed.workflowBoardAgentIds && typeof parsed.workflowBoardAgentIds === 'object'
           ? parsed.workflowBoardAgentIds
           : {},
+      deliveryQueue: normalizeDeliveryQueue(parsed.deliveryQueue),
       selectedProjectId:
         typeof parsed.selectedProjectId === 'string' ? parsed.selectedProjectId : '',
       autoRun: parsed.autoRun === true,
@@ -1025,6 +832,7 @@ function loadStoredState() {
       workflowPositions: {} as Record<string, { x: number; y: number }>,
       hiddenWorkflowAgentIds: [] as string[],
       workflowBoardAgentIds: {} as Record<string, string[]>,
+      deliveryQueue: {} as DeliveryQueue,
       selectedProjectId: '',
       autoRun: false,
     }
@@ -1258,64 +1066,6 @@ function taskSignature(result: string) {
   return trimmed.replace(/\s+/g, ' ').toLocaleLowerCase('de-DE')
 }
 
-function workflowStatusIdsFromResult(
-  result: string,
-  definitions: WorkflowStatusDefinition[],
-) {
-  let parsed: Record<string, unknown> | null = null
-  try {
-    parsed = JSON.parse(result) as Record<string, unknown>
-  } catch {
-    const jsonMatch = result.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      try {
-        parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>
-      } catch {
-        parsed = null
-      }
-    }
-  }
-  const legacyNames = parsed
-    ? [
-        parsed.workflow_status,
-        parsed.workflow_statuses,
-        parsed.signale,
-      ].flatMap((value) =>
-        Array.isArray(value)
-          ? value.filter((item): item is string => typeof item === 'string')
-          : typeof value === 'string'
-            ? [value]
-            : [],
-      )
-    : []
-  const statusMarkers = Array.from(
-    result.matchAll(/\[Workflow-Status:\s*([^\]\r\n]+)\]/gi),
-    (match) => match[1].trim(),
-  )
-  const names = statusMarkers.length > 0 ? statusMarkers : legacyNames
-  return definitions
-    .filter((definition) =>
-      names.some((name) => name.trim().toLocaleLowerCase('de-DE') === definition.name.trim().toLocaleLowerCase('de-DE')),
-    )
-    .map((definition) => definition.id)
-}
-
-function workflowStatusInstruction(statuses: WorkflowStatusDefinition[]) {
-  return [
-    'Workflow-Abschlussformat (verbindlich):',
-    'Antworte zuerst normal und verständlich mit Zusammenfassung und nächstem Schritt. Verwende kein JSON.',
-    '',
-    'Setze als allerletzte Zeile genau einen Workflow-Status im Format [Workflow-Status: STATUSNAME].',
-    'Der Status ist das einzige Signal für die Workflow-Weiterleitung. Die Oberfläche zeigt den Abschluss eines Codex-Turns separat als „Fertig“ an.',
-    'Verwende ausschließlich exakte Statusnamen aus dieser Projektliste:',
-    ...(statuses.length > 0
-      ? statuses.map((status) => `- ${status.name}: ${status.description || 'Keine Beschreibung'}`)
-      : ['- Keine Status definiert: verwende [Workflow-Status: Kein Status].']),
-    '',
-    'Wenn kein Status zutrifft, verwende [Workflow-Status: Kein Status]. Erfinde keine Statusnamen.',
-  ].join('\n')
-}
-
 function workflowStatusesForAgent(agent: Agent, statuses: WorkflowStatusDefinition[]) {
   const projectStatuses = statuses.filter((status) => samePath(status.projectPath, agent.projectPath))
   const selectedStatusIds = agent.workflowStatusIds
@@ -1352,15 +1102,6 @@ function buildMonitoringMessage(
     '',
     workflowStatusInstruction(statuses),
   ].join('\n')
-}
-
-function routeConditionMatches(condition: string, result: string) {
-  const normalized = condition.trim().toLocaleLowerCase('de-DE')
-  return (
-    normalized === '' ||
-    normalized === 'immer' ||
-    result.toLocaleLowerCase('de-DE').includes(normalized)
-  )
 }
 
 function formatDuration(durationMs: number, language: UiLanguage) {
@@ -1763,6 +1504,7 @@ function App() {
   const [workflowBoardAgentIds, setWorkflowBoardAgentIds] = useState<Record<string, string[]>>(
     storedState.workflowBoardAgentIds,
   )
+  const [deliveryQueue, setDeliveryQueue] = useState<DeliveryQueue>(storedState.deliveryQueue)
   const [eventLogCollapsed, setEventLogCollapsed] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
   const [dashboardOpen, setDashboardOpen] = useState(false)
@@ -1902,7 +1644,8 @@ function App() {
   const terminalResultObservations = useRef(new Map<string, number>())
   const turnActivityObservations = useRef(new Map<string, TurnActivityObservation>())
   const activeDeliveryTargetIds = useRef(new Set<string>())
-  const queuedSourceAgentIdsByTarget = useRef(new Map<string, string[]>())
+  const deliveryQueueRef = useRef(deliveryQueue)
+  deliveryQueueRef.current = deliveryQueue
   const timerDispatchIds = useRef(new Set<string>())
   const managementDispatchIds = useRef(new Set<string>())
   const chatStreamRef = useRef<HTMLDivElement>(null)
@@ -1910,6 +1653,13 @@ function App() {
     (de: string, en: string) => language === 'de' ? de : en,
     [language],
   )
+  const updateDeliveryQueue = useCallback((
+    updater: (current: DeliveryQueue) => DeliveryQueue,
+  ) => {
+    const next = updater(deliveryQueueRef.current)
+    deliveryQueueRef.current = next
+    setDeliveryQueue(next)
+  }, [])
 
   useEffect(() => {
     const closeMenusOnOutsideClick = (event: PointerEvent) => {
@@ -2013,6 +1763,7 @@ function App() {
       workflowTimers,
       workflowPositions,
       workflowBoardAgentIds,
+      deliveryQueue,
       selectedProjectId: projectFilter,
       autoRun,
     }
@@ -2048,7 +1799,7 @@ function App() {
       }
     }, 450)
     return () => window.clearTimeout(timer)
-  }, [agents, autoRun, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops, workflowTimers])
+  }, [agents, autoRun, deliveryQueue, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops, workflowTimers])
 
   const applySharedState = useCallback((state: ReturnType<typeof loadStoredState>) => {
     const incomingAgents = Array.isArray(state.agents)
@@ -2082,6 +1833,9 @@ function App() {
     setWorkflowTimers(Array.isArray(state.workflowTimers) ? state.workflowTimers : [])
     setWorkflowPositions(state.workflowPositions ?? {})
     setWorkflowBoardAgentIds(state.workflowBoardAgentIds ?? {})
+    const incomingDeliveryQueue = normalizeDeliveryQueue(state.deliveryQueue)
+    deliveryQueueRef.current = incomingDeliveryQueue
+    setDeliveryQueue(incomingDeliveryQueue)
     setAutoRun(state.autoRun === true)
     if (state.selectedProjectId) {
       setProjectFilter(state.selectedProjectId)
@@ -2667,8 +2421,9 @@ function App() {
           lastDurationMs: 0,
           completedRuns: 0,
           consecutiveFailedRuns: 0,
-          pendingTurnId: '',
-          lastCompletedTurnId: '',
+           pendingTurnId: '',
+           runPurpose: '',
+           lastCompletedTurnId: '',
           lastInboundAgentId: '',
           updatedAt: new Date().toISOString(),
           }
@@ -2815,7 +2570,7 @@ function App() {
       autoRunRef.current = false
       setAutoRun(false)
       setTransmittingAgentIds([])
-      queuedSourceAgentIdsByTarget.current.clear()
+      updateDeliveryQueue(() => ({}))
       activeDeliveryTargetIds.current.clear()
       resetInactiveAgentStatuses()
       addEvent(
@@ -2828,7 +2583,7 @@ function App() {
         'Eine veraltete Selbstverknüpfung des Verwaltungsagenten wurde entfernt.',
       )
     }
-  }, [addEvent, agents, resetInactiveAgentStatuses, workflowStatusFilters])
+  }, [addEvent, agents, resetInactiveAgentStatuses, updateDeliveryQueue, workflowStatusFilters])
 
   useEffect(() => {
     if (
@@ -3214,6 +2969,7 @@ function App() {
       completedRuns: 0,
       consecutiveFailedRuns: 0,
       pendingTurnId: '',
+      runPurpose: '',
       lastCompletedTurnId: '',
       lastInboundAgentId: '',
       updatedAt: new Date().toISOString(),
@@ -3323,6 +3079,7 @@ function App() {
         completedRuns: 0,
         consecutiveFailedRuns: 0,
         pendingTurnId: data.turn?.id ?? '',
+        runPurpose: data.turn?.id ? 'prompt' : '',
         lastCompletedTurnId: '',
         lastInboundAgentId: '',
         updatedAt: new Date().toISOString(),
@@ -4177,6 +3934,7 @@ function App() {
       status: 'laeuft',
       runStartedAt: new Date().toISOString(),
       pendingTurnId: startedTurnId,
+      runPurpose: 'prompt',
     })
     setAgentTransmission(agent.id, false)
     addEvent(
@@ -4239,6 +3997,7 @@ function App() {
         status: 'laeuft',
         runStartedAt: new Date().toISOString(),
         pendingTurnId: data.turn?.id ?? '',
+        runPurpose: 'chat',
       })
       addEvent(
         'Chat-Nachricht gesendet',
@@ -4288,6 +4047,7 @@ function App() {
         status: 'laeuft',
         runStartedAt: new Date().toISOString(),
         pendingTurnId: data.turn?.id ?? '',
+        runPurpose: 'chat',
       })
       addEvent('Team-Vorschlag wird korrigiert', `${agent.name}: Orchestrator-Format angefordert.`)
     } catch (error) {
@@ -4347,7 +4107,8 @@ function App() {
       (route) => route.sourceId === agent.id,
     )
     const projectStatuses = workflowStatusesForAgent(agent, workflowStatuses)
-    const resultStatusIds = workflowStatusIdsFromResult(agent.lastResult, projectStatuses)
+    const workflowSignal = parseWorkflowSignal(agent.lastResult, projectStatuses)
+    const resultStatusIds = workflowSignal.statusIds
     const reportsTechnicalFailure = projectStatuses.some(
       (status) =>
         resultStatusIds.includes(status.id) &&
@@ -4359,65 +4120,21 @@ function App() {
       agent.lastCompletedTurnId,
       reportsTechnicalFailure,
     )
-    const configuredDeliveries = activeRoutes.flatMap<WorkflowDelivery>((route) => {
-      const directTarget = agents.find((item) => item.id === route.targetId)
-      if (directTarget) {
-        return [{ target: directTarget, route }]
-      }
-      const directStop = workflowStops.find((stop) => stop.id === route.targetId)
-      if (directStop) {
-        return [{ stop: directStop, route }]
-      }
-      const statusFilter = workflowStatusFilters.find((filter) => filter.id === route.targetId)
-      if (statusFilter) {
-        if (!resultStatusIds.includes(statusFilter.statusId)) {
-          return []
-        }
-        return routes
-          .filter((outgoing) => outgoing.sourceId === statusFilter.id)
-          .flatMap<WorkflowDelivery>((outgoing) => {
-            const target = agents.find((item) => item.id === outgoing.targetId)
-            if (target) {
-              return [{ target, route: outgoing }]
-            }
-            const stop = workflowStops.find((item) => item.id === outgoing.targetId)
-            return stop ? [{ stop, route: outgoing }] : []
-          })
-      }
-      const promptNode = workflowPrompts.find((prompt) => prompt.id === route.targetId)
-      if (!promptNode) {
-        return []
-      }
-      return routes
-        .filter(
-          (outgoing) =>
-            outgoing.sourceId === promptNode.id &&
-            routeConditionMatches(outgoing.condition, agent.lastResult),
-        )
-        .flatMap<WorkflowDelivery>((outgoing) => {
-          const target = agents.find((item) => item.id === outgoing.targetId)
-          if (target) {
-            return [{
-                target,
-                route: {
-                  ...outgoing,
-                  condition: promptNode.condition,
-                  prompt: promptNode.prompt,
-                },
-              }]
-          }
-          const stop = workflowStops.find((item) => item.id === outgoing.targetId)
-          return stop
-            ? [{
-                stop,
-                route: {
-                  ...outgoing,
-                  condition: promptNode.condition,
-                  prompt: promptNode.prompt,
-                },
-              }]
-            : []
-        })
+    const configuredDeliveries = resolveConfiguredDeliveries({
+      sourceId: agent.id,
+      result: agent.lastResult,
+      resultStatusIds,
+      routes,
+      statusFilters: workflowStatusFilters,
+      promptNodes: workflowPrompts,
+      targetIds: new Set(agents.map((item) => item.id)),
+      stopIds: new Set(workflowStops.map((item) => item.id)),
+    }).flatMap<WorkflowDelivery>(({ targetId, stopId, route }) => {
+      const resolvedRoute = route as WorkflowRoute
+      const target = agents.find((item) => item.id === targetId)
+      if (target) return [{ target, route: resolvedRoute }]
+      const stop = workflowStops.find((item) => item.id === stopId)
+      return stop ? [{ stop, route: resolvedRoute }] : []
     })
     const managementRecoveryTargetId = resolveManagementRecoveryTargetId({
       isManagementAgent: agent.assignment === 'management',
@@ -4449,13 +4166,22 @@ function App() {
       ...(managementRecoveryDelivery ? [managementRecoveryDelivery] : []),
     ]
 
-    if (isCompletedManagementObservation({
+    const managementObservation = isCompletedManagementObservation({
       isManagementAgent: agent.assignment === 'management',
+      runPurpose: agent.runPurpose,
       inboundSourceAgentId: agent.lastInboundAgentId,
       reportsTechnicalFailure,
       configuredDeliveryCount: deliveries.length,
       resultStatusCount: resultStatusIds.length,
-    })) {
+    })
+    const continuation = decideWorkflowContinuation({
+      signal: workflowSignal,
+      deliveryCount: deliveries.length,
+      managementObservation,
+      activeRouteCount: activeRoutes.length,
+    })
+
+    if (continuation.action === 'observe') {
       updateAgent(agent.id, {
         status: 'wartet',
         pendingTurnId: '',
@@ -4469,21 +4195,22 @@ function App() {
       return
     }
 
-    if (deliveries.length === 0) {
-      const availableStatuses = resultStatusIds.length > 0
-        ? projectStatuses.filter((status) => resultStatusIds.includes(status.id)).map((status) => status.name).join(', ')
-        : 'kein Workflow-Status'
+    if (continuation.action === 'stop') {
+      const signalIssue = workflowSignalIssue(workflowSignal)
+      const availableStatuses = workflowSignal.kind === 'valid'
+        ? workflowSignal.names.join(', ')
+        : signalIssue || 'kein Workflow-Status'
       addEvent(
         activeRoutes.length === 0 ? 'Weitergabe gestoppt' : 'Keine Status-Weitergabe',
         activeRoutes.length === 0
-          ? `${agent.name} hat keine Workflow-Verbindung.`
-          : `${agent.name}: ${availableStatuses}`,
+          ? `${agent.name}: ${continuation.reason}`
+          : `${agent.name}: ${continuation.reason || availableStatuses}`,
       )
       sharedStateDirty.current = true
       autoRunRef.current = false
       setAutoRun(false)
       setTransmittingAgentIds([])
-      queuedSourceAgentIdsByTarget.current.clear()
+      updateDeliveryQueue(() => ({}))
       activeDeliveryTargetIds.current.clear()
       updateAgent(agent.id, {
         status: 'rueckfrage',
@@ -4501,7 +4228,8 @@ function App() {
           `Agent-ID: ${agent.id}`,
           `Thread-ID: ${agent.threadId || 'nicht verfügbar'}`,
           `Turn-ID: ${agent.lastCompletedTurnId || 'nicht verfügbar'}`,
-          `Workflow-Status: ${availableStatuses}`,
+          `Workflow-Protokoll: ${availableStatuses}`,
+          `Signalquelle: ${workflowSignal.source}`,
           `Ausgehende Verbindungen: ${activeRoutes.length}`,
         ],
         agent,
@@ -4545,7 +4273,7 @@ function App() {
       autoRunRef.current = false
       setAutoRun(false)
       setTransmittingAgentIds([])
-      queuedSourceAgentIdsByTarget.current.clear()
+      updateDeliveryQueue(() => ({}))
       activeDeliveryTargetIds.current.clear()
       updateAgent(agent.id, {
         status: 'fertig',
@@ -4578,9 +4306,9 @@ function App() {
         activeDeliveryTargetIds.current.add(target.id)
         return true
       }
-      const queuedSourceIds = queuedSourceAgentIdsByTarget.current.get(target.id) ?? []
+      const queuedSourceIds = deliveryQueueRef.current[target.id] ?? []
       if (!queuedSourceIds.includes(agent.id)) {
-        queuedSourceAgentIdsByTarget.current.set(target.id, [...queuedSourceIds, agent.id])
+        updateDeliveryQueue((current) => enqueueDelivery(current, target.id, agent.id))
         addEvent(
           'Weitergabe wartet',
           `${agent.name} -> ${target.name}: Der Zielagent verarbeitet noch eine andere Übergabe.`,
@@ -4622,6 +4350,7 @@ function App() {
         lastResult: message,
         runStartedAt: new Date().toISOString(),
         lastInboundAgentId: agent.id,
+        runPurpose: 'handoff',
       })
       try {
         const response = await fetch(
@@ -4698,7 +4427,7 @@ function App() {
         `${agent.name}: Kein Ziel-Chat hat die Übergabe angenommen.`,
       )
     }
-  }, [addEvent, agents, applyThreadReplacement, requestSystemDiagnosis, routes, updateAgent, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, requestSystemDiagnosis, routes, updateAgent, updateDeliveryQueue, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   const connectAgents = useCallback((connection: Connection) => {
     if (
@@ -5197,14 +4926,10 @@ function App() {
     const poll = async () => {
       if (autoRunRef.current && !automationLeaderRef.current) return
       const forwardNextQueuedSource = async (targetId: string) => {
-        const queuedSourceIds = queuedSourceAgentIdsByTarget.current.get(targetId) ?? []
-        const [sourceId, ...remainingSourceIds] = queuedSourceIds
+        const nextDelivery = dequeueDelivery(deliveryQueueRef.current, targetId)
+        const sourceId = nextDelivery.sourceId
         if (!sourceId) return
-        if (remainingSourceIds.length > 0) {
-          queuedSourceAgentIdsByTarget.current.set(targetId, remainingSourceIds)
-        } else {
-          queuedSourceAgentIdsByTarget.current.delete(targetId)
-        }
+        updateDeliveryQueue(() => nextDelivery.queue)
         const source = agentsRef.current.find((item) => item.id === sourceId)
         if (autoRunRef.current && source) {
           await handoff(source)
@@ -5418,12 +5143,12 @@ function App() {
                   )
                 }
                 if (autoRun && failedAgent.assignment === 'management') {
-                  queuedSourceAgentIdsByTarget.current.delete(failedAgent.id)
+                  updateDeliveryQueue((current) => removeDeliveryTarget(current, failedAgent.id))
                   sharedStateDirty.current = true
                   autoRunRef.current = false
                   setAutoRun(false)
                   setTransmittingAgentIds([])
-                  queuedSourceAgentIdsByTarget.current.clear()
+                  updateDeliveryQueue(() => ({}))
                   resetInactiveAgentStatuses()
                   addEvent(
                     'Automatik gestoppt',
@@ -5489,7 +5214,7 @@ function App() {
                 autoRunRef.current = false
                 setAutoRun(false)
                 setTransmittingAgentIds([])
-                queuedSourceAgentIdsByTarget.current.clear()
+                updateDeliveryQueue(() => ({}))
                 activeDeliveryTargetIds.current.clear()
                 resetInactiveAgentStatuses()
                 addEvent(
@@ -5502,10 +5227,11 @@ function App() {
                 completedAgent,
                 workflowStatuses,
               )
-              const completedStatusIds = workflowStatusIdsFromResult(
+              const completedSignal = parseWorkflowSignal(
                 completedAgent.lastResult,
                 completedAgentStatuses,
               )
+              const completedStatusIds = completedSignal.statusIds
               const managementReportedTechnicalFailure =
                 completedAgent.assignment === 'management' &&
                 completedAgentStatuses.some(
@@ -5519,7 +5245,7 @@ function App() {
                 autoRunRef.current = false
                 setAutoRun(false)
                 setTransmittingAgentIds([])
-                queuedSourceAgentIdsByTarget.current.clear()
+                updateDeliveryQueue(() => ({}))
                 activeDeliveryTargetIds.current.clear()
                 resetInactiveAgentStatuses()
                 addEvent(
@@ -5576,7 +5302,7 @@ function App() {
     void poll()
     const timer = window.setInterval(() => void poll(), 2500)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, autoRun, handoff, renameCodexThread, requestSystemDiagnosis, resetInactiveAgentStatuses, updateAgent, workflowStatuses])
+  }, [addEvent, agents, autoRun, handoff, renameCodexThread, requestSystemDiagnosis, resetInactiveAgentStatuses, updateAgent, updateDeliveryQueue, workflowStatuses])
 
   useEffect(() => {
     if (!autoRun || !automationLeader) return
@@ -5633,6 +5359,7 @@ function App() {
             pendingTurnId: data.turn?.id ?? '',
             lastMonitoringAt: dispatchedAt,
             lastInboundAgentId: '',
+            runPurpose: 'monitoring',
           })
           addEvent(
             'Agentenüberwachung ausgeführt',
@@ -5724,6 +5451,7 @@ function App() {
               status: 'laeuft',
               runStartedAt: firedAt,
               pendingTurnId: data.turn?.id ?? '',
+              runPurpose: 'timer',
             })
           }))
           advanceTimer(true)
@@ -5817,6 +5545,7 @@ function App() {
             status: 'laeuft',
             runStartedAt: new Date().toISOString(),
             pendingTurnId: data.turn?.id ?? '',
+            runPurpose: 'initial',
           })
           addEvent(
             'Initial-Anfrage gesendet',
@@ -5838,7 +5567,7 @@ function App() {
       autoRunRef.current = false
       setAutoRun(false)
       setTransmittingAgentIds([])
-      queuedSourceAgentIdsByTarget.current.clear()
+      updateDeliveryQueue(() => ({}))
       resetInactiveAgentStatuses()
       stopAutomaticMaintenance()
       releaseAutomationLease()
@@ -5856,7 +5585,7 @@ function App() {
         : route,
     ))
     setTransmittingAgentIds([])
-    queuedSourceAgentIdsByTarget.current.clear()
+    updateDeliveryQueue(() => ({}))
     activeDeliveryTargetIds.current.clear()
     resetInactiveAgentStatuses()
     autoRunRef.current = true

@@ -101,6 +101,8 @@ Bei Zeitplänen, Agentenübergaben und Verwaltungsprüfungen wird die vollständ
 
 Mehrere gleichzeitige Übergaben an denselben Zielagenten werden in einer zielbezogenen Warteschlange serialisiert. Ein CEO, Integrator oder anderer Sammelpunkt erhält dadurch erst die nächste Nachricht, wenn sein aktueller Codex-Turn abgeschlossen ist; parallele Rückmeldungen können den laufenden Turn nicht überschreiben.
 
+Die Warteschlange gehört zum gemeinsam gespeicherten Orchestrator-Zustand. Ein Browser-Neuladen oder Prozessneustart verliert deshalb keine bereits wartende Parallelübergabe. Nach Abschluss des noch laufenden Ziel-Turns wird die gespeicherte Reihenfolge fortgesetzt.
+
 Der Vorschlagsbereich unterscheidet sichtbar zwischen Warten auf Freigabe, laufender Verarbeitung und einer angehaltenen Übernahme. Während der Verarbeitung zeigt er den aktuellen Arbeitsschritt und einen rotierenden Fortschrittsindikator. Der Vorschlag verschwindet erst, wenn Agenten, Statusbefehle, Statuszuweisungen, Initial-Baustein, Statusfilter, Dashboard-Verbindungen und Stopp-Pfade vollständig vorhanden sind. Der Abschluss wird aus diesen tatsächlich gespeicherten Daten geprüft und nicht nur aus einer flüchtigen Erfolgsmeldung abgeleitet. Danach bestätigt ein Dialog, dass das Projekt startbereit ist. Eine zuvor unterbrochene Übernahme kann ohne doppelte Agenten über `Einrichtung vervollständigen` repariert werden.
 
 Die vollständige Team-Konfiguration wird nach erfolgreicher Einrichtung als ein gemeinsamer Zustand gespeichert. Dabei verwendet der Connector eine Versionsprüfung: Ein älterer Browser-Tab kann eine zwischenzeitlich geänderte Agenten-, Status- oder Dashboard-Konfiguration nicht mehr mit seinem veralteten Stand überschreiben. Bei einem Konflikt lädt die Oberfläche stattdessen den neueren Connector-Zustand.
@@ -310,13 +312,24 @@ Codex-Projekte und Codex-Chats
 Wichtige Bereiche:
 
 ```text
-src/                          React-Oberfläche und Workflow-Logik
+src/App.tsx                   React-Anwendungszustand und UI-Komposition
+src/workflow-canvas.tsx       React-Flow-Knoten, Kanten und Ziehvorschau
+src/workflow-protocol.ts      Strikte Auswertung der Workflow-Statussignale
+src/workflow-routing.ts       Technische Auflösung von Statusfiltern und Zielpfaden
+src/workflow-decision.ts      Fortsetzen-, Beobachten- oder Stoppen-Entscheidung
+src/delivery-queue.ts         Persistierbare Warteschlange paralleler Übergaben
 server/bridge.mjs             Lokaler Connector zum Codex-App-Server
 server/bridge-supervisor.mjs  Health-Check, Fehlerprotokoll und automatischer Neustart
 start.bat                     Windows-Startskript
 ```
 
 Der Orchestrator-Zustand wird lokal gespeichert. Prompt-Dateien werden im jeweiligen Projekt unter `.codex-orchestrator/prompts/` verwaltet. Lokale Zustände, Zugangsdaten und Chatdaten werden nicht versioniert.
+
+### Entscheidungshierarchie
+
+Die technische Workflow-Topologie ist die maßgebliche Entscheidungsebene. Ein Agententext darf keine Verbindung erzeugen, verändern oder umgehen. Er liefert ausschließlich genau ein Statussignal in der letzten Zeile. Das Protokoll akzeptiert nur einen exakten, für den Agenten erlaubten Statusnamen. Fehlende, unbekannte, mehrfach gesetzte oder nicht abschließend platzierte Statusangaben stoppen den betroffenen Fach- oder Initialpfad kontrolliert, statt aus dem Fließtext ein Ziel zu erraten. Nur ein vom Orchestrator ausdrücklich mit dem Laufzweck `monitoring` gestarteter CEO-Lauf darf als ereignislose Beobachtung ohne Status enden. Der persistierte Laufzweck verhindert, dass eine unvollständige Initial- oder Chatantwort fälschlich als Überwachung behandelt wird. Erst ein gültiges Signal darf einen vorhandenen Statusfilter aktivieren; der Statusfilter und seine gespeicherte Verbindung bestimmen anschließend das tatsächliche Ziel.
+
+Sprachliche CEO-, Rollen- und Initialanweisungen erklären dieses Verhalten, besitzen aber keine eigene technische Routingmacht. So bleibt eindeutig: Code und gespeicherte Topologie entscheiden, Text liefert nur validierte Eingabedaten.
 
 ## Entwicklung und Prüfung
 
@@ -326,10 +339,16 @@ npm run build
 npm test
 ```
 
-`npm test` prüft die atomare Zustandsspeicherung, monotone Versionsstände und den
+`npm test` startet zusätzlich einen isolierten Chromium-Smoke-Test der echten React-Oberfläche. Er verwendet einen kontrollierten Testzustand und prüft das Öffnen des CEO-Setups sowie Hinzufügen und Löschen interner CEO-Anweisungen, ohne reale Codex-Projekte oder Chats zu verändern. Ist lokal kein unterstützter Chromium-Browser vorhanden, wird ausschließlich dieser UI-Test übersprungen.
+
+Die übrige Suite prüft die atomare Zustandsspeicherung, monotone Versionsstände und den
 Schutz vor überschreibenden Änderungen aus veralteten Browser-Tabs. Die Tests
 prüfen außerdem einen vollständigen Team-Aufbau mit Rollen-Prompts, Statusbefehlen,
 Start-, Fehler-, Arbeits- und Abschlusswegen sowie individuellen Dashboard-Zuordnungen.
+Eine vollständige Workflow-Simulation führt eine validierte CEO-Delegation über einen
+Fachagenten bis zum Stopp. Weitere Szenarien prüfen fehlende, unbekannte, mehrfache und
+falsch platzierte Statusangaben, unvollständige CEO-Antworten, parallele Übergaben und
+die Wiederaufnahme ihrer gespeicherten Warteschlange nach einem simulierten Neustart.
 Ein simulierter Connector-Abbruch prüft, dass bereits erstellte Codex-Chats wieder
 archiviert werden und keine unvollständige Teamkonfiguration sichtbar wird.
 Der Connector führt dafür ein lokales Transaktionsjournal. Nach einem Browser- oder
@@ -344,5 +363,5 @@ Im Workflow-Dashboard verwenden alle Knoten eine stabile Geometrie mit vergröß
 ## Bekannte Grenzen
 
 - Bereits geöffnete Codex-Ansichten können eine eigene Aktualisierung benötigen, obwohl der Connector eine Änderung bereits verarbeitet hat.
-- Automatische Routen benötigen ein auswertbares Ergebnis, einen passenden Statusbefehl und eine gültige Verbindung.
+- Automatische Statusrouten benötigen genau einen erlaubten Workflow-Status als letzte Antwortzeile und eine dafür gespeicherte Verbindung.
 - Rollen, Arbeitsanweisungen und Statusbedeutungen müssen für den jeweiligen Ablauf eindeutig formuliert sein.

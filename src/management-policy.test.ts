@@ -12,6 +12,8 @@ test('CEO rulebook prohibits programming and specialist work', () => {
   assert.match(rulebook, /Du programmierst nicht/)
   assert.match(rulebook, /keine Fachaufgabe eines Spezialagenten/)
   assert.match(rulebook, /Vorrang vor Rollen-Prompts/)
+  assert.match(rulebook, /technische Workflow-Topologie entscheidet/)
+  assert.match(rulebook, /keine technische Verbindung erzeugen/)
 })
 
 test('manual CEO work prepares delegation and waits for Auto Start', () => {

@@ -54,6 +54,7 @@ test('rejects stale or non-management recovery sources', () => {
 test('keeps automation running after an uneventful management observation', () => {
   assert.equal(isCompletedManagementObservation({
     isManagementAgent: true,
+    runPurpose: 'monitoring',
     inboundSourceAgentId: '',
     reportsTechnicalFailure: false,
     configuredDeliveryCount: 0,
@@ -64,12 +65,17 @@ test('keeps automation running after an uneventful management observation', () =
 test('does not treat actionable management results as observations', () => {
   const base = {
     isManagementAgent: true,
+    runPurpose: 'monitoring',
     inboundSourceAgentId: '',
     reportsTechnicalFailure: false,
     configuredDeliveryCount: 0,
     resultStatusCount: 0,
   }
 
+  assert.equal(isCompletedManagementObservation({
+    ...base,
+    runPurpose: 'initial',
+  }), false)
   assert.equal(isCompletedManagementObservation({
     ...base,
     inboundSourceAgentId: 'implementation',
