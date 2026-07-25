@@ -1183,6 +1183,50 @@ label {
   padding-top: 12px;
 }
 
+.managementInstructionSettings {
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  margin-bottom: 13px;
+  padding-bottom: 13px;
+}
+
+.managementInstructionHeader > div {
+  display: grid;
+  gap: 3px;
+}
+
+.managementInstructionHeader small,
+.managementRequiredInstructions {
+  color: var(--muted);
+}
+
+.managementRequiredInstructions {
+  background: var(--surface-hover);
+  border-left: 3px solid var(--accent);
+  padding: 10px 12px;
+}
+
+.managementRequiredInstructions > span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.managementRequiredInstructions ul {
+  display: grid;
+  gap: 7px;
+  line-height: 1.45;
+  margin: 9px 0 0;
+  padding-left: 18px;
+}
+
+.managementInstructionSettings textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
 .managementMonitorHeader small,
 .managedAgentOption small {
   color: var(--muted);

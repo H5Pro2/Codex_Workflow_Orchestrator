@@ -44,7 +44,12 @@ import {
 } from './workflow-watchdog.ts'
 import { deliveryDeduplicationSignature } from './delivery-deduplication.ts'
 import { summarizeDeliveryAttempts } from './delivery-outcome.ts'
-import { managementRulebook } from './management-policy.ts'
+import {
+  REQUIRED_CEO_INSTRUCTIONS,
+  managementRulebook,
+  visibleOrchestratorMessage,
+  withInternalInstructions,
+} from './management-policy.ts'
 import {
   buildWorkloadEscalationResult,
   nextConsecutiveFailedRuns,
@@ -133,6 +138,7 @@ type Agent = {
   monitoringIntervalMinutes: number
   lastMonitoringAt: string
   teamProvisioningEnabled: boolean
+  managementInstructions: string
   lastAppliedTeamPlanSignature: string
   workflowStatusIds: string[] | null
   workflowStatusUpdatedAt: string
@@ -319,6 +325,13 @@ function chatMessageIdentity(message: ChatMessage, agentName: string, language: 
   if (initial) {
     return {
       name: initial[1],
+      label: language === 'de' ? 'Startsignal' : 'Start signal',
+    }
+  }
+
+  if (/^Start(?:\r?\n|$)/.test(message.text)) {
+    return {
+      name: 'Orchestrator',
       label: language === 'de' ? 'Startsignal' : 'Start signal',
     }
   }
@@ -875,6 +888,7 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
     monitoringIntervalMinutes: Math.max(1, Math.round(agent.monitoringIntervalMinutes ?? 30)),
     lastMonitoringAt: agent.lastMonitoringAt ?? '',
     teamProvisioningEnabled: agent.teamProvisioningEnabled === true,
+    managementInstructions: agent.managementInstructions ?? '',
     lastAppliedTeamPlanSignature: agent.lastAppliedTeamPlanSignature ?? '',
     workflowStatusIds: Array.isArray(agent.workflowStatusIds)
       ? Array.from(new Set(agent.workflowStatusIds.filter((id): id is string => typeof id === 'string')))
@@ -1104,9 +1118,9 @@ function monitoredAgentsFor(manager: Agent, agents: Agent[]) {
 function managementInstruction(agent: Agent, monitoredAgents: Agent[]) {
   if (agent.assignment !== 'management') return ''
 
-  return [
+  return withInternalInstructions('', [
     'Verwaltungs-Erweiterung:',
-    managementRulebook('configuration'),
+    managementRulebook('configuration', agent.managementInstructions),
     monitoredAgents.length > 0
       ? `Zugewiesene Agenten: ${monitoredAgents.map((item) => `${item.name} (${item.role})`).join(', ')}`
       : 'Es sind aktuell keine Agenten zur Überwachung zugewiesen.',
@@ -1117,7 +1131,7 @@ function managementInstruction(agent: Agent, monitoredAgents: Agent[]) {
     `3. Ist keine sichere Fortsetzung möglich, melde [Workflow-Status: ${MANAGEMENT_ERROR_STATUS_NAME}]. Der Orchestrator stoppt dann für eine Benutzerentscheidung.`,
     'Du darfst Aufgaben und Rollen vorschlagen. Technische Änderungen an Agenten, Prompts und Verdrahtungen führt weiterhin ausschließlich der Workflow-Orchestrator aus.',
     agent.teamProvisioningEnabled ? managementTeamPlanInstruction() : '',
-  ].join('\n')
+  ].join('\n'))
 }
 
 function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinition[] = []) {
@@ -1203,7 +1217,9 @@ function buildHandoffMessage(
     '',
     'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
     agentPromptInstruction(target),
-    target.assignment === 'management' ? managementRulebook('automation') : '',
+    target.assignment === 'management'
+      ? withInternalInstructions('', managementRulebook('automation', target.managementInstructions))
+      : '',
     '',
     'Ergebnis / Auftrag:',
     source.lastResult || 'Kein Ergebnistext hinterlegt.',
@@ -1322,7 +1338,7 @@ function buildMonitoringMessage(
     '',
     'Verbindliche Arbeitsanweisung des Verwaltungsagenten:',
     agentPromptInstruction(manager),
-    managementRulebook('monitoring'),
+    withInternalInstructions('', managementRulebook('monitoring', manager.managementInstructions)),
     '',
     'Prüfe den aktuellen Stand der dir zugewiesenen Agenten. Erkenne Blockaden, widersprüchliche Ergebnisse, unnötige Wiederholungen und fehlende nächste Schritte.',
     'Fasse anschließend knapp zusammen, ob eingegriffen werden muss und welche konkrete Aufgabe als Nächstes sinnvoll ist.',
@@ -2632,6 +2648,7 @@ function App() {
            monitoringIntervalMinutes: 30,
            lastMonitoringAt: '',
            teamProvisioningEnabled: false,
+           managementInstructions: '',
            lastAppliedTeamPlanSignature: '',
            workflowStatusIds: null,
            workflowStatusUpdatedAt: '',
@@ -3177,6 +3194,7 @@ function App() {
       monitoringIntervalMinutes: 30,
       lastMonitoringAt: '',
       teamProvisioningEnabled: false,
+      managementInstructions: '',
       lastAppliedTeamPlanSignature: '',
       workflowStatusIds: null,
       workflowStatusUpdatedAt: '',
@@ -3285,6 +3303,7 @@ function App() {
         monitoringIntervalMinutes: 30,
         lastMonitoringAt: '',
         teamProvisioningEnabled: false,
+        managementInstructions: '',
         lastAppliedTeamPlanSignature: '',
         workflowStatusIds: null,
         workflowStatusUpdatedAt: '',
@@ -3565,9 +3584,13 @@ function App() {
         ownerAgentId: manager.id,
         projectPath: selectedProject.path,
         name: 'Team-Start',
-        instruction: plan.startInstruction,
+        instruction: '',
       }
-      const configuredInitial = { ...teamInitial, instruction: plan.startInstruction }
+      const configuredInitial = {
+        ...teamInitial,
+        instruction: teamInitial.instructionSource === 'user' ? teamInitial.instruction : '',
+        instructionSource: teamInitial.instructionSource === 'user' ? 'user' as const : undefined,
+      }
       const planFilters = plan.connections.map((connection) => {
         const status = statusByName.get(connection.status.toLocaleLowerCase('de-DE'))
         if (!status) throw new Error(`${tx('Statusbefehl fehlt', 'Missing status command')}: ${connection.status}`)
@@ -4171,7 +4194,10 @@ function App() {
       isExplicitTeamProvisioningRequest(text)
     const messageParts = [text]
     if (agent.assignment === 'management') {
-      messageParts.push('', managementRulebook(autoRun ? 'automation' : 'manual'))
+      messageParts.push('', withInternalInstructions(
+        '',
+        managementRulebook(autoRun ? 'automation' : 'manual', agent.managementInstructions),
+      ))
     }
     if (requiresWorkflowStatus) {
       messageParts.push('', workflowStatusInstruction(workflowStatusesForAgent(agent, workflowStatuses)))
@@ -5725,7 +5751,7 @@ function App() {
           const target = agents.find((agent) => agent.id === route.targetId)
           const owner = agents.find((agent) => agent.id === initial.ownerAgentId)
           return target && owner?.assignment === 'management' && target.id === owner.id
-            ? [{ initial, owner, target }]
+            ? [{ initial, target }]
             : []
         }),
     )
@@ -5739,7 +5765,7 @@ function App() {
     }
 
     await Promise.all(
-      deliveries.map(async ({ initial, owner, target }) => {
+      deliveries.map(async ({ initial, target }) => {
         if (!target.threadId) {
           addEvent(
             'Initial-Anfrage nicht gesendet',
@@ -5748,29 +5774,23 @@ function App() {
           return
         }
 
-        const initialContext = [
-          'Dies ist ausschließlich das neutrale Workflow-Startsignal und keine neue fachliche Aufgabe.',
+        const internalInitialInstructions = [
+          'Initial-Ablaufanweisung:',
           'Prüfe die jüngste Benutzeranweisung in diesem Chat und den bestehenden Projektstand.',
-          'Nutze das vorhandene Team. Erstelle keinen Team-Vorschlag, außer der Benutzer hat ausdrücklich einen Teamumbau oder neue Agenten verlangt.',
-          'Entscheide mit einem deiner normalen Workflow-Statusbefehle, welcher vorhandene Fachagent die Anweisung als Nächstes bearbeitet.',
+          'Der Initialbaustein darf ausschließlich Ablaufanweisungen enthalten. Fachliche Aufgaben, Projektziele oder Prompt-Inhalte im Initialbaustein sind ungültig und dürfen nicht als Auftrag ausgeführt werden.',
           ...(initial.instructionSource === 'user' && initial.instruction.trim()
-            ? ['', 'Optionale Startanweisung des Benutzers:', initial.instruction.trim()]
+            ? ['', 'Optionale Initialanweisung des Benutzers:', initial.instruction.trim()]
             : []),
-        ]
-        const message = [
-          `Neutrales Startsignal von ${owner?.name ?? 'Workflow-Orchestrator'}`,
           '',
-          ...initialContext,
-          '',
-          'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
+          'Verbindliche Arbeitsanweisung des CEO:',
           agentPromptInstruction(target),
-          managementRulebook('automation'),
+          managementRulebook('automation', target.managementInstructions),
           '',
           'Bearbeite dieses Startsignal ausschließlich als Teamleiter. Kontaktiere keine anderen Codex-Chats; die Weitergabe übernimmt ausschließlich der Workflow-Orchestrator.',
-          '',
           'Formuliere die Delegationsentscheidung und den vollständigen Arbeitsauftrag für den gewählten Fachagenten.',
           workflowStatusInstruction(workflowStatusesForAgent(target, workflowStatuses)),
         ].join('\n')
+        const message = withInternalInstructions('Start', internalInitialInstructions)
 
         try {
           const response = await fetch(
@@ -6869,6 +6889,38 @@ function App() {
 
               {selectedAgent.assignment === 'management' && (
                 <div className="managementSettings">
+                  <section className="managementInstructionSettings">
+                    <div className="managementInstructionHeader">
+                      <div>
+                        <strong>{tx('Interne CEO-Anweisungen', 'Internal CEO instructions')}</strong>
+                        <small>{tx(
+                          'Diese Regeln werden intern angewendet und nicht im sichtbaren Chat wiederholt.',
+                          'These rules are applied internally and are not repeated in the visible chat.',
+                        )}</small>
+                      </div>
+                    </div>
+                    <div className="managementRequiredInstructions">
+                      <span>{tx('Verbindliche Basisregeln', 'Required base rules')}</span>
+                      <ul>
+                        {REQUIRED_CEO_INSTRUCTIONS.map((instruction) => (
+                          <li key={instruction}>{instruction}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <label>
+                      {tx('Zusätzliche CEO-Anweisungen', 'Additional CEO instructions')}
+                      <textarea
+                        value={selectedAgent.managementInstructions}
+                        placeholder={tx(
+                          'Weitere organisatorische Regeln ergänzen',
+                          'Add further organizational rules',
+                        )}
+                        onChange={(event) => updateAgent(selectedAgent.id, {
+                          managementInstructions: event.target.value,
+                        })}
+                      />
+                    </label>
+                  </section>
                   <div className="managementMonitorHeader">
                     <div>
                       <strong>{tx('Agentenüberwachung', 'Agent monitoring')}</strong>
@@ -7211,7 +7263,7 @@ function App() {
                             <strong>{identity.name}</strong>
                             <small>{identity.label}</small>
                           </div>
-                          <p>{message.text}</p>
+                          <p>{visibleOrchestratorMessage(message.text)}</p>
                         </article>
                       )
                     })}
@@ -8034,10 +8086,13 @@ function App() {
               />
             </label>
             <label>
-              {tx('Optionale Anweisung', 'Optional instruction')}
+              {tx('Optionale Initialanweisung', 'Optional initial instruction')}
               <textarea
                 value={selectedInitial.instructionSource === 'user' ? selectedInitial.instruction : ''}
-                placeholder={tx('Wird beim Auto-Start zusätzlich an den CEO übergeben', 'Sent to the CEO in addition to the start signal')}
+                placeholder={tx(
+                  'Nur Ablaufanweisungen, keine fachliche Aufgabe oder Prompt-Angabe',
+                  'Process instructions only, no domain task or prompt content',
+                )}
                 onChange={(event) => updateWorkflowInitial(selectedInitial.id, {
                   instruction: event.target.value,
                   instructionSource: event.target.value ? 'user' : undefined,
