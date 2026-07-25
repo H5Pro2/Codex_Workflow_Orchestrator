@@ -84,6 +84,19 @@ import {
 import { resolveConfiguredDeliveries } from './workflow-routing.ts'
 import { decideWorkflowContinuation } from './workflow-decision.ts'
 import {
+  appendWorkflowRunEntry,
+  activeWorkflowRun,
+  beginWorkflowRun,
+  ensureWorkflowRun,
+  normalizeWorkflowRuntime,
+  removeWorkflowCheckpoint,
+  resumableWorkflowCheckpoint,
+  saveWorkflowCheckpoint,
+  workflowRunEntry,
+  type WorkflowCheckpoint,
+  type WorkflowRuntime,
+} from './workflow-runtime.ts'
+import {
   WorkflowConnectionLine,
   WorkflowEdge,
   WorkflowNode,
@@ -567,9 +580,13 @@ const eventTitleTranslations: Record<string, string> = {
   'Status-Filter erstellt': 'Status filter created',
   'Status-Filter nicht erstellt': 'Status filter not created',
   'Stopp-Baustein erstellt': 'Stop node created',
+  'Unterbrochener Ablauf erkannt': 'Interrupted workflow detected',
   'Weitergabe blockiert': 'Forwarding blocked',
   'Weitergabe gestoppt': 'Forwarding stopped',
   'Weitergabe nicht gesendet': 'Forwarding not sent',
+  'Wiederaufnahme blockiert': 'Resume blocked',
+  'Wiederaufnahme vorgemerkt': 'Resume checkpoint saved',
+  'Workflow wiederaufgenommen': 'Workflow resumed',
   'Workflow-Pfad beendet': 'Workflow path ended',
   'Workflow-Status erstellt': 'Workflow status created',
   'Workflow-Status geändert': 'Workflow status changed',
@@ -817,6 +834,7 @@ function loadStoredState() {
       workflowPositions: {} as Record<string, { x: number; y: number }>,
       workflowBoardAgentIds: {} as Record<string, string[]>,
       deliveryQueue: {} as DeliveryQueue,
+      workflowRuntime: normalizeWorkflowRuntime(null),
       selectedProjectId: '',
       autoRun: false,
     }
@@ -848,6 +866,7 @@ function loadStoredState() {
           ? parsed.workflowBoardAgentIds
           : {},
       deliveryQueue: normalizeDeliveryQueue(parsed.deliveryQueue),
+      workflowRuntime: normalizeWorkflowRuntime(parsed.workflowRuntime),
       selectedProjectId:
         typeof parsed.selectedProjectId === 'string' ? parsed.selectedProjectId : '',
       autoRun: parsed.autoRun === true,
@@ -867,6 +886,7 @@ function loadStoredState() {
       workflowPositions: {} as Record<string, { x: number; y: number }>,
       workflowBoardAgentIds: {} as Record<string, string[]>,
       deliveryQueue: {} as DeliveryQueue,
+      workflowRuntime: normalizeWorkflowRuntime(null),
       selectedProjectId: '',
       autoRun: false,
     }
@@ -1574,6 +1594,7 @@ function App() {
     storedState.workflowBoardAgentIds,
   )
   const [deliveryQueue, setDeliveryQueue] = useState<DeliveryQueue>(storedState.deliveryQueue)
+  const [workflowRuntime, setWorkflowRuntime] = useState<WorkflowRuntime>(storedState.workflowRuntime)
   const [eventLogCollapsed, setEventLogCollapsed] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
   const [dashboardOpen, setDashboardOpen] = useState(false)
@@ -1715,6 +1736,8 @@ function App() {
   const activeDeliveryTargetIds = useRef(new Set<string>())
   const deliveryQueueRef = useRef(deliveryQueue)
   deliveryQueueRef.current = deliveryQueue
+  const workflowRuntimeRef = useRef(workflowRuntime)
+  workflowRuntimeRef.current = workflowRuntime
   const timerDispatchIds = useRef(new Set<string>())
   const managementDispatchIds = useRef(new Set<string>())
   const chatStreamRef = useRef<HTMLDivElement>(null)
@@ -1728,6 +1751,13 @@ function App() {
     const next = updater(deliveryQueueRef.current)
     deliveryQueueRef.current = next
     setDeliveryQueue(next)
+  }, [])
+  const updateWorkflowRuntime = useCallback((
+    updater: (current: WorkflowRuntime) => WorkflowRuntime,
+  ) => {
+    const next = updater(workflowRuntimeRef.current)
+    workflowRuntimeRef.current = next
+    setWorkflowRuntime(next)
   }, [])
 
   useEffect(() => {
@@ -1833,6 +1863,7 @@ function App() {
       workflowPositions,
       workflowBoardAgentIds,
       deliveryQueue,
+      workflowRuntime,
       selectedProjectId: projectFilter,
       autoRun,
     }
@@ -1868,7 +1899,7 @@ function App() {
       }
     }, 450)
     return () => window.clearTimeout(timer)
-  }, [agents, autoRun, deliveryQueue, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops, workflowTimers])
+  }, [agents, autoRun, deliveryQueue, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowPrompts, workflowRuntime, workflowStatusFilters, workflowStatuses, workflowStops, workflowTimers])
 
   const applySharedState = useCallback((state: ReturnType<typeof loadStoredState>) => {
     const incomingRoutes = Array.isArray(state.routes) ? state.routes : []
@@ -1907,6 +1938,9 @@ function App() {
     const incomingDeliveryQueue = normalizeDeliveryQueue(state.deliveryQueue)
     deliveryQueueRef.current = incomingDeliveryQueue
     setDeliveryQueue(incomingDeliveryQueue)
+    const incomingWorkflowRuntime = normalizeWorkflowRuntime(state.workflowRuntime)
+    workflowRuntimeRef.current = incomingWorkflowRuntime
+    setWorkflowRuntime(incomingWorkflowRuntime)
     setAutoRun(state.autoRun === true)
     if (state.selectedProjectId) {
       setProjectFilter(state.selectedProjectId)
@@ -1950,6 +1984,10 @@ function App() {
 
   const selectedProject = codexProjects.find((project) => project.id === projectFilter)
   const selectedProjectPath = selectedProject?.path ?? ''
+  const selectedWorkflowRun = activeWorkflowRun(workflowRuntime, selectedProjectPath)
+  const selectedWorkflowCheckpoint = workflowRuntime.checkpoints.find(
+    (checkpoint) => samePath(checkpoint.projectPath, selectedProjectPath),
+  )
 
   useEffect(() => {
     if (!selectedProjectPath) return
@@ -4309,6 +4347,119 @@ function App() {
     }
   }, [addEvent, updateAgent])
 
+  const persistWorkflowCheckpoint = useCallback(({
+    source,
+    targets,
+    statusIds,
+    statusNames,
+    state,
+    reason = '',
+  }: {
+    source: Agent
+    targets: Agent[]
+    statusIds: string[]
+    statusNames: string[]
+    state: WorkflowCheckpoint['state']
+    reason?: string
+  }) => {
+    updateWorkflowRuntime((current) => {
+      const now = new Date().toISOString()
+      const ensured = ensureWorkflowRun(current, source.projectPath, now)
+      const existing = ensured.runtime.checkpoints.find(
+        (checkpoint) =>
+          samePath(checkpoint.projectPath, source.projectPath) &&
+          checkpoint.sourceAgentId === source.id,
+      )
+      const checkpoint: WorkflowCheckpoint = {
+        id: existing?.id ?? crypto.randomUUID(),
+        runId: ensured.run.id,
+        projectPath: source.projectPath,
+        sourceAgentId: source.id,
+        sourceAgentName: source.name,
+        sourceTurnId: source.lastCompletedTurnId,
+        targetAgentIds: targets.map((target) => target.id),
+        targetAgentNames: targets.map((target) => target.name),
+        statusIds,
+        statusNames,
+        result: source.lastResult,
+        state,
+        reason,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      }
+      const withCheckpoint = saveWorkflowCheckpoint(ensured.runtime, checkpoint)
+      return appendWorkflowRunEntry(
+        withCheckpoint,
+        source.projectPath,
+        workflowRunEntry(state === 'pending' ? 'handoff-pending' : 'paused', {
+          agentId: source.id,
+          agentName: source.name,
+          targetAgentIds: checkpoint.targetAgentIds,
+          targetAgentNames: checkpoint.targetAgentNames,
+          statusIds,
+          statusNames,
+          detail: reason || source.lastResult.slice(0, 6_000),
+        }, now),
+      )
+    })
+  }, [updateWorkflowRuntime])
+
+  const capturePendingContinuation = useCallback((agent: Agent) => {
+    if (!agent.autoForward) return false
+    const projectStatuses = workflowStatusesForAgent(agent, workflowStatuses)
+    const signal = parseWorkflowSignal(agent.lastResult, projectStatuses)
+    if (signal.kind !== 'valid') return false
+    const signature = deliveryDeduplicationSignature(
+      taskSignature(agent.lastResult),
+      agent.lastCompletedTurnId,
+      false,
+    )
+    const targetIds = resolveConfiguredDeliveries({
+      sourceId: agent.id,
+      result: agent.lastResult,
+      resultStatusIds: signal.statusIds,
+      routes,
+      statusFilters: workflowStatusFilters,
+      promptNodes: workflowPrompts,
+      targetIds: new Set(agents.map((item) => item.id)),
+      stopIds: new Set(workflowStops.map((item) => item.id)),
+    })
+      .filter((delivery) => !signature || delivery.route.lastForwardedTask !== signature)
+      .map((delivery) => delivery.targetId)
+      .filter(Boolean)
+    const targets = agents.filter((item) => targetIds.includes(item.id))
+    if (targets.length === 0) return false
+    persistWorkflowCheckpoint({
+      source: agent,
+      targets,
+      statusIds: signal.statusIds,
+      statusNames: signal.names,
+      state: 'pending',
+    })
+    return true
+  }, [agents, persistWorkflowCheckpoint, routes, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+
+  useEffect(() => {
+    if (
+      autoRun ||
+      !sharedStateReady ||
+      !selectedProjectPath ||
+      workflowRuntimeRef.current.checkpoints.some((checkpoint) =>
+        samePath(checkpoint.projectPath, selectedProjectPath),
+      )
+    ) return
+    const candidate = [...agents]
+      .filter((agent) => agent.lastResult && agent.lastCompletedTurnId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .find((agent) => capturePendingContinuation(agent))
+    if (candidate) {
+      addEvent(
+        'Unterbrochener Ablauf erkannt',
+        `${candidate.name}: Eine noch nicht ausgeführte Weitergabe wurde als Kontrollpunkt übernommen.`,
+      )
+    }
+  }, [addEvent, agents, autoRun, capturePendingContinuation, selectedProjectPath, sharedStateReady])
+
   const handoff = useCallback(async (agent: Agent) => {
     if (!autoRunRef.current) {
       addEvent('Weitergabe blockiert', `${agent.name}: Die Automatik ist ausgeschaltet.`)
@@ -4420,6 +4571,14 @@ function App() {
           ? `${agent.name}: ${continuation.reason}`
           : `${agent.name}: ${continuation.reason || availableStatuses}`,
       )
+      persistWorkflowCheckpoint({
+        source: agent,
+        targets: [],
+        statusIds: resultStatusIds,
+        statusNames: workflowSignal.names,
+        state: 'blocked',
+        reason: continuation.reason || availableStatuses,
+      })
       sharedStateDirty.current = true
       autoRunRef.current = false
       setAutoRun(false)
@@ -4471,6 +4630,16 @@ function App() {
       (delivery): delivery is WorkflowDelivery & { target: Agent } => Boolean(delivery.target),
     )
 
+    if (agentDeliveries.length > 0) {
+      persistWorkflowCheckpoint({
+        source: agent,
+        targets: agentDeliveries.map((delivery) => delivery.target),
+        statusIds: resultStatusIds,
+        statusNames: workflowSignal.names,
+        state: 'pending',
+      })
+    }
+
     stopDeliveries.forEach(({ route, stop }) => {
       if (currentTaskSignature) {
         setRoutes((current) =>
@@ -4498,6 +4667,22 @@ function App() {
         'Automatik am Stopp beendet',
         `${agent.name} hat einen Abschlussweg erreicht. Es werden keine weiteren Übergaben gestartet.`,
       )
+      updateWorkflowRuntime((current) => {
+        const checkpoint = current.checkpoints.find(
+          (item) => samePath(item.projectPath, agent.projectPath) && item.sourceAgentId === agent.id,
+        )
+        return appendWorkflowRunEntry(
+          checkpoint ? removeWorkflowCheckpoint(current, checkpoint.id) : current,
+          agent.projectPath,
+          workflowRunEntry('completed', {
+            agentId: agent.id,
+            agentName: agent.name,
+            statusIds: resultStatusIds,
+            statusNames: workflowSignal.names,
+            detail: `${agent.name} -> ${stopDeliveries.map((delivery) => delivery.stop.name).join(', ')}`,
+          }),
+        )
+      })
       return
     }
 
@@ -4630,6 +4815,29 @@ function App() {
         : {}),
     })
     if (deliveryOutcome.delivered) {
+      updateWorkflowRuntime((current) => {
+        const checkpoint = current.checkpoints.find(
+          (item) => samePath(item.projectPath, agent.projectPath) && item.sourceAgentId === agent.id,
+        )
+        const withoutCheckpoint = checkpoint
+          ? removeWorkflowCheckpoint(current, checkpoint.id)
+          : current
+        return appendWorkflowRunEntry(
+          withoutCheckpoint,
+          agent.projectPath,
+          workflowRunEntry('handoff-delivered', {
+            agentId: agent.id,
+            agentName: agent.name,
+            targetAgentIds: readyAgentDeliveries
+              .filter((delivery) => deliveryOutcome.deliveredTargets.includes(delivery.target.name))
+              .map((delivery) => delivery.target.id),
+            targetAgentNames: deliveryOutcome.deliveredTargets,
+            statusIds: resultStatusIds,
+            statusNames: workflowSignal.names,
+            detail: `${agent.name} -> ${deliveryOutcome.deliveredTargets.join(', ')}`,
+          }),
+        )
+      })
       addEvent(
         'Aufgabe weitergegeben',
         `${agent.name} -> ${deliveryOutcome.deliveredTargets.join(', ')}`,
@@ -4640,7 +4848,7 @@ function App() {
         `${agent.name}: Kein Ziel-Chat hat die Übergabe angenommen.`,
       )
     }
-  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, projectGoals, requestSystemDiagnosis, routes, updateAgent, updateDeliveryQueue, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, persistWorkflowCheckpoint, projectGoals, requestSystemDiagnosis, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   const connectAgents = useCallback((connection: Connection) => {
     if (
@@ -5531,6 +5739,24 @@ function App() {
               activeDeliveryTargetIds.current.delete(agent.id)
               updateAgent(agent.id, completedAgent)
               addEvent('Codex-Ergebnis empfangen', `${agent.name} ist fertig.`)
+              updateWorkflowRuntime((current) => appendWorkflowRunEntry(
+                current,
+                completedAgent.projectPath,
+                workflowRunEntry('agent-completed', {
+                  agentId: completedAgent.id,
+                  agentName: completedAgent.name,
+                  detail: completedAgent.lastResult.slice(0, 6_000),
+                }),
+              ))
+              if (!autoRunRef.current) {
+                const continuationSaved = capturePendingContinuation(completedAgent)
+                if (continuationSaved) {
+                  addEvent(
+                    'Wiederaufnahme vorgemerkt',
+                    `${completedAgent.name}: Die vorbereitete Weitergabe wird beim nächsten Start fortgesetzt.`,
+                  )
+                }
+              }
               const pendingTeamPlan = completedAgent.assignment === 'management'
                 ? parseManagementTeamPlan(completedAgent.lastResult)
                 : null
@@ -5651,7 +5877,7 @@ function App() {
     void poll()
     const timer = window.setInterval(() => void poll(), 2500)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, autoRun, handoff, renameCodexThread, requestSystemDiagnosis, resetInactiveAgentStatuses, updateAgent, updateDeliveryQueue, workflowStatuses])
+  }, [addEvent, agents, autoRun, capturePendingContinuation, handoff, renameCodexThread, requestSystemDiagnosis, resetInactiveAgentStatuses, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowStatuses])
 
   useEffect(() => {
     if (!autoRun || !automationLeader) return
@@ -5944,19 +6170,92 @@ function App() {
       addEvent('Automatik bereits aktiv', 'Ein anderes geöffnetes Fenster steuert diesen Workflow bereits.')
       return
     }
+    const activeProjectPath = selectedProject?.path ?? ''
+    const pendingCheckpoint = resumableWorkflowCheckpoint(
+      workflowRuntimeRef.current,
+      activeProjectPath,
+    )
+    const blockedCheckpoint = workflowRuntimeRef.current.checkpoints.find(
+      (checkpoint) =>
+        samePath(checkpoint.projectPath, activeProjectPath) &&
+        checkpoint.state === 'blocked',
+    )
+    if (!pendingCheckpoint && blockedCheckpoint) {
+      releaseAutomationLease()
+      addEvent(
+        'Wiederaufnahme blockiert',
+        `${blockedCheckpoint.sourceAgentName}: ${blockedCheckpoint.reason || 'Der letzte Schritt besitzt keinen gültigen Fortsetzungsweg.'}`,
+      )
+      return
+    }
     sharedStateDirty.current = true
-    setRoutes((current) => current.map((route) =>
-      samePath(route.projectPath, selectedProject?.path ?? '')
-        ? { ...route, lastForwardedTask: undefined }
-        : route,
-    ))
     setTransmittingAgentIds([])
     updateDeliveryQueue(() => ({}))
     activeDeliveryTargetIds.current.clear()
     resetInactiveAgentStatuses()
     autoRunRef.current = true
     setAutoRun(true)
-    addEvent('Automatik gestartet', 'Initial-Anfragen und automatische Weitergaben sind aktiviert. Die Duplikat-Sperren des vorherigen Laufs wurden zurückgesetzt.')
+    if (pendingCheckpoint) {
+      const source = agents.find((agent) => agent.id === pendingCheckpoint.sourceAgentId)
+      const targetsAvailable = pendingCheckpoint.targetAgentIds.every(
+        (targetId) => agents.some((agent) => agent.id === targetId),
+      )
+      if (!source || !targetsAvailable) {
+        autoRunRef.current = false
+        setAutoRun(false)
+        releaseAutomationLease()
+        updateWorkflowRuntime((current) => saveWorkflowCheckpoint(current, {
+          ...pendingCheckpoint,
+          state: 'blocked',
+          reason: 'Quell- oder Zielagent des gespeicherten Kontrollpunkts ist nicht mehr vorhanden.',
+          updatedAt: new Date().toISOString(),
+        }))
+        addEvent(
+          'Wiederaufnahme blockiert',
+          'Quell- oder Zielagent des gespeicherten Kontrollpunkts ist nicht mehr vorhanden.',
+        )
+        return
+      }
+      updateWorkflowRuntime((current) => appendWorkflowRunEntry(
+        current,
+        activeProjectPath,
+        workflowRunEntry('resumed', {
+          agentId: source.id,
+          agentName: source.name,
+          targetAgentIds: pendingCheckpoint.targetAgentIds,
+          targetAgentNames: pendingCheckpoint.targetAgentNames,
+          statusIds: pendingCheckpoint.statusIds,
+          statusNames: pendingCheckpoint.statusNames,
+          detail: `Fortsetzung: ${source.name} -> ${pendingCheckpoint.targetAgentNames.join(', ')}`,
+        }),
+      ))
+      addEvent(
+        'Workflow wiederaufgenommen',
+        `${source.name} -> ${pendingCheckpoint.targetAgentNames.join(', ')} (${pendingCheckpoint.statusNames.join(', ')})`,
+      )
+      void handoff({
+        ...source,
+        lastResult: pendingCheckpoint.result,
+        lastCompletedTurnId: pendingCheckpoint.sourceTurnId,
+      })
+      return
+    }
+
+    setRoutes((current) => current.map((route) =>
+      samePath(route.projectPath, activeProjectPath)
+        ? { ...route, lastForwardedTask: undefined }
+        : route,
+    ))
+    updateWorkflowRuntime((current) => {
+      const now = new Date().toISOString()
+      const started = beginWorkflowRun(current, activeProjectPath, now)
+      return appendWorkflowRunEntry(
+        started.runtime,
+        activeProjectPath,
+        workflowRunEntry('started', { detail: 'Start -> CEO' }, now),
+      )
+    })
+    addEvent('Automatik gestartet', 'Ein neuer Workflow-Lauf wurde gestartet. Initial-Anfragen und automatische Weitergaben sind aktiviert.')
     void startInitialWorkflows()
   }
 
@@ -7482,6 +7781,36 @@ function App() {
           <div className="eventLogContent">
             <p className="eyebrow">{tx('Rollenfluss', 'Role flow')}</p>
             <CollapsibleText text={graphEdges} limit={700} monospace language={language} />
+            <p className="eyebrow">{tx('Arbeitslauf', 'Workflow run')}</p>
+            {selectedWorkflowCheckpoint && (
+              <article className={`workflowCheckpoint ${selectedWorkflowCheckpoint.state}`}>
+                <strong>
+                  {selectedWorkflowCheckpoint.state === 'pending'
+                    ? tx('Fortsetzung vorgemerkt', 'Resume checkpoint ready')
+                    : tx('Fortsetzung blockiert', 'Resume checkpoint blocked')}
+                </strong>
+                <p>
+                  {selectedWorkflowCheckpoint.sourceAgentName}
+                  {selectedWorkflowCheckpoint.targetAgentNames.length > 0
+                    ? ` -> ${selectedWorkflowCheckpoint.targetAgentNames.join(', ')}`
+                    : ''}
+                </p>
+                {selectedWorkflowCheckpoint.statusNames.length > 0 && (
+                  <p>{selectedWorkflowCheckpoint.statusNames.join(', ')}</p>
+                )}
+                {selectedWorkflowCheckpoint.reason && <p>{selectedWorkflowCheckpoint.reason}</p>}
+              </article>
+            )}
+            {!selectedWorkflowCheckpoint && !selectedWorkflowRun && (
+              <p className="empty">{tx('Kein gespeicherter Arbeitslauf.', 'No saved workflow run.')}</p>
+            )}
+            {selectedWorkflowRun?.entries.slice(-6).reverse().map((entry) => (
+              <article key={entry.id}>
+                <time>{new Date(entry.at).toLocaleTimeString(language === 'de' ? 'de-DE' : 'en-US')}</time>
+                <strong>{entry.agentName || tx('Orchestrator', 'Orchestrator')}</strong>
+                <CollapsibleText text={entry.detail} limit={320} language={language} />
+              </article>
+            ))}
             <p className="eyebrow">{tx('Ablaufprotokoll', 'Activity log')}</p>
             {events.length === 0 && <p className="empty">{tx('Noch keine Orchestrator-Aktion.', 'No orchestrator activity yet.')}</p>}
             {events.map((event) => (
