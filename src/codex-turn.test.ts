@@ -3,8 +3,17 @@ import { test } from 'node:test'
 import {
   findCompletedConversationTurn,
   findConversationTurnActivity,
+  requireStartedTurnId,
   type ConversationMessage,
 } from './codex-turn.ts'
+
+test('rejects an accepted request without a trackable turn id', () => {
+  assert.equal(requireStartedTurnId({ turn: { id: ' turn-1 ' } }, 'die Übergabe'), 'turn-1')
+  assert.throws(
+    () => requireStartedTurnId({ turn: null }, 'die Übergabe'),
+    /keine Turn-ID für die Übergabe/,
+  )
+})
 
 const submittedText = 'Bitte erstelle das Spielkonzept.'
 

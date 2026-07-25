@@ -13,6 +13,17 @@ export type ConversationTurnActivity = {
   hasAssistantActivity: boolean
 }
 
+export function requireStartedTurnId(
+  data: { turn?: { id?: unknown } | null },
+  operation: string,
+) {
+  const turnId = typeof data.turn?.id === 'string' ? data.turn.id.trim() : ''
+  if (!turnId) {
+    throw new Error(`Der Connector hat keine Turn-ID für ${operation} geliefert.`)
+  }
+  return turnId
+}
+
 export function findConversationTurnActivity(
   messages: ConversationMessage[],
   submittedText: string,

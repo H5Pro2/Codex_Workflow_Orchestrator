@@ -89,8 +89,10 @@ export function parseWorkflowSignal(
 
   if (source === 'marker') {
     const marker = markerMatches[0]
+    const leadingText = result.slice(0, marker.index ?? 0)
     const trailingText = result.slice((marker.index ?? 0) + marker[0].length).trim()
-    if (trailingText) {
+    const startsOnOwnLine = (marker.index ?? 0) === 0 || /(?:\r?\n)[\t ]*$/.test(leadingText)
+    if (!startsOnOwnLine || trailingText) {
       return { kind: 'misplaced', statusIds: [], names, unknownNames: [], source }
     }
   }

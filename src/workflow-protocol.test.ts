@@ -37,6 +37,10 @@ test('rejects unknown, multiple, and misplaced status markers', () => {
     '[Workflow-Status: Weiterleitung]\nNoch ein Satz.',
     statuses,
   ).kind, 'misplaced')
+  assert.equal(parseWorkflowSignal(
+    'Erledigt. [Workflow-Status: Weiterleitung]',
+    statuses,
+  ).kind, 'misplaced')
 })
 
 test('treats explicit no-status as a valid non-routing signal', () => {

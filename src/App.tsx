@@ -27,6 +27,7 @@ import { runProvisioningTransaction } from './provisioning-transaction.ts'
 import {
   findCompletedConversationTurn,
   findConversationTurnActivity,
+  requireStartedTurnId,
 } from './codex-turn.ts'
 import {
   observeTurnActivity,
@@ -3907,8 +3908,8 @@ function App() {
       if (!response.ok) {
         throw new Error(data.error || 'Prompt konnte nicht gesendet werden.')
       }
+      startedTurnId = requireStartedTurnId(data, 'die Prompt-Übertragung')
       applyThreadReplacement(agent, data.replacementThread)
-      startedTurnId = data.turn?.id ?? ''
     } catch (error) {
       addEvent(
         'Prompt nicht gesendet',
@@ -3989,6 +3990,7 @@ function App() {
       if (!response.ok) {
         throw new Error(data.error || tx('Nachricht konnte nicht gesendet werden.', 'The message could not be sent.'))
       }
+      const turnId = requireStartedTurnId(data, 'die Chat-Nachricht')
 
       applyThreadReplacement(agent, data.replacementThread)
       setChatDraft('')
@@ -3996,7 +3998,7 @@ function App() {
       updateAgent(agent.id, {
         status: 'laeuft',
         runStartedAt: new Date().toISOString(),
-        pendingTurnId: data.turn?.id ?? '',
+        pendingTurnId: turnId,
         runPurpose: 'chat',
       })
       addEvent(
@@ -4041,12 +4043,13 @@ function App() {
       if (!response.ok) {
         throw new Error(data.error || tx('Formatkorrektur konnte nicht angefordert werden.', 'Could not request format correction.'))
       }
+      const turnId = requireStartedTurnId(data, 'die Formatkorrektur')
       applyThreadReplacement(agent, data.replacementThread)
       setChatPinnedToBottom(true)
       updateAgent(agent.id, {
         status: 'laeuft',
         runStartedAt: new Date().toISOString(),
-        pendingTurnId: data.turn?.id ?? '',
+        pendingTurnId: turnId,
         runPurpose: 'chat',
       })
       addEvent('Team-Vorschlag wird korrigiert', `${agent.name}: Orchestrator-Format angefordert.`)
@@ -4365,10 +4368,7 @@ function App() {
         if (!response.ok) {
           throw new Error(data.error || 'Übergabe konnte nicht gesendet werden.')
         }
-        const turnId = data.turn?.id ?? ''
-        if (!turnId) {
-          throw new Error('Der Connector hat keine Turn-ID für die Übergabe geliefert.')
-        }
+        const turnId = requireStartedTurnId(data, 'die Übergabe')
         applyThreadReplacement(target, data.replacementThread)
         updateAgent(target.id, {
           status: 'laeuft',
@@ -5352,11 +5352,12 @@ function App() {
           if (!response.ok) {
             throw new Error(data.error || 'Agentenüberwachung konnte nicht gesendet werden.')
           }
+          const turnId = requireStartedTurnId(data, 'die Agentenüberwachung')
           applyThreadReplacement(manager, data.replacementThread)
           updateAgent(manager.id, {
             status: 'laeuft',
             runStartedAt: dispatchedAt,
-            pendingTurnId: data.turn?.id ?? '',
+            pendingTurnId: turnId,
             lastMonitoringAt: dispatchedAt,
             lastInboundAgentId: '',
             runPurpose: 'monitoring',
@@ -5446,11 +5447,12 @@ function App() {
             })
             const data = await response.json()
             if (!response.ok) throw new Error(data.error || 'Zeitgesteuerte Aufgabe konnte nicht gesendet werden.')
+            const turnId = requireStartedTurnId(data, 'die zeitgesteuerte Aufgabe')
             applyThreadReplacement(target, data.replacementThread)
             updateAgent(target.id, {
               status: 'laeuft',
               runStartedAt: firedAt,
-              pendingTurnId: data.turn?.id ?? '',
+              pendingTurnId: turnId,
               runPurpose: 'timer',
             })
           }))
@@ -5540,11 +5542,12 @@ function App() {
           if (!response.ok) {
             throw new Error(data.error || 'Initial-Anfrage konnte nicht gesendet werden.')
           }
+          const turnId = requireStartedTurnId(data, 'die Initial-Anfrage')
           applyThreadReplacement(target, data.replacementThread)
           updateAgent(target.id, {
             status: 'laeuft',
             runStartedAt: new Date().toISOString(),
-            pendingTurnId: data.turn?.id ?? '',
+            pendingTurnId: turnId,
             runPurpose: 'initial',
           })
           addEvent(
