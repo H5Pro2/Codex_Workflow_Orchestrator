@@ -240,6 +240,7 @@ type WorkflowInitial = {
   projectPath: string
   name: string
   instruction: string
+  instructionSource?: 'user'
 }
 
 type WorkflowStatusDefinition = {
@@ -5728,6 +5729,9 @@ function App() {
           'Prüfe die jüngste Benutzeranweisung in diesem Chat und den bestehenden Projektstand.',
           'Nutze das vorhandene Team. Erstelle keinen Team-Vorschlag, außer der Benutzer hat ausdrücklich einen Teamumbau oder neue Agenten verlangt.',
           'Entscheide mit einem deiner normalen Workflow-Statusbefehle, welcher vorhandene Fachagent die Anweisung als Nächstes bearbeitet.',
+          ...(initial.instructionSource === 'user' && initial.instruction.trim()
+            ? ['', 'Optionale Startanweisung des Benutzers:', initial.instruction.trim()]
+            : []),
         ]
         const message = [
           `Neutrales Startsignal von ${owner?.name ?? 'Workflow-Orchestrator'}`,
@@ -8007,8 +8011,19 @@ function App() {
               />
             </label>
             <p className="modalHint">
-              {tx('Neutraler Start über den CEO. Fachliche Aufgaben stammen ausschließlich aus dem CEO-Chat.', 'Neutral start through the CEO. Project tasks come exclusively from the CEO chat.')}
+              {tx('Neutraler Start über den CEO. Nur du kannst optional eine zusätzliche Startanweisung hinterlegen; das System und Agenten füllen dieses Feld nicht.', 'Neutral start through the CEO. Only you can optionally provide an additional start instruction; the system and agents do not fill this field.')}
             </p>
+            <label>
+              {tx('Optionale Anweisung', 'Optional instruction')}
+              <textarea
+                value={selectedInitial.instructionSource === 'user' ? selectedInitial.instruction : ''}
+                placeholder={tx('Wird beim Auto-Start zusätzlich an den CEO übergeben', 'Sent to the CEO in addition to the start signal')}
+                onChange={(event) => updateWorkflowInitial(selectedInitial.id, {
+                  instruction: event.target.value,
+                  instructionSource: event.target.value ? 'user' : undefined,
+                })}
+              />
+            </label>
             <div className="modalActions">
               <button className="deleteButton" onClick={() => deleteWorkflowInitial(selectedInitial.id)}>
                 {tx('Löschen', 'Delete')}

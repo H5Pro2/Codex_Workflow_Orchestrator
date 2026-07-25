@@ -16,6 +16,8 @@ test('diagnosis prompt keeps the maintenance agent inside its communication scop
   assert.match(prompt, /Diagnose-Worker/)
   assert.match(prompt, /Ändere keine Datei/)
   assert.match(prompt, /höchstens einen neutralen Initial-Baustein/)
+  assert.match(prompt, /ausdrücklich vom Benutzer gespeichert/)
+  assert.match(prompt, /Rollen-Prompts und unmarkierte alte Inhalte/)
   assert.match(prompt, /Initial bei einem Fachagenten/)
   assert.match(prompt, /Diagnosebericht an den CEO/)
   assert.match(prompt, /Turn bleibt aktiv/)

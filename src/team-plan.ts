@@ -69,7 +69,14 @@ export function findAuthorizedManagementTeamPlan(messages: Array<{ role: string;
 
 export type TeamAgentRef = { id: string; name: string }
 export type TeamStatus = { id: string; projectPath: string; name: string; description: string }
-export type TeamInitial = { id: string; ownerAgentId: string; projectPath: string; name: string; instruction: string }
+export type TeamInitial = {
+  id: string
+  ownerAgentId: string
+  projectPath: string
+  name: string
+  instruction: string
+  instructionSource?: 'user'
+}
 export type TeamStatusFilter = { id: string; ownerAgentId: string; projectPath: string; name: string; statusId: string }
 export type TeamStop = { id: string; ownerAgentId: string; projectPath: string; name: string }
 export type TeamRoute = {
@@ -105,9 +112,14 @@ export function repairManagementStartTopology(input: ManagementStartRepairInput)
   let changed = false
   const managerInitialIds = new Set(managerInitials.map((initial) => initial.id))
   const initials = input.initials.map((initial) => {
-    if (!managerInitialIds.has(initial.id) || (initial.name === 'Start' && !initial.instruction)) return initial
+    if (!managerInitialIds.has(initial.id)) return initial
+    const keepsUserInstruction = initial.instructionSource === 'user'
+    if (initial.name === 'Start' && (keepsUserInstruction || !initial.instruction)) return initial
     changed = true
-    return { ...initial, name: 'Start', instruction: '' }
+    if (keepsUserInstruction) return { ...initial, name: 'Start' }
+    const sanitized = { ...initial, name: 'Start', instruction: '' }
+    delete sanitized.instructionSource
+    return sanitized
   })
   const retainedInitialTargets = new Set<string>()
   let routes = input.routes.flatMap((route) => {
@@ -350,7 +362,9 @@ export function buildTeamTopology(input: TeamTopologyInput) {
   )
   const configuredInitial = {
     id: existingInitial?.id ?? createId(), ownerAgentId: manager.id, projectPath,
-    name: 'Start', instruction: '',
+    name: 'Start',
+    instruction: existingInitial?.instructionSource === 'user' ? existingInitial.instruction : '',
+    ...(existingInitial?.instructionSource === 'user' ? { instructionSource: 'user' as const } : {}),
   }
   const startStatus = statusByName.get(normalizedName(plan.startStatus))
   if (!startStatus) throw new Error(`Statusbefehl fehlt: ${plan.startStatus}`)

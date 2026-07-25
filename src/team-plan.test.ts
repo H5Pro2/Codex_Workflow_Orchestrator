@@ -117,6 +117,30 @@ test('repairs an unambiguous legacy CEO start without changing specialist routes
   })
 })
 
+test('preserves an explicitly user-authored optional initial instruction', () => {
+  const repaired = repairManagementStartTopology({
+    manager: { id: 'ceo', name: 'CEO' },
+    projectPath: 'C:\\Projects\\game',
+    initials: [{
+      id: 'initial', ownerAgentId: 'ceo', projectPath: 'C:\\Projects\\game',
+      name: 'Team-Start', instruction: 'Prüfe zuerst den aktuellen Spielstand.', instructionSource: 'user',
+    }],
+    filters: [],
+    routes: [{
+      id: 'start-route', ownerAgentId: 'ceo', projectPath: 'C:\\Projects\\game',
+      sourceId: 'initial', targetId: 'ceo', condition: 'Immer', prompt: '',
+    }],
+    boardAgentIds: { ceo: ['ceo'] },
+    positions: {},
+    createId: () => 'repair-route',
+  })
+
+  assert.deepEqual(repaired.initials[0], {
+    id: 'initial', ownerAgentId: 'ceo', projectPath: 'C:\\Projects\\game',
+    name: 'Start', instruction: 'Prüfe zuerst den aktuellen Spielstand.', instructionSource: 'user',
+  })
+})
+
 test('detects a prose-only team proposal that needs format correction', () => {
   assert.equal(looksLikeManagementTeamPlan(`
     ## Teamvorschlag
