@@ -175,9 +175,15 @@ test('manages internal CEO instructions through the real UI', { timeout: 30_000 
   assert.equal(projectSources[0].type, 'repository')
   assert.equal(projectSources[0].enabled, true)
 
+  await database.getByLabel('Typ der Wissensquelle').selectOption('folder')
+  await database.getByText('In dieser Kategorie wurden noch keine Wissensquellen angelegt.').waitFor()
+  assert.equal(await database.getByText('Mental Core Matrix').count(), 0)
+  await database.getByLabel('Typ der Wissensquelle').selectOption('repository')
+  await database.getByText('Mental Core Matrix').waitFor()
+
   await database.getByRole('checkbox', { name: 'Aktiv' }).uncheck()
   assert.equal(projectSources[0].enabled, false)
   await database.getByRole('button', { name: 'Wissensquelle löschen: Mental Core Matrix' }).click()
-  await database.getByText('Für dieses Projekt wurden noch keine Wissensquellen angelegt.').waitFor()
+  await database.getByText('In dieser Kategorie wurden noch keine Wissensquellen angelegt.').waitFor()
   assert.equal(projectSources.length, 0)
 })

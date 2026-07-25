@@ -2225,6 +2225,9 @@ function App() {
     knowledgeSources,
     selectedProject?.path ?? '',
   )
+  const visibleProjectKnowledgeSources = projectKnowledgeSources.filter(
+    (source) => source.type === knowledgeSourceType,
+  )
   const projectStatusFilters = workflowStatusFilters.filter(
     (filter) =>
       filter.ownerAgentId === activeDashboardOwnerId &&
@@ -7363,7 +7366,10 @@ function App() {
                   <strong>{selectedProject?.label ?? tx('Kein Projekt', 'No project')}</strong>
                   <small>{tx('Aktive Einträge stehen allen Agenten ausschließlich lesend zur Verfügung.', 'Active entries are available to every agent as read-only sources.')}</small>
                 </div>
-                <small>{projectKnowledgeSources.filter((source) => source.enabled).length}/{projectKnowledgeSources.length} {tx('aktiv', 'active')}</small>
+                <small>
+                  {visibleProjectKnowledgeSources.filter((source) => source.enabled).length}/{visibleProjectKnowledgeSources.length} {tx('aktiv', 'active')}
+                  {' · '}{projectKnowledgeSources.length} {tx('insgesamt', 'total')}
+                </small>
               </div>
               <div className="knowledgeSourceCreate">
                 <input
@@ -7408,11 +7414,11 @@ function App() {
                 </button>
               </div>
               {knowledgeSourceError && <p className="formError">{knowledgeSourceError}</p>}
-              {projectKnowledgeSources.length === 0 ? (
-                <p className="empty">{tx('Für dieses Projekt wurden noch keine Wissensquellen angelegt.', 'No knowledge sources have been created for this project.')}</p>
+              {visibleProjectKnowledgeSources.length === 0 ? (
+                <p className="empty">{tx('In dieser Kategorie wurden noch keine Wissensquellen angelegt.', 'No knowledge sources have been created in this category.')}</p>
               ) : (
                 <div className="knowledgeSourceList">
-                  {projectKnowledgeSources.map((source) => (
+                  {visibleProjectKnowledgeSources.map((source) => (
                     <div className={`knowledgeSourceItem${source.enabled ? '' : ' disabled'}`} key={source.id}>
                       <label className="knowledgeSourceToggle">
                         <input
