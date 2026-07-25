@@ -1378,6 +1378,18 @@ label {
   font-size: 12px;
 }
 
+.managementTeamAgents article small {
+  font-size: 11px;
+}
+
+.managementTeamAgents article .knowledgeEnabled {
+  color: var(--accent);
+}
+
+.managementTeamAgents article .knowledgeDisabled {
+  color: var(--muted);
+}
+
 .managementTeamActions > small {
   max-width: 560px;
 }

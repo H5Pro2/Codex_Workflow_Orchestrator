@@ -26,9 +26,9 @@ const teamProposal = `<orchestrator_team_plan>
     { "name": "Projekt abgeschlossen", "meaning": "Die Abnahme ist erfolgreich abgeschlossen." }
   ],
   "agents": [
-    { "name": "Architekt", "role": "Plant die Architektur", "prompt": "Erstelle eine umsetzbare technische Spezifikation.", "workflowStatuses": ["Weiterleitung"] },
-    { "name": "Entwickler", "role": "Implementiert das Produkt", "prompt": "Implementiere die Spezifikation und behebe Rückmeldungen.", "workflowStatuses": ["Weiterleitung"] },
-    { "name": "QA", "role": "Prüft das Ergebnis", "prompt": "Teste die Umsetzung und entscheide über Abnahme oder Überarbeitung.", "workflowStatuses": ["Überarbeiten", "Projekt abgeschlossen"] }
+    { "name": "Architekt", "role": "Plant die Architektur", "prompt": "Erstelle eine umsetzbare technische Spezifikation.", "usesProjectKnowledge": true, "workflowStatuses": ["Weiterleitung"] },
+    { "name": "Entwickler", "role": "Implementiert das Produkt", "prompt": "Implementiere die Spezifikation und behebe Rückmeldungen.", "usesProjectKnowledge": false, "workflowStatuses": ["Weiterleitung"] },
+    { "name": "QA", "role": "Prüft das Ergebnis", "prompt": "Teste die Umsetzung und entscheide über Abnahme oder Überarbeitung.", "usesProjectKnowledge": true, "workflowStatuses": ["Überarbeiten", "Projekt abgeschlossen"] }
   ],
   "connections": [
     { "from": "Architekt", "to": "Entwickler", "status": "Weiterleitung" },
@@ -175,6 +175,18 @@ test('uses the newest valid team proposal when the chat contains revisions', () 
   assert.ok(parsed)
   assert.equal(parsed.plan.projectGoal, 'Die neueste Projektfassung')
   assert.equal(parsed.plan.startInstruction, 'Beginne mit der freigegebenen Revision.')
+})
+
+test('requires an explicit project knowledge decision for every proposed agent', () => {
+  const incompleteProposal = teamProposal.replace(', "usesProjectKnowledge": true', '')
+  assert.equal(parseManagementTeamPlan(incompleteProposal), null)
+
+  const parsed = parseManagementTeamPlan(teamProposal)
+  assert.ok(parsed)
+  assert.deepEqual(
+    parsed.plan.agents.map((agent) => [agent.name, agent.usesProjectKnowledge]),
+    [['Architekt', true], ['Entwickler', false], ['QA', true]],
+  )
 })
 
 test('builds and atomically persists a complete managed team setup', async () => {
@@ -368,6 +380,7 @@ test('does not create a technical error route from the manager back to itself', 
         name: 'CEO',
         role: 'Leitet das Team',
         prompt: 'Koordiniere das Team und entscheide bei Fehlern.',
+        usesProjectKnowledge: true,
         workflowStatuses: [MANAGEMENT_ERROR_STATUS_NAME],
       },
       ...parsed.plan.agents,

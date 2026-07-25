@@ -983,7 +983,7 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
     '    { "name": "Weiterleitung", "meaning": "Das Ergebnis soll an den nächsten Agenten weitergegeben werden." }',
     '  ],',
     '  "agents": [',
-    '    { "name": "Agentenname", "role": "Klare Rolle", "prompt": "Vollständige Arbeitsanweisung", "workflowStatuses": ["Weiterleitung"] }',
+    '    { "name": "Agentenname", "role": "Klare Rolle", "prompt": "Vollständige Arbeitsanweisung", "usesProjectKnowledge": true, "workflowStatuses": ["Weiterleitung"] }',
     '  ],',
     '  "connections": [',
     '    { "from": "Agentenname", "to": "Anderer Agent", "status": "Weiterleitung" }',
@@ -997,6 +997,7 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
     ...existingStatusContext,
     'Nimm wiederverwendete Statusbefehle mit exakt demselben Namen und exakt derselben Bedeutung in statusCommands auf. Erstelle nur dann einen neuen Statusbefehl, wenn keiner der vorhandenen Befehle den benötigten Zweck abdeckt.',
     'Jede Verbindung muss einen vorhandenen Statusbefehl nennen. Weise jedem Agenten unter workflowStatuses genau die Statusbefehle zu, die er verwenden darf.',
+    'Entscheide für jeden Agenten ausdrücklich mit usesProjectKnowledge: true oder false, ob er für seine Rolle auf die projektweite Wissensdatenbank zugreifen muss. Aktiviere sie nur bei fachlichem Quellenbedarf; eine bloße Workflow-Teilnahme reicht nicht aus.',
     'Definiere unter stops mindestens einen ausdrücklichen Abschlussweg. Ein Stop nennt den Quellagenten, den eindeutigen Abschlussstatus und einen kurzen Namen. Ein normaler Weiterleitungsstatus ist kein Abschlussstatus.',
     'Der Arbeitsablauf darf nicht nur aus einer Endlosschleife bestehen. Jeder erfolgreiche Gesamtabschluss muss über einen Status-Filter zu einem Stop führen.',
     `Der Systemstatus "${MANAGEMENT_ERROR_STATUS_NAME}" ist verpflichtend. Verwende ihn mit der Bedeutung: "${MANAGEMENT_ERROR_STATUS_MEANING}". Weise ihn jedem vorgeschlagenen Agenten zu. Der Orchestrator verdrahtet diesen Status automatisch zurück zum Verwaltungsagenten.`,
@@ -2067,6 +2068,9 @@ function App() {
       const statusId = statusByName.get(name.trim().toLocaleLowerCase('de-DE'))?.id
       return !statusId || !agent?.workflowStatusIds?.includes(statusId)
     }))) return false
+    if (proposedAgents.some(({ specification, agent }) =>
+      agent?.usesProjectKnowledge !== specification.usesProjectKnowledge,
+    )) return false
 
     const startAgentId = projectAgentByName.get(selectedTeamPlan.plan.startAgent.trim().toLocaleLowerCase('de-DE'))?.id
     const startStatusId = statusByName.get(selectedTeamPlan.plan.startStatus.trim().toLocaleLowerCase('de-DE'))?.id
@@ -3381,6 +3385,7 @@ function App() {
             workflowStatusIds: specification.workflowStatuses.length > 0
               ? specification.workflowStatuses.map((status) => statusByName.get(status.toLocaleLowerCase('de-DE'))?.id).filter((id): id is string => Boolean(id))
               : null,
+            usesProjectKnowledge: specification.usesProjectKnowledge,
             pendingTurnId: data.turn?.id ?? '',
             runStartedAt: data.turn?.id ? new Date().toISOString() : '',
           })
@@ -3397,6 +3402,7 @@ function App() {
             workflowStatusIds: specification.workflowStatuses.length > 0
               ? specification.workflowStatuses.map((status) => statusByName.get(status.toLocaleLowerCase('de-DE'))?.id).filter((id): id is string => Boolean(id))
               : null,
+            usesProjectKnowledge: specification.usesProjectKnowledge,
             updatedAt: new Date().toISOString(),
           }
         }
@@ -7028,6 +7034,9 @@ function App() {
                             <article key={agent.name}>
                               <strong>{agent.name}</strong>
                               <span>{agent.role}</span>
+                              <small className={agent.usesProjectKnowledge ? 'knowledgeEnabled' : 'knowledgeDisabled'}>{agent.usesProjectKnowledge
+                                ? tx('Projektwissen aktiv', 'Project knowledge enabled')
+                                : tx('Ohne Projektwissen', 'Without project knowledge')}</small>
                             </article>
                           ))}
                         </div>

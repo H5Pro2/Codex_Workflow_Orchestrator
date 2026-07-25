@@ -6,6 +6,7 @@ export type ManagementTeamPlanAgent = {
   name: string
   role: string
   prompt: string
+  usesProjectKnowledge: boolean
   workflowStatuses: string[]
 }
 
@@ -210,11 +211,15 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
       const name = typeof item.name === 'string' ? item.name.trim() : ''
       const role = typeof item.role === 'string' ? item.role.trim() : ''
       const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : ''
-      if (!name || !role || !prompt || name.length > 80) throw new Error('invalid agent')
+      const usesProjectKnowledge = item.usesProjectKnowledge
+      if (!name || !role || !prompt || name.length > 80 || typeof usesProjectKnowledge !== 'boolean') {
+        throw new Error('invalid agent')
+      }
       return {
         name,
         role,
         prompt,
+        usesProjectKnowledge,
         workflowStatuses: Array.isArray(item.workflowStatuses)
           ? item.workflowStatuses.filter((status): status is string => typeof status === 'string').map((status) => status.trim()).filter(Boolean)
           : [],
