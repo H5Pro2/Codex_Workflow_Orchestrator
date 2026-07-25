@@ -1185,10 +1185,15 @@ label {
 
 .managementInstructionSettings {
   border-bottom: 1px solid var(--line);
-  display: grid;
-  gap: 12px;
   margin-bottom: 13px;
   padding-bottom: 13px;
+}
+
+.managementInstructionHeader {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
 }
 
 .managementInstructionHeader > div {
@@ -1196,35 +1201,12 @@ label {
   gap: 3px;
 }
 
-.managementInstructionHeader small,
-.managementRequiredInstructions {
+.managementInstructionHeader small {
   color: var(--muted);
 }
 
-.managementRequiredInstructions {
-  background: var(--surface-hover);
-  border-left: 3px solid var(--accent);
-  padding: 10px 12px;
-}
-
-.managementRequiredInstructions > span {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.managementRequiredInstructions ul {
-  display: grid;
-  gap: 7px;
-  line-height: 1.45;
-  margin: 9px 0 0;
-  padding-left: 18px;
-}
-
-.managementInstructionSettings textarea {
-  min-height: 92px;
-  resize: vertical;
+.managementInstructionHeader > button {
+  flex: 0 0 auto;
 }
 
 .managementMonitorHeader small,
@@ -2822,6 +2804,53 @@ label {
   max-width: 760px;
 }
 
+.managementInstructionsModal {
+  max-width: 720px;
+}
+
+.managementInstructionList {
+  display: grid;
+  gap: 8px;
+}
+
+.managementInstructionItem {
+  align-items: stretch;
+  background: var(--surface-hover);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 9px;
+}
+
+.managementInstructionItem textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.managementInstructionItem .deleteButton {
+  align-self: end;
+}
+
+.managementInstructionAdd {
+  align-items: end;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-top: 14px;
+}
+
+.managementInstructionAdd textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.managementInstructionAdd > button {
+  margin-bottom: 1px;
+}
+
 .maintenanceModal {
   max-width: 760px;
 }
@@ -3661,6 +3690,21 @@ summary:focus-visible {
 }
 
 @media (max-width: 680px) {
+  .managementInstructionHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .managementInstructionItem,
+  .managementInstructionAdd {
+    grid-template-columns: 1fr;
+  }
+
+  .managementInstructionItem .deleteButton,
+  .managementInstructionAdd > button {
+    justify-self: end;
+  }
+
   .dashboardHeader {
     align-items: stretch;
     flex-direction: column;

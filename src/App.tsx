@@ -45,7 +45,7 @@ import {
 import { deliveryDeduplicationSignature } from './delivery-deduplication.ts'
 import { summarizeDeliveryAttempts } from './delivery-outcome.ts'
 import {
-  REQUIRED_CEO_INSTRUCTIONS,
+  DEFAULT_CEO_INSTRUCTIONS,
   managementRulebook,
   visibleOrchestratorMessage,
   withInternalInstructions,
@@ -138,7 +138,7 @@ type Agent = {
   monitoringIntervalMinutes: number
   lastMonitoringAt: string
   teamProvisioningEnabled: boolean
-  managementInstructions: string
+  managementInstructionRules: string[]
   lastAppliedTeamPlanSignature: string
   workflowStatusIds: string[] | null
   workflowStatusUpdatedAt: string
@@ -833,7 +833,7 @@ function isDefaultAgentRole(role: string, name: string) {
 }
 
 function normalizeAgent(agent: Partial<Agent>): Agent {
-  const legacyAgent = agent as Partial<Agent> & { handoffTo?: string }
+  const legacyAgent = agent as Partial<Agent> & { handoffTo?: string; managementInstructions?: string }
   const name = agent.name ?? 'Agent'
   const legacyPrompt = agent.prompt ?? ''
   const normalizedStatus =
@@ -888,7 +888,12 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
     monitoringIntervalMinutes: Math.max(1, Math.round(agent.monitoringIntervalMinutes ?? 30)),
     lastMonitoringAt: agent.lastMonitoringAt ?? '',
     teamProvisioningEnabled: agent.teamProvisioningEnabled === true,
-    managementInstructions: agent.managementInstructions ?? '',
+    managementInstructionRules: Array.isArray(agent.managementInstructionRules)
+      ? agent.managementInstructionRules.filter((instruction): instruction is string => typeof instruction === 'string')
+      : [
+          ...DEFAULT_CEO_INSTRUCTIONS,
+          ...(legacyAgent.managementInstructions?.trim() ? [legacyAgent.managementInstructions.trim()] : []),
+        ],
     lastAppliedTeamPlanSignature: agent.lastAppliedTeamPlanSignature ?? '',
     workflowStatusIds: Array.isArray(agent.workflowStatusIds)
       ? Array.from(new Set(agent.workflowStatusIds.filter((id): id is string => typeof id === 'string')))
@@ -1120,7 +1125,7 @@ function managementInstruction(agent: Agent, monitoredAgents: Agent[]) {
 
   return withInternalInstructions('', [
     'Verwaltungs-Erweiterung:',
-    managementRulebook('configuration', agent.managementInstructions),
+    managementRulebook('configuration', agent.managementInstructionRules),
     monitoredAgents.length > 0
       ? `Zugewiesene Agenten: ${monitoredAgents.map((item) => `${item.name} (${item.role})`).join(', ')}`
       : 'Es sind aktuell keine Agenten zur Überwachung zugewiesen.',
@@ -1218,7 +1223,7 @@ function buildHandoffMessage(
     'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
     agentPromptInstruction(target),
     target.assignment === 'management'
-      ? withInternalInstructions('', managementRulebook('automation', target.managementInstructions))
+      ? withInternalInstructions('', managementRulebook('automation', target.managementInstructionRules))
       : '',
     '',
     'Ergebnis / Auftrag:',
@@ -1338,7 +1343,7 @@ function buildMonitoringMessage(
     '',
     'Verbindliche Arbeitsanweisung des Verwaltungsagenten:',
     agentPromptInstruction(manager),
-    withInternalInstructions('', managementRulebook('monitoring', manager.managementInstructions)),
+    withInternalInstructions('', managementRulebook('monitoring', manager.managementInstructionRules)),
     '',
     'Prüfe den aktuellen Stand der dir zugewiesenen Agenten. Erkenne Blockaden, widersprüchliche Ergebnisse, unnötige Wiederholungen und fehlende nächste Schritte.',
     'Fasse anschließend knapp zusammen, ob eingegriffen werden muss und welche konkrete Aufgabe als Nächstes sinnvoll ist.',
@@ -1762,6 +1767,8 @@ function App() {
   const [setupOpen, setSetupOpen] = useState(false)
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [promptEditorOpen, setPromptEditorOpen] = useState(false)
+  const [managementInstructionsOpen, setManagementInstructionsOpen] = useState(false)
+  const [managementInstructionDraft, setManagementInstructionDraft] = useState('')
   const [promptCreationOpen, setPromptCreationOpen] = useState(false)
   const [newPromptName, setNewPromptName] = useState('')
   const [promptRenameOpen, setPromptRenameOpen] = useState(false)
@@ -2648,7 +2655,7 @@ function App() {
            monitoringIntervalMinutes: 30,
            lastMonitoringAt: '',
            teamProvisioningEnabled: false,
-           managementInstructions: '',
+           managementInstructionRules: [...DEFAULT_CEO_INSTRUCTIONS],
            lastAppliedTeamPlanSignature: '',
            workflowStatusIds: null,
            workflowStatusUpdatedAt: '',
@@ -3194,7 +3201,7 @@ function App() {
       monitoringIntervalMinutes: 30,
       lastMonitoringAt: '',
       teamProvisioningEnabled: false,
-      managementInstructions: '',
+      managementInstructionRules: [...DEFAULT_CEO_INSTRUCTIONS],
       lastAppliedTeamPlanSignature: '',
       workflowStatusIds: null,
       workflowStatusUpdatedAt: '',
@@ -3303,7 +3310,7 @@ function App() {
         monitoringIntervalMinutes: 30,
         lastMonitoringAt: '',
         teamProvisioningEnabled: false,
-        managementInstructions: '',
+        managementInstructionRules: [...DEFAULT_CEO_INSTRUCTIONS],
         lastAppliedTeamPlanSignature: '',
         workflowStatusIds: null,
         workflowStatusUpdatedAt: '',
@@ -4196,7 +4203,7 @@ function App() {
     if (agent.assignment === 'management') {
       messageParts.push('', withInternalInstructions(
         '',
-        managementRulebook(autoRun ? 'automation' : 'manual', agent.managementInstructions),
+        managementRulebook(autoRun ? 'automation' : 'manual', agent.managementInstructionRules),
       ))
     }
     if (requiresWorkflowStatus) {
@@ -5784,7 +5791,7 @@ function App() {
           '',
           'Verbindliche Arbeitsanweisung des CEO:',
           agentPromptInstruction(target),
-          managementRulebook('automation', target.managementInstructions),
+          managementRulebook('automation', target.managementInstructionRules),
           '',
           'Bearbeite dieses Startsignal ausschließlich als Teamleiter. Kontaktiere keine anderen Codex-Chats; die Weitergabe übernimmt ausschließlich der Workflow-Orchestrator.',
           'Formuliere die Delegationsentscheidung und den vollständigen Arbeitsauftrag für den gewählten Fachagenten.',
@@ -6894,32 +6901,20 @@ function App() {
                       <div>
                         <strong>{tx('Interne CEO-Anweisungen', 'Internal CEO instructions')}</strong>
                         <small>{tx(
-                          'Diese Regeln werden intern angewendet und nicht im sichtbaren Chat wiederholt.',
-                          'These rules are applied internally and are not repeated in the visible chat.',
+                          `${selectedAgent.managementInstructionRules.length} Einträge · intern angewendet und im Chat ausgeblendet`,
+                          `${selectedAgent.managementInstructionRules.length} entries · applied internally and hidden in chat`,
                         )}</small>
                       </div>
+                      <button
+                        onClick={() => {
+                          setManagementInstructionDraft('')
+                          setManagementInstructionsOpen(true)
+                        }}
+                        type="button"
+                      >
+                        {tx('Bearbeiten', 'Edit')}
+                      </button>
                     </div>
-                    <div className="managementRequiredInstructions">
-                      <span>{tx('Verbindliche Basisregeln', 'Required base rules')}</span>
-                      <ul>
-                        {REQUIRED_CEO_INSTRUCTIONS.map((instruction) => (
-                          <li key={instruction}>{instruction}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    <label>
-                      {tx('Zusätzliche CEO-Anweisungen', 'Additional CEO instructions')}
-                      <textarea
-                        value={selectedAgent.managementInstructions}
-                        placeholder={tx(
-                          'Weitere organisatorische Regeln ergänzen',
-                          'Add further organizational rules',
-                        )}
-                        onChange={(event) => updateAgent(selectedAgent.id, {
-                          managementInstructions: event.target.value,
-                        })}
-                      />
-                    </label>
                   </section>
                   <div className="managementMonitorHeader">
                     <div>
@@ -8055,6 +8050,94 @@ function App() {
               <button onClick={() => setPromptRenameOpen(false)}>{tx('Abbrechen', 'Cancel')}</button>
               <button className="primary" disabled={!renamedPromptName.trim()} onClick={() => void renamePromptDocument()}>
                 {tx('Umbenennen', 'Rename')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {managementInstructionsOpen && selectedAgent?.assignment === 'management' && (
+        <div
+          className="modalBackdrop"
+          role="presentation"
+          onMouseDown={() => setManagementInstructionsOpen(false)}
+        >
+          <section
+            aria-label={tx('CEO-Anweisungen bearbeiten', 'Edit CEO instructions')}
+            aria-modal="true"
+            className="promptModal managementInstructionsModal"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">CEO</p>
+                <h2>{tx('Interne Anweisungen', 'Internal instructions')}</h2>
+              </div>
+              <button
+                onClick={() => setManagementInstructionsOpen(false)}
+                title={tx('Fenster schließen', 'Close window')}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+            <div className="managementInstructionList">
+              {selectedAgent.managementInstructionRules.length === 0 ? (
+                <p className="empty">{tx('Keine CEO-Anweisungen eingetragen.', 'No CEO instructions configured.')}</p>
+              ) : selectedAgent.managementInstructionRules.map((instruction, index) => (
+                <div className="managementInstructionItem" key={index}>
+                  <textarea
+                    aria-label={`${tx('CEO-Anweisung', 'CEO instruction')} ${index + 1}`}
+                    value={instruction}
+                    onChange={(event) => updateAgent(selectedAgent.id, {
+                      managementInstructionRules: selectedAgent.managementInstructionRules.map(
+                        (item, itemIndex) => itemIndex === index ? event.target.value : item,
+                      ),
+                    })}
+                  />
+                  <button
+                    className="deleteButton"
+                    onClick={() => updateAgent(selectedAgent.id, {
+                      managementInstructionRules: selectedAgent.managementInstructionRules.filter(
+                        (_, itemIndex) => itemIndex !== index,
+                      ),
+                    })}
+                    title={tx('Anweisung löschen', 'Delete instruction')}
+                    type="button"
+                  >
+                    {tx('Löschen', 'Delete')}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="managementInstructionAdd">
+              <label>
+                {tx('Neue Anweisung', 'New instruction')}
+                <textarea
+                  placeholder={tx('Organisatorische CEO-Anweisung eintragen', 'Enter an organizational CEO instruction')}
+                  value={managementInstructionDraft}
+                  onChange={(event) => setManagementInstructionDraft(event.target.value)}
+                />
+              </label>
+              <button
+                className="primary"
+                disabled={!managementInstructionDraft.trim()}
+                onClick={() => {
+                  const instruction = managementInstructionDraft.trim()
+                  if (!instruction) return
+                  updateAgent(selectedAgent.id, {
+                    managementInstructionRules: [...selectedAgent.managementInstructionRules, instruction],
+                  })
+                  setManagementInstructionDraft('')
+                }}
+                type="button"
+              >
+                {tx('Hinzufügen', 'Add')}
+              </button>
+            </div>
+            <div className="modalActions">
+              <button className="primary" onClick={() => setManagementInstructionsOpen(false)} type="button">
+                {tx('Fertig', 'Done')}
               </button>
             </div>
           </section>

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  REQUIRED_CEO_INSTRUCTIONS,
+  DEFAULT_CEO_INSTRUCTIONS,
   managementRulebook,
   visibleOrchestratorMessage,
   withInternalInstructions,
@@ -25,14 +25,19 @@ test('automated CEO work delegates through an existing status route', () => {
   const rulebook = managementRulebook('automation')
   assert.match(rulebook, /vorhandenen, passenden Workflow-Status/)
   assert.match(rulebook, /prüfbare Akzeptanzkriterien/)
-  REQUIRED_CEO_INSTRUCTIONS.forEach((instruction) => assert.ok(rulebook.includes(instruction)))
+  DEFAULT_CEO_INSTRUCTIONS.forEach((instruction) => assert.ok(rulebook.includes(instruction)))
 })
 
-test('additional CEO instructions extend but do not replace the required rules', () => {
-  const rulebook = managementRulebook('automation', 'Berichte besonders knapp.')
+test('configured CEO instructions replace the editable default list', () => {
+  const rulebook = managementRulebook('automation', ['Berichte besonders knapp.'])
   assert.match(rulebook, /Berichte besonders knapp/)
-  assert.match(rulebook, /dürfen die verbindlichen Basisregeln nicht aufheben/)
-  REQUIRED_CEO_INSTRUCTIONS.forEach((instruction) => assert.ok(rulebook.includes(instruction)))
+  DEFAULT_CEO_INSTRUCTIONS.forEach((instruction) => assert.ok(!rulebook.includes(instruction)))
+})
+
+test('the editable CEO instruction list may be empty', () => {
+  const rulebook = managementRulebook('automation', [])
+  DEFAULT_CEO_INSTRUCTIONS.forEach((instruction) => assert.ok(!rulebook.includes(instruction)))
+  assert.match(rulebook, /Du programmierst nicht/)
 })
 
 test('internal CEO instructions are hidden from the visible chat message', () => {
