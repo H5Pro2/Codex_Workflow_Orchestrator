@@ -68,6 +68,12 @@ Die Überwachung startet keine eigenmächtigen Änderungen an Agenten, Prompt-Da
 
 Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltungsagenten im Chat ausdrücklich mit der vollständigen Vorbereitung oder Umstrukturierung eines Teams beauftragen. Normale Produktänderungen, Reparaturen und Weiterentwicklungen autorisieren keinen Team-Vorschlag und verwenden das bestehende Team. Selbst wenn eine CEO-Antwort dabei irrtümlich Teamdaten enthält, bietet die Oberfläche diese ohne vorherige ausdrückliche Team-Anforderung nicht zur Übernahme an. Bei einem berechtigten Team-Aufbau erhält der Agent die vorhandene projektweite Statusliste, verwendet passende Statusbefehle unverändert wieder und ergänzt nur tatsächlich fehlende Befehle. Er plant Namen, Rollen, vollständige Arbeitsanweisungen, Statuszuweisungen, alle Verbindungen und mindestens einen eindeutigen Abschlussweg. Die Oberfläche zeigt diesen validierbaren Team-Vorschlag direkt im Agenten-Chat zur Prüfung und kontrollierten Übernahme an.
 
+#### CEO-Regelbuch
+
+Der CEO ist ausschließlich Teamleiter. Er verwaltet, organisiert, vergibt Aufgaben, überwacht Ergebnisse und trifft Entscheidungen. Er programmiert nicht, verändert keine fachlichen Projektdateien, führt keine Implementierungsarbeit aus und übernimmt keine Spezialistenrolle. Diese Grenze wird bei direkten CEO-Nachrichten, Initial-Starts, Rückgaben aus dem Workflow und Überwachungsaufgaben erneut als vorrangige Laufzeitregel übermittelt.
+
+Bei ausgeschalteter Automatik bereitet der CEO aus einer normalen Änderungsanweisung ein eindeutiges Delegationspaket für das vorhandene Team vor. Seine Rückmeldung nennt, dass der Auftrag vorbereitet ist und der Benutzer `Auto Start` drücken kann. Erst mit aktiver Automatik gibt der CEO dieses Paket über einen vorhandenen Statusweg an den passenden Fachagenten weiter. Ein Delegationspaket enthält Ziel, Ist-Stand, konkrete Änderung und prüfbare Akzeptanzkriterien. Neue Agenten oder Verbindungen darf der CEO weiterhin nur nach einem ausdrücklichen Teamumbau-Auftrag als freizugebenden Teamplan vorschlagen.
+
 `Team übernehmen` führt ausschließlich bei `Auto Stop` folgende Schritte im aktuell ausgewählten Projekt aus:
 
 - fehlende Codex-Chats mit einem neutralen Setup-Turn dauerhaft registrieren

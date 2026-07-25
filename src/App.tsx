@@ -44,6 +44,7 @@ import {
 } from './workflow-watchdog.ts'
 import { deliveryDeduplicationSignature } from './delivery-deduplication.ts'
 import { summarizeDeliveryAttempts } from './delivery-outcome.ts'
+import { managementRulebook } from './management-policy.ts'
 import {
   buildWorkloadEscalationResult,
   nextConsecutiveFailedRuns,
@@ -1105,7 +1106,7 @@ function managementInstruction(agent: Agent, monitoredAgents: Agent[]) {
 
   return [
     'Verwaltungs-Erweiterung:',
-    'Du bist als Verwaltungsagent eingestuft. Du koordinierst und überwachst die dir zugewiesenen Agenten, ohne deren Facharbeit selbst zu übernehmen.',
+    managementRulebook('configuration'),
     monitoredAgents.length > 0
       ? `Zugewiesene Agenten: ${monitoredAgents.map((item) => `${item.name} (${item.role})`).join(', ')}`
       : 'Es sind aktuell keine Agenten zur Überwachung zugewiesen.',
@@ -1202,6 +1203,7 @@ function buildHandoffMessage(
     '',
     'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
     agentPromptInstruction(target),
+    target.assignment === 'management' ? managementRulebook('automation') : '',
     '',
     'Ergebnis / Auftrag:',
     source.lastResult || 'Kein Ergebnistext hinterlegt.',
@@ -1320,6 +1322,7 @@ function buildMonitoringMessage(
     '',
     'Verbindliche Arbeitsanweisung des Verwaltungsagenten:',
     agentPromptInstruction(manager),
+    managementRulebook('monitoring'),
     '',
     'Prüfe den aktuellen Stand der dir zugewiesenen Agenten. Erkenne Blockaden, widersprüchliche Ergebnisse, unnötige Wiederholungen und fehlende nächste Schritte.',
     'Fasse anschließend knapp zusammen, ob eingegriffen werden muss und welche konkrete Aufgabe als Nächstes sinnvoll ist.',
@@ -4167,6 +4170,9 @@ function App() {
       agent.teamProvisioningEnabled &&
       isExplicitTeamProvisioningRequest(text)
     const messageParts = [text]
+    if (agent.assignment === 'management') {
+      messageParts.push('', managementRulebook(autoRun ? 'automation' : 'manual'))
+    }
     if (requiresWorkflowStatus) {
       messageParts.push('', workflowStatusInstruction(workflowStatusesForAgent(agent, workflowStatuses)))
     }
@@ -5758,12 +5764,11 @@ function App() {
           '',
           'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
           agentPromptInstruction(target),
+          managementRulebook('automation'),
           '',
-          'Bearbeite diese Anfrage selbst anhand deines Projektkontexts. Kontaktiere keine anderen Codex-Chats; die Weitergabe übernimmt ausschließlich der Workflow-Orchestrator.',
+          'Bearbeite dieses Startsignal ausschließlich als Teamleiter. Kontaktiere keine anderen Codex-Chats; die Weitergabe übernimmt ausschließlich der Workflow-Orchestrator.',
           '',
-          owner
-            ? `Antworte mit dem aktuellen Stand so, dass ${owner.name} den nächsten Schritt bestimmen kann.`
-            : 'Antworte mit dem aktuellen Projektstand und dem sinnvollsten nächsten Schritt.',
+          'Formuliere die Delegationsentscheidung und den vollständigen Arbeitsauftrag für den gewählten Fachagenten.',
           workflowStatusInstruction(workflowStatusesForAgent(target, workflowStatuses)),
         ].join('\n')
 

@@ -95,6 +95,8 @@ export function maintenanceReportPrompt({ incident, report, sourceAgentId }) {
     'Der diagnose-only Kommunikationsworker hat den folgenden technischen Bericht erstellt.',
     'Der Worker hat nichts geändert, repariert oder neu gestartet.',
     'Du bist als CEO für die Bewertung und die nächsten Schritte verantwortlich.',
+    'Du arbeitest ausschließlich als Teamleiter: verwalten, organisieren, vergeben, überwachen und entscheiden.',
+    'Programmiere nicht, ändere keine fachlichen Projektdateien und übernimm die Facharbeit des betroffenen Agenten nicht selbst.',
     'Prüfe den Bericht, entscheide über eine begrenzte Wiederaufnahmeanweisung und gib sie an den betroffenen Agenten zurück.',
     'Sind dauerhafte Änderungen an Agenten, Statusfiltern oder Verbindungen erforderlich, liefere einen vollständigen Teamplan. Nur der Orchestrator darf ihn nach Benutzerfreigabe anwenden.',
     'Nimm keine unkontrollierte Änderung an der Workflow-Topologie vor.',

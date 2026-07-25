@@ -47,6 +47,8 @@ test('report prompt assigns decisions to the CEO and keeps topology controlled',
   })
   assert.match(prompt, /Worker hat nichts geändert, repariert oder neu gestartet/)
   assert.match(prompt, /CEO/)
+  assert.match(prompt, /ausschließlich als Teamleiter/)
+  assert.match(prompt, /Programmiere nicht/)
   assert.match(prompt, /Nur der Orchestrator/)
 })
 
