@@ -14,6 +14,7 @@ Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der Codex-Ch
 - ausgewählte Agenten während der Automatik intervallgesteuert überwachen
 - kontrollierte Team-Vorschläge eines Verwaltungsagenten prüfen und übernehmen
 - mehrere Prompt-Dateien pro Agent verwalten
+- projektweite Wissensquellen als Ordner, Repository, Datei oder Weblink verwalten
 - direkte Nachrichten an einzelne Codex-Chats senden
 - individuelle Workflows visuell aus Agenten und Werkzeugen aufbauen
 - Ergebnisse anhand frei definierbarer Statusbefehle weiterleiten
@@ -184,6 +185,12 @@ Agent -> Statusfilter "Weiterleitung" -> nächster Agent
 ```
 
 Statusbefehle beschreiben die Route des Ergebnisses. Der technische Abschluss eines einzelnen Codex-Laufs wird davon getrennt behandelt.
+
+## Wissensdatenbank
+
+Neben `Statusbefehle` öffnet `Datenbank` die Wissensquellen des aktuell ausgewählten Projekts. Ein Eintrag besteht aus Name, Quellentyp, lokalem Pfad beziehungsweise URL und einer optionalen Beschreibung. Quellen lassen sich einzeln aktivieren, deaktivieren und löschen.
+
+Die Datenbank wird projektlokal unter `.codex-orchestrator/knowledge-sources.json` gespeichert. Andere Projekte besitzen davon unabhängige Einträge. Aktive Quellen werden bei direkten Nachrichten, Prompt-Übergaben, Initial-Starts, Workflow-Übergaben, Zeitplänen und Verwaltungsprüfungen automatisch als interner Orientierungskatalog bereitgestellt. Die Quellen sind dabei schreibgeschützt; fachliche Ergebnisse und Änderungen bleiben auf den `workspace` des Projekts begrenzt.
 
 Ein fachlicher Abschlussstatus kann zu einem Stopp-Baustein führen. Sobald dieser Pfad erreicht wird, beendet der Orchestrator die Automatik und startet keine weiteren Übergaben. Ein normaler Weiterleitungsstatus gilt dagegen ausdrücklich nicht als Projektabschluss.
 

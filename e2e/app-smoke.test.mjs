@@ -60,6 +60,7 @@ function fixtureState() {
     workflowPrompts: [],
     workflowInitials: [],
     workflowStatuses: [],
+    knowledgeSources: [],
     workflowStatusFilters: [],
     workflowStops: [],
     workflowTimers: [],
@@ -88,6 +89,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 30_000 
   await waitForServer(`http://127.0.0.1:${port}/`)
 
   let sharedState = fixtureState()
+  let projectSources = []
   let version = '2026-07-25T12:00:00.000Z'
   const browser = await chromium.launch({ executablePath, headless: true })
   t.after(() => browser.close())
@@ -133,6 +135,15 @@ test('manages internal CEO instructions through the real UI', { timeout: 30_000 
       await route.fulfill({ json: { suggestedName: '' } })
       return
     }
+    if (pathname === '/api/knowledge-sources' && request.method() === 'GET') {
+      await route.fulfill({ json: { sources: projectSources } })
+      return
+    }
+    if (pathname === '/api/knowledge-sources' && request.method() === 'PUT') {
+      projectSources = request.postDataJSON().sources
+      await route.fulfill({ json: { sources: projectSources } })
+      return
+    }
     await route.fulfill({ json: {} })
   })
 
@@ -151,4 +162,22 @@ test('manages internal CEO instructions through the real UI', { timeout: 30_000 
   assert.equal(await dialog.locator('.managementInstructionItem').count(), 3)
   await dialog.getByRole('button', { name: 'Fertig' }).click()
   await page.getByText('3 Einträge · intern angewendet und im Chat ausgeblendet').waitFor()
+
+  await page.getByRole('button', { name: 'Datenbank' }).click()
+  const database = page.getByRole('dialog', { name: 'Wissensdatenbank konfigurieren' })
+  await database.getByLabel('Name der Wissensquelle').fill('Mental Core Matrix')
+  await database.getByLabel('Typ der Wissensquelle').selectOption('repository')
+  await database.getByLabel('Pfad oder URL der Wissensquelle').fill('D:\\Research\\MCM')
+  await database.getByLabel('Beschreibung der Wissensquelle').fill('Primäre Forschungsgrundlage')
+  await database.getByRole('button', { name: 'Hinzufügen' }).click()
+  await database.getByText('Mental Core Matrix').waitFor()
+  assert.equal(projectSources.length, 1)
+  assert.equal(projectSources[0].type, 'repository')
+  assert.equal(projectSources[0].enabled, true)
+
+  await database.getByRole('checkbox', { name: 'Aktiv' }).uncheck()
+  assert.equal(projectSources[0].enabled, false)
+  await database.getByRole('button', { name: 'Wissensquelle löschen: Mental Core Matrix' }).click()
+  await database.getByText('Für dieses Projekt wurden noch keine Wissensquellen angelegt.').waitFor()
+  assert.equal(projectSources.length, 0)
 })

@@ -64,6 +64,12 @@ import {
 import { pruneWorkflowBoardAgentIds, pruneWorkflowPositions } from './workflow-state.ts'
 import { projectForThread, threadBelongsToProject } from './codex-project.ts'
 import {
+  knowledgeSourceInstruction,
+  knowledgeSourcesForProject,
+  type KnowledgeSource,
+  type KnowledgeSourceType,
+} from './knowledge-sources.ts'
+import {
   parseWorkflowSignal,
   workflowSignalIssue,
   workflowStatusInstruction,
@@ -1001,6 +1007,7 @@ function buildInstruction(
   promptPath: string,
   statuses: WorkflowStatusDefinition[],
   monitoredAgents: Agent[],
+  sources: KnowledgeSource[],
 ) {
   return [
     `Rollen-Anweisung für: ${agent.name}`,
@@ -1009,6 +1016,8 @@ function buildInstruction(
     '',
     `Verbindliche Prompt-Datei: \`${promptPath}\``,
     'Lies diese Datei zu Beginn vollständig und verwende sie als aktuelle Arbeitsanweisung. Bei Konflikten hat diese Datei Vorrang.',
+    '',
+    knowledgeSourceInstruction(sources),
     '',
     workflowStatusInstruction(statuses),
   ].join('\n')
@@ -1019,6 +1028,7 @@ function buildHandoffMessage(
   target: Agent,
   route: WorkflowRoute,
   statuses: WorkflowStatusDefinition[],
+  sources: KnowledgeSource[],
 ) {
   return [
     `Übergabe von ${source.name} an ${target.name}`,
@@ -1039,6 +1049,8 @@ function buildHandoffMessage(
     '',
     'Ergebnis / Auftrag:',
     source.lastResult || 'Kein Ergebnistext hinterlegt.',
+    '',
+    knowledgeSourceInstruction(sources),
     '',
     'Bitte analysiere diesen Eingang gemäß deiner Rollen-Anweisung und liefere wieder das Abschlussformat.',
     workflowStatusInstruction(statuses),
@@ -1081,6 +1093,7 @@ function buildMonitoringMessage(
   manager: Agent,
   monitoredAgents: Agent[],
   statuses: WorkflowStatusDefinition[],
+  sources: KnowledgeSource[],
 ) {
   const snapshots = monitoredAgents.map((agent) => [
     `Agent: ${agent.name}`,
@@ -1102,6 +1115,8 @@ function buildMonitoringMessage(
     'Fasse anschließend knapp zusammen, ob eingegriffen werden muss und welche konkrete Aufgabe als Nächstes sinnvoll ist.',
     '',
     snapshots.join('\n\n---\n\n'),
+    '',
+    knowledgeSourceInstruction(sources),
     '',
     workflowStatusInstruction(statuses),
   ].join('\n')
@@ -1482,6 +1497,7 @@ function App() {
   const [workflowPrompts, setWorkflowPrompts] = useState<WorkflowPrompt[]>(storedState.workflowPrompts)
   const [workflowInitials, setWorkflowInitials] = useState<WorkflowInitial[]>(storedState.workflowInitials)
   const [workflowStatuses, setWorkflowStatuses] = useState<WorkflowStatusDefinition[]>(storedState.workflowStatuses)
+  const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([])
   const [workflowStatusFilters, setWorkflowStatusFilters] = useState<WorkflowStatusFilter[]>(
     storedState.workflowStatusFilters,
   )
@@ -1499,6 +1515,13 @@ function App() {
   const [newWorkflowStatusName, setNewWorkflowStatusName] = useState('')
   const [newWorkflowStatusDescription, setNewWorkflowStatusDescription] = useState('')
   const [statusLibraryOpen, setStatusLibraryOpen] = useState(false)
+  const [knowledgeLibraryOpen, setKnowledgeLibraryOpen] = useState(false)
+  const [knowledgeSourceName, setKnowledgeSourceName] = useState('')
+  const [knowledgeSourceType, setKnowledgeSourceType] = useState<KnowledgeSourceType>('repository')
+  const [knowledgeSourceLocation, setKnowledgeSourceLocation] = useState('')
+  const [knowledgeSourceDescription, setKnowledgeSourceDescription] = useState('')
+  const [knowledgeSourceSaving, setKnowledgeSourceSaving] = useState(false)
+  const [knowledgeSourceError, setKnowledgeSourceError] = useState('')
   const [editingWorkflowStatusId, setEditingWorkflowStatusId] = useState('')
   const [editingWorkflowStatusName, setEditingWorkflowStatusName] = useState('')
   const [editingWorkflowStatusDescription, setEditingWorkflowStatusDescription] = useState('')
@@ -1884,6 +1907,35 @@ function App() {
   const selectedProjectPath = selectedProject?.path ?? ''
 
   useEffect(() => {
+    if (!selectedProjectPath) return
+    let active = true
+    const loadKnowledgeSources = async () => {
+      try {
+        const response = await fetch(`/api/knowledge-sources?cwd=${encodeURIComponent(selectedProjectPath)}`)
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || 'Wissensdatenbank konnte nicht geladen werden.')
+        if (!active) return
+        const projectSources: KnowledgeSource[] = (Array.isArray(data.sources) ? data.sources : []).map(
+          (source: Omit<KnowledgeSource, 'projectPath'>) => ({ ...source, projectPath: selectedProjectPath }),
+        )
+        setKnowledgeSources((current) => [
+          ...current.filter((source) => !samePath(source.projectPath, selectedProjectPath)),
+          ...projectSources,
+        ])
+        setKnowledgeSourceError('')
+      } catch (error) {
+        if (active) {
+          setKnowledgeSourceError(error instanceof Error ? error.message : 'Wissensdatenbank konnte nicht geladen werden.')
+        }
+      }
+    }
+    void loadKnowledgeSources()
+    return () => {
+      active = false
+    }
+  }, [selectedProjectPath])
+
+  useEffect(() => {
     const agentIds = agents.map((agent) => agent.id)
     const nodeIds = [
       ...agentIds,
@@ -2168,6 +2220,10 @@ function App() {
   const activeDashboardOwnerId = selectedAgent?.id ?? ''
   const projectWorkflowStatuses = workflowStatuses.filter((status) =>
     samePath(status.projectPath, selectedProject?.path ?? ''),
+  )
+  const projectKnowledgeSources = knowledgeSourcesForProject(
+    knowledgeSources,
+    selectedProject?.path ?? '',
   )
   const projectStatusFilters = workflowStatusFilters.filter(
     (filter) =>
@@ -3950,6 +4006,7 @@ function App() {
       filePath,
       workflowStatusesForAgent(agent, workflowStatuses),
       monitoredAgentsFor(agent, agents),
+      knowledgeSourcesForProject(knowledgeSources, agent.projectPath),
     )
     let startedTurnId = ''
     try {
@@ -4032,6 +4089,10 @@ function App() {
       messageParts.push('', managementTeamPlanInstruction(projectWorkflowStatuses))
     } else {
       authorizedTeamPlanRequestAgentIds.current.delete(agent.id)
+    }
+    const sourceInstruction = knowledgeSourceInstruction(knowledgeSourcesForProject(knowledgeSources, agent.projectPath))
+    if (sourceInstruction) {
+      messageParts.push('', withInternalInstructions('', sourceInstruction))
     }
     const message = messageParts.join('\n')
     try {
@@ -4384,6 +4445,7 @@ function App() {
         target,
         route,
         workflowStatusesForAgent(target, workflowStatuses),
+        knowledgeSourcesForProject(knowledgeSources, target.projectPath),
       )
       if (!target.threadId) {
         activeDeliveryTargetIds.current.delete(target.id)
@@ -4484,7 +4546,7 @@ function App() {
         `${agent.name}: Kein Ziel-Chat hat die Übergabe angenommen.`,
       )
     }
-  }, [addEvent, agents, applyThreadReplacement, requestSystemDiagnosis, routes, updateAgent, updateDeliveryQueue, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, requestSystemDiagnosis, routes, updateAgent, updateDeliveryQueue, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   const connectAgents = useCallback((connection: Connection) => {
     if (
@@ -4568,6 +4630,89 @@ function App() {
       delete next[`${activeDashboardOwnerId}:${promptId}`]
       return next
     })
+  }
+
+  const saveProjectKnowledgeSources = async (sources: KnowledgeSource[]) => {
+    if (!selectedProject) return false
+    setKnowledgeSourceSaving(true)
+    setKnowledgeSourceError('')
+    try {
+      const response = await fetch('/api/knowledge-sources', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cwd: selectedProject.path,
+          sources: sources.map((source) => ({
+            id: source.id,
+            name: source.name,
+            type: source.type,
+            location: source.location,
+            description: source.description,
+            enabled: source.enabled,
+          })),
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Wissensdatenbank konnte nicht gespeichert werden.')
+      const storedSources: KnowledgeSource[] = data.sources.map(
+        (source: Omit<KnowledgeSource, 'projectPath'>) => ({ ...source, projectPath: selectedProject.path }),
+      )
+      setKnowledgeSources((current) => [
+        ...current.filter((source) => !samePath(source.projectPath, selectedProject.path)),
+        ...storedSources,
+      ])
+      return true
+    } catch (error) {
+      setKnowledgeSourceError(error instanceof Error ? error.message : 'Wissensdatenbank konnte nicht gespeichert werden.')
+      return false
+    } finally {
+      setKnowledgeSourceSaving(false)
+    }
+  }
+
+  const addKnowledgeSource = async () => {
+    const name = knowledgeSourceName.trim()
+    const location = knowledgeSourceLocation.trim()
+    if (!name || !location || !selectedProject || knowledgeSourceSaving) return
+    if (projectKnowledgeSources.some((source) => source.name.toLocaleLowerCase('de-DE') === name.toLocaleLowerCase('de-DE'))) {
+      setKnowledgeSourceError(tx('Eine Quelle mit diesem Namen existiert bereits.', 'A source with this name already exists.'))
+      return
+    }
+    const next = [...projectKnowledgeSources, {
+      id: crypto.randomUUID(),
+      projectPath: selectedProject.path,
+      name,
+      type: knowledgeSourceType,
+      location,
+      description: knowledgeSourceDescription.trim(),
+      enabled: true,
+    }]
+    if (await saveProjectKnowledgeSources(next)) {
+      setKnowledgeSourceName('')
+      setKnowledgeSourceLocation('')
+      setKnowledgeSourceDescription('')
+      addEvent('Wissensquelle erstellt', `${selectedProject.label}: ${name}`)
+    }
+  }
+
+  const setKnowledgeSourceEnabled = async (sourceId: string, enabled: boolean) => {
+    const source = projectKnowledgeSources.find((item) => item.id === sourceId)
+    if (!source || knowledgeSourceSaving) return
+    const next = projectKnowledgeSources.map((item) => item.id === sourceId ? { ...item, enabled } : item)
+    setKnowledgeSources((current) => current.map((item) => item.id === sourceId ? { ...item, enabled } : item))
+    if (await saveProjectKnowledgeSources(next)) {
+      addEvent(enabled ? 'Wissensquelle aktiviert' : 'Wissensquelle deaktiviert', source.name)
+    } else {
+      setKnowledgeSources((current) => current.map((item) => item.id === sourceId ? source : item))
+    }
+  }
+
+  const deleteKnowledgeSource = async (sourceId: string) => {
+    const source = projectKnowledgeSources.find((item) => item.id === sourceId)
+    if (!source || knowledgeSourceSaving) return
+    if (await saveProjectKnowledgeSources(projectKnowledgeSources.filter((item) => item.id !== sourceId))) {
+      addEvent('Wissensquelle gelöscht', source.name)
+    }
   }
 
   const addWorkflowStatus = () => {
@@ -5417,6 +5562,7 @@ function App() {
             manager,
             monitoredAgents,
             workflowStatusesForAgent(manager, workflowStatuses),
+            knowledgeSourcesForProject(knowledgeSources, manager.projectPath),
           )
           const response = await fetch(`/api/threads/${encodeURIComponent(manager.threadId)}/messages`, {
             method: 'POST',
@@ -5456,7 +5602,7 @@ function App() {
     void dispatchManagementReviews()
     const timer = window.setInterval(() => void dispatchManagementReviews(), 10_000)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, applyThreadReplacement, automationLeader, autoRun, selectedProject?.path, setAgentTransmission, updateAgent, workflowStatuses])
+  }, [addEvent, agents, applyThreadReplacement, automationLeader, autoRun, knowledgeSources, selectedProject?.path, setAgentTransmission, updateAgent, workflowStatuses])
 
   useEffect(() => {
     if (!autoRun || !automationLeader) return
@@ -5512,6 +5658,8 @@ function App() {
               'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
               agentPromptInstruction(target),
               '',
+              knowledgeSourceInstruction(knowledgeSourcesForProject(knowledgeSources, target.projectPath)),
+              '',
               'Bearbeite diese Aufgabe selbst anhand deines Projektkontexts. Die weitere Übergabe übernimmt ausschließlich der Workflow-Orchestrator.',
               workflowStatusInstruction(workflowStatusesForAgent(target, workflowStatuses)),
             ].join('\n')
@@ -5545,7 +5693,7 @@ function App() {
     void dispatchDueTimers()
     const timer = window.setInterval(() => void dispatchDueTimers(), 10_000)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, applyThreadReplacement, automationLeader, autoRun, routes, selectedProject?.path, updateAgent, workflowStatuses, workflowTimers])
+  }, [addEvent, agents, applyThreadReplacement, automationLeader, autoRun, knowledgeSources, routes, selectedProject?.path, updateAgent, workflowStatuses, workflowTimers])
 
   const startInitialWorkflows = useCallback(async () => {
     const activeProjectPath = selectedProject?.path ?? ''
@@ -5598,6 +5746,8 @@ function App() {
           agentPromptInstruction(target),
           managementRulebook('automation', target.managementInstructionRules),
           '',
+          knowledgeSourceInstruction(knowledgeSourcesForProject(knowledgeSources, target.projectPath)),
+          '',
           'Bearbeite dieses Startsignal ausschließlich als Teamleiter. Kontaktiere keine anderen Codex-Chats; die Weitergabe übernimmt ausschließlich der Workflow-Orchestrator.',
           'Formuliere die Delegationsentscheidung und den vollständigen Arbeitsauftrag für den gewählten Fachagenten.',
           workflowStatusInstruction(workflowStatusesForAgent(target, workflowStatuses)),
@@ -5637,7 +5787,7 @@ function App() {
         }
       }),
     )
-  }, [addEvent, agents, applyThreadReplacement, routes, selectedProject?.path, updateAgent, workflowInitials, workflowStatuses])
+  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, routes, selectedProject?.path, updateAgent, workflowInitials, workflowStatuses])
 
   const toggleAutomation = () => {
     if (autoRun) {
@@ -6254,6 +6404,14 @@ function App() {
               type="button"
             >
               {tx('Statusbefehle', 'Status commands')}
+            </button>
+            <button
+              className="projectStatusButton"
+              onClick={() => setKnowledgeLibraryOpen(true)}
+              title={tx('Projektweite Wissensdatenbank verwalten', 'Manage project knowledge database')}
+              type="button"
+            >
+              {tx('Datenbank', 'Database')}
             </button>
           </div>
         </div>
@@ -7171,6 +7329,123 @@ function App() {
           </div>
         </aside>
       </section>
+
+      {knowledgeLibraryOpen && (
+        <div
+          className="modalBackdrop"
+          role="presentation"
+          onMouseDown={() => setKnowledgeLibraryOpen(false)}
+        >
+          <section
+            aria-label={tx('Wissensdatenbank konfigurieren', 'Configure knowledge database')}
+            aria-modal="true"
+            className="promptModal statusLibraryModal knowledgeLibraryModal"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">{tx('Projektwissen', 'Project knowledge')}</p>
+                <h2>{tx('Datenbank', 'Database')}</h2>
+              </div>
+              <button
+                aria-label={tx('Datenbank-Fenster schließen', 'Close database window')}
+                onClick={() => setKnowledgeLibraryOpen(false)}
+                title={tx('Datenbank-Fenster schließen', 'Close database window')}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+            <section className="workflowStatusLibrary knowledgeLibrary" aria-label={tx('Projektweite Wissensquellen', 'Project knowledge sources')}>
+              <div className="workflowStatusHeader">
+                <div>
+                  <strong>{selectedProject?.label ?? tx('Kein Projekt', 'No project')}</strong>
+                  <small>{tx('Aktive Einträge stehen allen Agenten dieses Projekts zur Recherche zur Verfügung.', 'Active entries are available to every agent in this project for research.')}</small>
+                </div>
+                <small>{projectKnowledgeSources.filter((source) => source.enabled).length}/{projectKnowledgeSources.length} {tx('aktiv', 'active')}</small>
+              </div>
+              <div className="knowledgeSourceCreate">
+                <input
+                  aria-label={tx('Name der Wissensquelle', 'Knowledge source name')}
+                  className="knowledgeSourceName"
+                  onChange={(event) => setKnowledgeSourceName(event.target.value)}
+                  placeholder={tx('Name', 'Name')}
+                  value={knowledgeSourceName}
+                />
+                <select
+                  aria-label={tx('Typ der Wissensquelle', 'Knowledge source type')}
+                  className="knowledgeSourceType"
+                  onChange={(event) => setKnowledgeSourceType(event.target.value as KnowledgeSourceType)}
+                  value={knowledgeSourceType}
+                >
+                  <option value="repository">Repository</option>
+                  <option value="folder">{tx('Ordner', 'Folder')}</option>
+                  <option value="file">{tx('Datei', 'File')}</option>
+                  <option value="url">Weblink</option>
+                </select>
+                <input
+                  aria-label={tx('Pfad oder URL der Wissensquelle', 'Knowledge source path or URL')}
+                  className="knowledgeSourceLocation"
+                  onChange={(event) => setKnowledgeSourceLocation(event.target.value)}
+                  placeholder={tx('Pfad oder URL', 'Path or URL')}
+                  value={knowledgeSourceLocation}
+                />
+                <input
+                  aria-label={tx('Beschreibung der Wissensquelle', 'Knowledge source description')}
+                  className="knowledgeSourceDescription"
+                  onChange={(event) => setKnowledgeSourceDescription(event.target.value)}
+                  placeholder={tx('Beschreibung (optional)', 'Description (optional)')}
+                  value={knowledgeSourceDescription}
+                />
+                <button
+                  className="knowledgeSourceAdd"
+                  disabled={knowledgeSourceSaving || !knowledgeSourceName.trim() || !knowledgeSourceLocation.trim()}
+                  onClick={() => void addKnowledgeSource()}
+                  type="button"
+                >
+                  {knowledgeSourceSaving ? tx('Speichert…', 'Saving…') : tx('Hinzufügen', 'Add')}
+                </button>
+              </div>
+              {knowledgeSourceError && <p className="formError">{knowledgeSourceError}</p>}
+              {projectKnowledgeSources.length === 0 ? (
+                <p className="empty">{tx('Für dieses Projekt wurden noch keine Wissensquellen angelegt.', 'No knowledge sources have been created for this project.')}</p>
+              ) : (
+                <div className="knowledgeSourceList">
+                  {projectKnowledgeSources.map((source) => (
+                    <div className={`knowledgeSourceItem${source.enabled ? '' : ' disabled'}`} key={source.id}>
+                      <label className="knowledgeSourceToggle">
+                        <input
+                          checked={source.enabled}
+                          disabled={knowledgeSourceSaving}
+                          onChange={(event) => void setKnowledgeSourceEnabled(source.id, event.target.checked)}
+                          type="checkbox"
+                        />
+                        <span>{tx('Aktiv', 'Active')}</span>
+                      </label>
+                      <div className="knowledgeSourceCopy">
+                        <strong>{source.name}</strong>
+                        <span>{source.type} · {source.location}</span>
+                        {source.description && <small>{source.description}</small>}
+                      </div>
+                      <button
+                        aria-label={`${tx('Wissensquelle löschen', 'Delete knowledge source')}: ${source.name}`}
+                        className="deleteStatus"
+                        disabled={knowledgeSourceSaving}
+                        onClick={() => void deleteKnowledgeSource(source.id)}
+                        title={tx('Wissensquelle löschen', 'Delete knowledge source')}
+                        type="button"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </section>
+        </div>
+      )}
 
       {statusLibraryOpen && (
         <div

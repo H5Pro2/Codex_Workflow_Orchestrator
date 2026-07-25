@@ -9,6 +9,7 @@ import { createInterface } from 'node:readline'
 import { createProvisioningJournal } from './provisioning-journal.mjs'
 import { createSharedStateStore } from './shared-state.mjs'
 import { applyThreadProjectAssignments, savedProjectsFromState } from './codex-project-state.mjs'
+import { readKnowledgeSources, writeKnowledgeSources } from './knowledge-sources.mjs'
 import {
   projectThreadExecutionParams,
   projectTurnExecutionParams,
@@ -326,6 +327,13 @@ function refreshMaintenanceState() {
 async function listSavedProjects() {
   const rawState = await readFile(CODEX_GLOBAL_STATE_FILE, 'utf8')
   return savedProjectsFromState(JSON.parse(rawState))
+}
+
+async function savedProjectPath(projectPath) {
+  const normalized = resolve(projectPath).toLocaleLowerCase('de-DE')
+  return (await listSavedProjects()).find(
+    (project) => resolve(project.path).toLocaleLowerCase('de-DE') === normalized,
+  )?.path ?? ''
 }
 
 async function waitForThreadListed(threadId, cwd) {
@@ -777,6 +785,29 @@ const server = createServer(async (incoming, response) => {
     if (incoming.method === 'GET' && url.pathname === '/api/projects') {
       const projects = await listSavedProjects()
       sendJson(response, 200, { projects })
+      return
+    }
+
+    if (incoming.method === 'GET' && url.pathname === '/api/knowledge-sources') {
+      const requestedPath = url.searchParams.get('cwd')?.trim() ?? ''
+      const projectPath = requestedPath ? await savedProjectPath(requestedPath) : ''
+      if (!projectPath) {
+        sendJson(response, 400, { error: 'Ein registrierter Projektpfad ist erforderlich.' })
+        return
+      }
+      sendJson(response, 200, { sources: await readKnowledgeSources(projectPath) })
+      return
+    }
+
+    if (incoming.method === 'PUT' && url.pathname === '/api/knowledge-sources') {
+      const body = await readJson(incoming)
+      const requestedPath = typeof body.cwd === 'string' ? body.cwd.trim() : ''
+      const projectPath = requestedPath ? await savedProjectPath(requestedPath) : ''
+      if (!projectPath || !Array.isArray(body.sources)) {
+        sendJson(response, 400, { error: 'Registrierter Projektpfad und Quellenliste sind erforderlich.' })
+        return
+      }
+      sendJson(response, 200, { sources: await writeKnowledgeSources(projectPath, body.sources) })
       return
     }
 

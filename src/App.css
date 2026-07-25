@@ -58,7 +58,7 @@
 .codexPicker {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(210px, 300px) 320px auto;
+  grid-template-columns: minmax(210px, 300px) 320px auto auto;
 }
 
 .projectStatusButton {
@@ -1406,6 +1406,78 @@ label {
 
 .statusLibraryModal .workflowStatusHeader small {
   display: block;
+}
+
+.promptModal.knowledgeLibraryModal {
+  max-width: 980px;
+}
+
+.knowledgeSourceCreate {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(150px, 0.7fr) 130px minmax(240px, 1fr) auto;
+}
+
+.knowledgeSourceName { grid-column: 1; grid-row: 1; }
+.knowledgeSourceType { grid-column: 2; grid-row: 1; }
+.knowledgeSourceLocation { grid-column: 3; grid-row: 1; }
+.knowledgeSourceAdd { grid-column: 4; grid-row: 1; }
+.knowledgeSourceDescription { grid-column: 1 / -1; grid-row: 2; }
+
+.knowledgeSourceCreate input,
+.knowledgeSourceCreate select,
+.knowledgeSourceCreate button {
+  min-height: 36px;
+}
+
+.knowledgeSourceList {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.knowledgeSourceItem {
+  align-items: center;
+  background: #1d1d20;
+  border: 1px solid #34343a;
+  border-radius: 5px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 8px 10px;
+}
+
+.knowledgeSourceItem.disabled {
+  opacity: 0.58;
+}
+
+.knowledgeSourceToggle {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.knowledgeSourceToggle span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.knowledgeSourceCopy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.knowledgeSourceCopy strong {
+  color: #c9ddfb;
+  font-size: 13px;
+}
+
+.knowledgeSourceCopy span,
+.knowledgeSourceCopy small {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .workflowStatusHeader {
@@ -3795,6 +3867,21 @@ summary:focus-visible {
 
   .codexPicker {
     grid-template-columns: 1fr;
+  }
+
+  .knowledgeSourceCreate,
+  .knowledgeSourceItem {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .knowledgeSourceCreate > * {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .knowledgeSourceItem > .deleteStatus {
+    justify-self: end;
   }
 
   .managementHeader,
