@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import { createProvisioningJournal } from './provisioning-journal.mjs'
 import { createSharedStateStore } from './shared-state.mjs'
+import { applyThreadProjectAssignments, savedProjectsFromState } from './codex-project-state.mjs'
 import {
   projectThreadExecutionParams,
   projectTurnExecutionParams,
@@ -324,34 +325,7 @@ function refreshMaintenanceState() {
 
 async function listSavedProjects() {
   const rawState = await readFile(CODEX_GLOBAL_STATE_FILE, 'utf8')
-  const state = JSON.parse(rawState)
-  const localProjects = state['local-projects'] ?? {}
-  const projectOrder = Array.isArray(state['project-order']) ? state['project-order'] : []
-  const projectsById = new Map(
-    Object.values(localProjects)
-      .filter((project) => (
-        project &&
-        typeof project.id === 'string' &&
-        typeof project.name === 'string' &&
-        Array.isArray(project.rootPaths) &&
-        typeof project.rootPaths[0] === 'string'
-      ))
-      .map((project) => [project.id, {
-        id: project.id,
-        label: project.name,
-        path: project.rootPaths[0].replace(/^\\\\\?\\/, ''),
-      }]),
-  )
-
-  const orderedProjects = projectOrder
-    .map((projectId) => projectsById.get(projectId))
-    .filter(Boolean)
-  const orderedIds = new Set(orderedProjects.map((project) => project.id))
-  const remainingProjects = [...projectsById.values()]
-    .filter((project) => !orderedIds.has(project.id))
-    .sort((left, right) => left.label.localeCompare(right.label, 'de'))
-
-  return [...orderedProjects, ...remainingProjects]
+  return savedProjectsFromState(JSON.parse(rawState))
 }
 
 async function waitForThreadListed(threadId, cwd) {
@@ -793,7 +767,10 @@ const server = createServer(async (incoming, response) => {
 
     if (incoming.method === 'GET' && url.pathname === '/api/threads') {
       const threads = await listAllThreads()
-      sendJson(response, 200, { threads })
+      const rawState = await readFile(CODEX_GLOBAL_STATE_FILE, 'utf8')
+      const state = JSON.parse(rawState)
+      const projects = savedProjectsFromState(state)
+      sendJson(response, 200, { threads: applyThreadProjectAssignments(threads, state, projects) })
       return
     }
 

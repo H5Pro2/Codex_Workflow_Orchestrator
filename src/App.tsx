@@ -62,6 +62,7 @@ import {
   type DeliveryQueue,
 } from './delivery-queue.ts'
 import { pruneWorkflowBoardAgentIds, pruneWorkflowPositions } from './workflow-state.ts'
+import { projectForThread, threadBelongsToProject } from './codex-project.ts'
 import {
   parseWorkflowSignal,
   workflowSignalIssue,
@@ -199,6 +200,9 @@ type CodexThread = {
   title: string
   cwd: string
   status: string
+  projectId?: string
+  projectPath?: string
+  projectAssignmentPending?: boolean
 }
 
 type ChatMessage = {
@@ -1946,8 +1950,10 @@ function App() {
   }, [selectedProjectPath])
 
   const visibleThreads = useMemo(
-    () => codexThreads.filter((thread) => samePath(thread.cwd, selectedProject?.path ?? '')),
-    [codexThreads, selectedProject?.path],
+    () => selectedProject
+      ? codexThreads.filter((thread) => threadBelongsToProject(thread, selectedProject))
+      : [],
+    [codexThreads, selectedProject],
   )
   const projectAgents = useMemo(
     () =>
@@ -2329,7 +2335,7 @@ function App() {
         const replacement = codexThreads.find(
           (thread) =>
             !assignedThreadIds.has(thread.id) &&
-            samePath(thread.cwd, agent.projectPath) &&
+            (thread.projectId ? thread.projectId === agent.projectId : samePath(thread.cwd, agent.projectPath)) &&
             [agent.name, agent.threadTitle].some(
               (name) =>
                 name.trim().toLocaleLowerCase('de-DE') ===
@@ -2400,46 +2406,46 @@ function App() {
       const reconciled = [
         ...synchronized,
         ...missingThreads.map((thread): Agent => {
-          const project = codexProjects.find((item) => samePath(item.path, thread.cwd))
+          const project = projectForThread(thread, codexProjects)
           return {
-          id: crypto.randomUUID(),
-          name: thread.title,
-          role: defaultAgentRole(thread.title),
-          projectId: project?.id ?? `path:${thread.cwd}`,
-          projectPath: thread.cwd,
-          threadTitle: thread.title,
-          threadId: thread.id,
-          model: '',
-          prompt: 'Definiere die Rollen-Anweisung für diesen Codex Task.',
-          promptDocuments: [createDefaultPromptDocument('Definiere die Rollen-Anweisung für diesen Codex Task.')],
-          activePromptDocumentId: 'default',
-           status: 'wartet',
-           talkTo: [],
-           autoForward: true,
-           assignment: 'agent',
-           monitoringScope: 'all',
-           monitoredAgentIds: [],
-           monitoringEnabled: false,
-           monitoringIntervalMinutes: 30,
-           lastMonitoringAt: '',
-           teamProvisioningEnabled: false,
-           managementInstructionRules: [...DEFAULT_CEO_INSTRUCTIONS],
-           lastAppliedTeamPlanSignature: '',
-           workflowStatusIds: null,
-           workflowStatusUpdatedAt: '',
-           finishSignal: '"status":"fertig"',
-          lastResult: '',
-          instructionVersion: 1,
-          lastInstruction: '',
-          runStartedAt: '',
-          lastDurationMs: 0,
-          completedRuns: 0,
-          consecutiveFailedRuns: 0,
-           pendingTurnId: '',
-           runPurpose: '',
-           lastCompletedTurnId: '',
-          lastInboundAgentId: '',
-          updatedAt: new Date().toISOString(),
+            id: crypto.randomUUID(),
+            name: thread.title,
+            role: defaultAgentRole(thread.title),
+            projectId: project?.id ?? `path:${thread.cwd}`,
+            projectPath: project?.path ?? thread.cwd,
+            threadTitle: thread.title,
+            threadId: thread.id,
+            model: '',
+            prompt: 'Definiere die Rollen-Anweisung für diesen Codex Task.',
+            promptDocuments: [createDefaultPromptDocument('Definiere die Rollen-Anweisung für diesen Codex Task.')],
+            activePromptDocumentId: 'default',
+            status: 'wartet',
+            talkTo: [],
+            autoForward: true,
+            assignment: 'agent',
+            monitoringScope: 'all',
+            monitoredAgentIds: [],
+            monitoringEnabled: false,
+            monitoringIntervalMinutes: 30,
+            lastMonitoringAt: '',
+            teamProvisioningEnabled: false,
+            managementInstructionRules: [...DEFAULT_CEO_INSTRUCTIONS],
+            lastAppliedTeamPlanSignature: '',
+            workflowStatusIds: null,
+            workflowStatusUpdatedAt: '',
+            finishSignal: '"status":"fertig"',
+            lastResult: '',
+            instructionVersion: 1,
+            lastInstruction: '',
+            runStartedAt: '',
+            lastDurationMs: 0,
+            completedRuns: 0,
+            consecutiveFailedRuns: 0,
+            pendingTurnId: '',
+            runPurpose: '',
+            lastCompletedTurnId: '',
+            lastInboundAgentId: '',
+            updatedAt: new Date().toISOString(),
           }
         }),
       ]
@@ -2823,6 +2829,8 @@ function App() {
         title: replacement.name || agent.name,
         cwd: replacement.cwd,
         status: replacement.status || 'active',
+        projectId: agent.projectId,
+        projectPath: agent.projectPath,
       },
     ])
     addEvent(
@@ -2846,14 +2854,17 @@ function App() {
       const recoveryData: ProvisioningRecovery = await recoveryResponse.json()
       const projects: CodexProject[] = projectsData.projects
       const threads: CodexThread[] = threadsData.threads.map(
-        (thread: { id: string; name?: string | null; preview?: string; cwd: string; status: string }) => ({
+        (thread: { id: string; name?: string | null; preview?: string; cwd: string; status: string; projectId?: string; projectPath?: string; projectAssignmentPending?: boolean }) => ({
           id: thread.id,
           title: thread.name || thread.preview || 'Unbenannter Chat',
           cwd: thread.cwd,
           status: thread.status,
+          projectId: thread.projectId,
+          projectPath: thread.projectPath,
+          projectAssignmentPending: thread.projectAssignmentPending,
         }),
       ).filter((thread: CodexThread) => (
-        projects.some((project) => samePath(project.path, thread.cwd))
+        projects.some((project) => threadBelongsToProject(thread, project))
       ))
       setCodexProjects(projects)
       setCodexThreads(threads)
@@ -2936,7 +2947,7 @@ function App() {
 
   const addAgentFromThread = (threadId: string) => {
     const thread = codexThreads.find((item) => item.id === threadId)
-    const project = codexProjects.find((item) => item.path === thread?.cwd)
+    const project = thread ? projectForThread(thread, codexProjects) : undefined
     if (!thread || !project) {
       return
     }
@@ -3020,7 +3031,7 @@ function App() {
 
     const existingThread = codexThreads.find(
       (thread) =>
-        samePath(thread.cwd, selectedProject.path) &&
+        threadBelongsToProject(thread, selectedProject) &&
         thread.title.trim().toLocaleLowerCase('de-DE') === name.toLocaleLowerCase('de-DE'),
     )
     if (existingThread) {
@@ -3055,6 +3066,8 @@ function App() {
         title: data.thread.name || name,
         cwd: selectedProject.path,
         status: data.thread.status || 'idle',
+        projectId: selectedProject.id,
+        projectPath: selectedProject.path,
       }
       const agent: Agent = {
         id: crypto.randomUUID(),
@@ -3283,6 +3296,8 @@ function App() {
             title: data.thread.name || specification.name,
             cwd: selectedProject.path,
             status: data.thread.status || 'idle',
+            projectId: selectedProject.id,
+            projectPath: selectedProject.path,
           }
           sharedStateDirty.current = true
           createdThreads.push(thread)
@@ -3731,11 +3746,14 @@ function App() {
           }
           const verificationData = await verification.json()
           const attemptThreads: CodexThread[] = verificationData.threads.map(
-            (thread: { id: string; name?: string | null; preview?: string; cwd: string; status: string }) => ({
+            (thread: { id: string; name?: string | null; preview?: string; cwd: string; status: string; projectId?: string; projectPath?: string; projectAssignmentPending?: boolean }) => ({
               id: thread.id,
               title: thread.name || thread.preview || 'Unbenannter Chat',
               cwd: thread.cwd,
               status: thread.status,
+              projectId: thread.projectId,
+              projectPath: thread.projectPath,
+              projectAssignmentPending: thread.projectAssignmentPending,
             }),
           )
           activeThreads = attemptThreads
