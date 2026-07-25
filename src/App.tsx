@@ -311,11 +311,11 @@ function chatMessageIdentity(message: ChatMessage, agentName: string, language: 
     }
   }
 
-  const initial = message.text.match(/^Initial-Anfrage von (.+?)(?:\r?\n|$)/)
+  const initial = message.text.match(/^(?:Neutrales Startsignal|Initial-Anfrage) von (.+?)(?:\r?\n|$)/)
   if (initial) {
     return {
       name: initial[1],
-      label: language === 'de' ? 'Initial-Anfrage' : 'Initial request',
+      label: language === 'de' ? 'Startsignal' : 'Start signal',
     }
   }
 
@@ -4862,6 +4862,13 @@ function App() {
       addEvent('Initial nicht angelegt', 'Ein neutraler Start gehört ausschließlich in das Dashboard des CEO.')
       return
     }
+    if (workflowInitials.some((initial) =>
+      initial.ownerAgentId === activeDashboardOwnerId &&
+      samePath(initial.projectPath, selectedProject?.path ?? ''),
+    )) {
+      addEvent('Initial nicht angelegt', 'Für dieses Projekt existiert bereits ein neutraler Start beim CEO.')
+      return
+    }
     const initial: WorkflowInitial = {
       id: crypto.randomUUID(),
       ownerAgentId: activeDashboardOwnerId,
@@ -5679,9 +5686,9 @@ function App() {
 
   const startInitialWorkflows = useCallback(async () => {
     const activeProjectPath = selectedProject?.path ?? ''
-    const starts = workflowInitials.filter((initial) =>
-      samePath(initial.projectPath, activeProjectPath),
-    )
+    const starts = workflowInitials
+      .filter((initial) => samePath(initial.projectPath, activeProjectPath))
+      .slice(0, 1)
     const deliveries = starts.flatMap((initial) =>
       routes
         .filter(
@@ -5701,7 +5708,7 @@ function App() {
     if (deliveries.length === 0) {
       addEvent(
         'Automatik ohne Initial gestartet',
-        'In diesem Projekt ist kein Initial-Baustein mit einem Agenten verbunden.',
+        'In diesem Projekt ist kein neutraler Initial-Baustein direkt mit dem CEO verbunden.',
       )
       return
     }
@@ -5716,18 +5723,14 @@ function App() {
           return
         }
 
-        const isNeutralManagerStart =
-          !initial.instruction.trim() && owner?.id === target.id && target.assignment === 'management'
-        const initialContext = isNeutralManagerStart
-          ? [
-              'Dies ist ausschließlich das neutrale Workflow-Startsignal und keine neue fachliche Aufgabe.',
-              'Prüfe die jüngste Benutzeranweisung in diesem Chat und den bestehenden Projektstand.',
-              'Nutze das vorhandene Team. Erstelle keinen Team-Vorschlag, außer der Benutzer hat ausdrücklich einen Teamumbau oder neue Agenten verlangt.',
-              'Entscheide mit einem deiner normalen Workflow-Statusbefehle, welcher vorhandene Fachagent die Anweisung als Nächstes bearbeitet.',
-            ]
-          : [initial.instruction]
+        const initialContext = [
+          'Dies ist ausschließlich das neutrale Workflow-Startsignal und keine neue fachliche Aufgabe.',
+          'Prüfe die jüngste Benutzeranweisung in diesem Chat und den bestehenden Projektstand.',
+          'Nutze das vorhandene Team. Erstelle keinen Team-Vorschlag, außer der Benutzer hat ausdrücklich einen Teamumbau oder neue Agenten verlangt.',
+          'Entscheide mit einem deiner normalen Workflow-Statusbefehle, welcher vorhandene Fachagent die Anweisung als Nächstes bearbeitet.',
+        ]
         const message = [
-          `Initial-Anfrage von ${owner?.name ?? 'Workflow-Orchestrator'}`,
+          `Neutrales Startsignal von ${owner?.name ?? 'Workflow-Orchestrator'}`,
           '',
           ...initialContext,
           '',
@@ -6172,8 +6175,8 @@ function App() {
             </p>
             <p className="teamReadyNoticeText">
               {tx(
-                'Prompts und Rollen sind vergeben. Ein Initial-Baustein startet den ersten Agenten; Übergaben laufen über Status-Filter und ein Abschlussstatus beendet die Automatik an einem Stopp-Baustein. Die Automatik ist weiterhin aus.',
-                'Prompts and roles are assigned. An initial node starts the first agent; handoffs use status filters, and a completion status stops automation at a stop node. Automation remains off.',
+                'Prompts und Rollen sind vergeben. Ein neutraler Initial-Baustein signalisiert dem CEO den Start; der CEO leitet anschließend über einen Status-Filter weiter. Ein Abschlussstatus beendet die Automatik an einem Stopp-Baustein. Die Automatik ist weiterhin aus.',
+                'Prompts and roles are assigned. A neutral initial node signals the start to the CEO, who then routes the work through a status filter. A completion status stops automation at a stop node. Automation remains off.',
               )}
             </p>
             <div className="modalActions">
@@ -7564,7 +7567,7 @@ function App() {
                       <span className="toolSymbol">+</span>
                       <span>
                         <strong>Initial</strong>
-                        <small>{tx('Startanweisung senden', 'Send initial instruction')}</small>
+                        <small>{tx('Neutrales Startsignal an den CEO', 'Neutral start signal to the CEO')}</small>
                       </span>
                     </button>
                     <button

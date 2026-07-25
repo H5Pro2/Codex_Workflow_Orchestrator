@@ -141,7 +141,7 @@ Die kompakten Aktionen im Dashboard sind:
 
 | Werkzeug | Aufgabe |
 | --- | --- |
-| Initial | Sendet beim Start eine Anfangsanweisung an den verbundenen Agenten. |
+| Initial | Sendet ein neutrales Startsignal ausschließlich an den CEO. |
 | Status | Lässt nur Ergebnisse mit dem ausgewählten Statusbefehl passieren. |
 | Stop | Beendet den Workflow-Pfad an dieser Stelle. |
 | Zeitplan | Sendet eine Aufgabe einmalig, in einem Intervall oder zu einer festen Uhrzeit. |
@@ -176,7 +176,7 @@ Der Status `Fehler` ist für kontrolliert aufgebaute Teams reserviert. Er signal
 
 ## Automatik
 
-`Auto Start` aktiviert die Ausführung des verbundenen Workflows. Dabei werden die Duplikat-Sperren des vorherigen Laufs zurückgesetzt. Initial-Bausteine senden ihre Startanweisung zusammen mit der aktiven Prompt-Datei, der Connector überwacht laufende Agenten und passende Ergebnisse werden entlang der Verdrahtung weitergegeben.
+`Auto Start` aktiviert die Ausführung des verbundenen Workflows. Dabei werden die Duplikat-Sperren des vorherigen Laufs zurückgesetzt. Pro Projekt darf höchstens ein neutraler Initial-Baustein existieren. Er enthält keine fachliche Aufgabe, sendet sein Startsignal ausschließlich an den CEO und verwendet keine Agenten-Prompt-Datei. Der CEO liest anschließend die aktuelle Benutzeranweisung aus seinem Chat und leitet sie über einen normalen Statusbefehl weiter. Der Connector überwacht laufende Agenten und passende Ergebnisse werden entlang der Verdrahtung weitergegeben.
 
 Eine Übergabe gilt erst als erfolgreich, wenn der Connector für den Ziel-Chat eine konkrete Turn-ID bestätigt hat. Erst danach wird der Zielagent als aktiv und der Quellagent als `Weitergegeben` markiert. Fehlende Chat-Verknüpfungen, Connector-Fehler oder Antworten ohne Turn-ID führen sichtbar zu `Rückfrage`. Bei mehreren Zielen werden nur die tatsächlich angenommenen Übergaben als erfolgreich protokolliert.
 
