@@ -1,6 +1,7 @@
 export type WorkflowRunEntryKind =
   | 'started'
   | 'resumed'
+  | 'status-repair'
   | 'agent-completed'
   | 'handoff-pending'
   | 'handoff-delivered'

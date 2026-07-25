@@ -84,6 +84,10 @@ import {
 import { resolveConfiguredDeliveries } from './workflow-routing.ts'
 import { decideWorkflowContinuation } from './workflow-decision.ts'
 import {
+  shouldRequestWorkflowStatusRepair,
+  workflowStatusRepairInstruction,
+} from './workflow-status-repair.ts'
+import {
   appendWorkflowRunEntry,
   activeWorkflowRun,
   beginWorkflowRun,
@@ -111,7 +115,7 @@ import {
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
 type AgentAssignment = 'agent' | 'management'
-type AgentRunPurpose = '' | 'chat' | 'handoff' | 'initial' | 'monitoring' | 'prompt' | 'timer'
+type AgentRunPurpose = '' | 'chat' | 'handoff' | 'initial' | 'monitoring' | 'prompt' | 'status-repair' | 'timer'
 type ThemeMode = 'system' | 'light' | 'dark'
 type SettingsSection = 'general' | 'profile' | 'appearance'
 
@@ -587,6 +591,8 @@ const eventTitleTranslations: Record<string, string> = {
   'Wiederaufnahme blockiert': 'Resume blocked',
   'Wiederaufnahme vorgemerkt': 'Resume checkpoint saved',
   'Workflow wiederaufgenommen': 'Workflow resumed',
+  'Workflow-Statuskorrektur angefordert': 'Workflow status correction requested',
+  'Workflow-Statuskorrektur fehlgeschlagen': 'Workflow status correction failed',
   'Workflow-Pfad beendet': 'Workflow path ended',
   'Workflow-Status erstellt': 'Workflow status created',
   'Workflow-Status geändert': 'Workflow status changed',
@@ -4565,6 +4571,63 @@ function App() {
       const availableStatuses = workflowSignal.kind === 'valid'
         ? workflowSignal.names.join(', ')
         : signalIssue || 'kein Workflow-Status'
+      if (shouldRequestWorkflowStatusRepair({
+        signalKind: workflowSignal.kind,
+        activeRouteCount: activeRoutes.length,
+        runPurpose: agent.runPurpose,
+        hasThread: Boolean(agent.threadId),
+      })) {
+        const correctionMessage = withInternalInstructions(
+          'Statuskorrektur',
+          workflowStatusRepairInstruction(availableStatuses, projectStatuses),
+        )
+        try {
+          const response = await fetch(
+            `/api/threads/${encodeURIComponent(agent.threadId)}/messages`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                text: correctionMessage,
+                model: agent.model || undefined,
+                cwd: agent.projectPath,
+              }),
+            },
+          )
+          const data = await response.json()
+          if (!response.ok) {
+            throw new Error(data.error || 'Workflow-Statuskorrektur konnte nicht gesendet werden.')
+          }
+          const turnId = requireStartedTurnId(data, 'die Workflow-Statuskorrektur')
+          applyThreadReplacement(agent, data.replacementThread)
+          updateAgent(agent.id, {
+            status: 'laeuft',
+            pendingTurnId: turnId,
+            runStartedAt: new Date().toISOString(),
+            runPurpose: 'status-repair',
+          })
+          updateWorkflowRuntime((current) => appendWorkflowRunEntry(
+            current,
+            agent.projectPath,
+            workflowRunEntry('status-repair', {
+              agentId: agent.id,
+              agentName: agent.name,
+              statusNames: workflowSignal.names,
+              detail: availableStatuses,
+            }),
+          ))
+          addEvent(
+            'Workflow-Statuskorrektur angefordert',
+            `${agent.name}: Der fachliche Inhalt bleibt erhalten; ausschließlich die Statuszeile wird einmal korrigiert.`,
+          )
+          return
+        } catch (error) {
+          addEvent(
+            'Workflow-Statuskorrektur fehlgeschlagen',
+            `${agent.name}: ${error instanceof Error ? error.message : 'Connector nicht erreichbar.'}`,
+          )
+        }
+      }
       addEvent(
         activeRoutes.length === 0 ? 'Weitergabe gestoppt' : 'Keine Status-Weitergabe',
         activeRoutes.length === 0

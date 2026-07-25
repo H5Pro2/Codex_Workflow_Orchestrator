@@ -207,6 +207,8 @@ Im Setup jedes Agenten steuert `Projektwissen verwenden`, ob dieser Agent den ak
 
 Ein fachlicher Abschlussstatus kann zu einem Stopp-Baustein führen. Sobald dieser Pfad erreicht wird, beendet der Orchestrator die Automatik und startet keine weiteren Übergaben. Ein normaler Weiterleitungsstatus gilt dagegen ausdrücklich nicht als Projektabschluss.
 
+Enthält eine Agentenantwort trotz vorhandener Route keinen gültigen Status, mehrere Statusangaben, einen unbekannten Namen oder Text nach der Statuszeile, fordert der Orchestrator einmalig im selben Agenten-Chat eine reine Protokollkorrektur an. Der Agent darf dabei weder die Facharbeit wiederholen noch seine bereits getroffene Entscheidung ändern. Er wählt ausschließlich einen exakten Namen aus seiner zugewiesenen Statusliste. Ist auch der Korrekturversuch ungültig oder fehlt die technische Route, pausiert der Lauf kontrolliert und speichert einen blockierten Kontrollpunkt; eine Route wird niemals aus freiem Antworttext geraten.
+
 Der Status `Fehler` ist für kontrolliert aufgebaute Teams reserviert. Er signalisiert keinen fachlichen Projektstatus, sondern einen technisch unterbrochenen Codex-Lauf. Der zugehörige Statusfilter führt zurück zum Verwaltungsagenten, statt den betroffenen Agenten dauerhaft als aktiv erscheinen zu lassen. Meldet der Verwaltungsagent selbst `Fehler` oder scheitert sein Lauf technisch, stoppt die Automatik kontrolliert und wartet sichtbar auf eine Benutzerentscheidung. Eine Selbstverknüpfung des Verwaltungsagenten wird dabei nicht erzeugt. Bereits gespeicherte Selbstverknüpfungen aus älteren Zuständen werden beim Laden entfernt; eine dabei noch aktive Automatik wird sicherheitshalber gestoppt.
 
 ## Automatik
