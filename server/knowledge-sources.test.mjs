@@ -72,4 +72,5 @@ test('accepts only absolute local paths and HTTP web links', () => {
   assert.throws(() => validateKnowledgeSourceLocations(projectPath, source('file', 'notes.md')), /absoluten lokalen Pfad/)
   assert.throws(() => validateKnowledgeSourceLocations(projectPath, source('url', 'file:///C:/notes.md')), /HTTP- oder HTTPS-URL/)
   assert.doesNotThrow(() => validateKnowledgeSourceLocations(projectPath, source('url', 'https://example.com/study')))
+  assert.doesNotThrow(() => validateKnowledgeSourceLocations(projectPath, source('repository', 'https://github.com/example/research')))
 })

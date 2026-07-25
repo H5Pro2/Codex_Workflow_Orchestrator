@@ -40,13 +40,18 @@ function isSameOrInside(candidate, parent) {
 export function validateKnowledgeSourceLocations(projectPath, sources) {
   const workspacePath = projectWorkspacePath(projectPath)
   for (const source of sources) {
-    if (source.type === 'url') {
-      let url
+    let url = null
+    const hasUrlScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(source.location)
+    if (source.type === 'url' || hasUrlScheme) {
       try {
         url = new URL(source.location)
       } catch {
-        throw new Error(`Die Wissensquelle "${source.name}" enthält keine gültige URL.`)
+        if (source.type === 'url') {
+          throw new Error(`Die Wissensquelle "${source.name}" enthält keine gültige URL.`)
+        }
       }
+    }
+    if (url) {
       if (!['http:', 'https:'].includes(url.protocol)) {
         throw new Error(`Die Wissensquelle "${source.name}" muss eine HTTP- oder HTTPS-URL verwenden.`)
       }
