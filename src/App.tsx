@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  BaseEdge,
   Controls,
   Handle,
   Position,
   ReactFlow,
   ReactFlowProvider,
+  getBezierPath,
   getSmoothStepPath,
   type Connection,
   type ConnectionLineComponentProps,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeProps,
   type ReactFlowInstance,
@@ -336,7 +339,88 @@ function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
 }
 
 const workflowNodeTypes = { workflow: WorkflowNode }
+const WORKFLOW_NODE_WIDTH = 190
+const WORKFLOW_EDGE_CURVATURE = 0.35
 const WORKFLOW_EDGE_BORDER_RADIUS = 18
+
+const getWorkflowEdgeGeometry = ({
+  sourceX,
+  sourceY,
+  sourcePosition,
+  targetX,
+  targetY,
+  targetPosition,
+}: Pick<EdgeProps, 'sourceX' | 'sourceY' | 'sourcePosition' | 'targetX' | 'targetY' | 'targetPosition'>) => {
+  const horizontalNodeDistance = Math.abs(targetX - sourceX + WORKFLOW_NODE_WIDTH)
+  const orientationRatio = Math.abs(targetY - sourceY) / Math.max(horizontalNodeDistance, 1)
+  const verticalBlend = orientationRatio > 0.58 ? 1 : 0
+  return {
+    bezierPath: getBezierPath({
+      sourceX,
+      sourceY,
+      sourcePosition,
+      targetX,
+      targetY,
+      targetPosition,
+      curvature: WORKFLOW_EDGE_CURVATURE,
+    })[0],
+    smoothStepPath: getSmoothStepPath({
+      sourceX,
+      sourceY,
+      sourcePosition,
+      targetX,
+      targetY,
+      targetPosition,
+      borderRadius: WORKFLOW_EDGE_BORDER_RADIUS,
+    })[0],
+    verticalBlend,
+  }
+}
+
+function WorkflowEdge({
+  id,
+  sourceX,
+  sourceY,
+  sourcePosition,
+  targetX,
+  targetY,
+  targetPosition,
+  markerEnd,
+  markerStart,
+  style,
+  interactionWidth,
+}: EdgeProps) {
+  const { bezierPath, smoothStepPath, verticalBlend } = getWorkflowEdgeGeometry({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  })
+  return (
+    <>
+      <BaseEdge
+        id={`${id}-bezier`}
+        path={bezierPath}
+        markerEnd={markerEnd}
+        markerStart={markerStart}
+        style={{ ...style, opacity: 1 - verticalBlend, transition: 'opacity 160ms ease' }}
+        interactionWidth={interactionWidth}
+      />
+      <BaseEdge
+        id={`${id}-vertical`}
+        path={smoothStepPath}
+        markerEnd={markerEnd}
+        markerStart={markerStart}
+        style={{ ...style, opacity: verticalBlend, transition: 'opacity 160ms ease' }}
+        interactionWidth={interactionWidth}
+      />
+    </>
+  )
+}
+
+const workflowEdgeTypes = { workflow: WorkflowEdge }
 
 function WorkflowConnectionLine({
   fromHandle,
@@ -347,7 +431,8 @@ function WorkflowConnectionLine({
   toPosition,
 }: ConnectionLineComponentProps) {
   const cursorRef = useRef<HTMLSpanElement>(null)
-  const pathRef = useRef<SVGPathElement>(null)
+  const bezierPathRef = useRef<SVGPathElement>(null)
+  const smoothStepPathRef = useRef<SVGPathElement>(null)
   const initialGeometryRef = useRef({
     fromHandleId: fromHandle.id ?? '',
     fromNodeId: fromNode.id,
@@ -374,16 +459,18 @@ function WorkflowConnectionLine({
         }
       : { x: geometry.fromX, y: geometry.fromY }
     const syncConnection = (clientX: number, clientY: number) => {
-      const [path] = getSmoothStepPath({
+      const { bezierPath, smoothStepPath, verticalBlend } = getWorkflowEdgeGeometry({
         sourceX: source.x,
         sourceY: source.y,
         sourcePosition: geometry.fromPosition,
         targetX: clientX,
         targetY: clientY,
         targetPosition: geometry.toPosition,
-        borderRadius: WORKFLOW_EDGE_BORDER_RADIUS,
       })
-      pathRef.current?.setAttribute('d', path)
+      bezierPathRef.current?.setAttribute('d', bezierPath)
+      smoothStepPathRef.current?.setAttribute('d', smoothStepPath)
+      if (bezierPathRef.current) bezierPathRef.current.style.opacity = `${1 - verticalBlend}`
+      if (smoothStepPathRef.current) smoothStepPathRef.current.style.opacity = `${verticalBlend}`
       const cursor = cursorRef.current
       if (!cursor) return
       cursor.style.opacity = '1'
@@ -410,7 +497,18 @@ function WorkflowConnectionLine({
   return createPortal(
     <>
       <svg className="workflowConnectionOverlay" aria-hidden="true">
-        <path ref={pathRef} className="react-flow__connection-path" fill="none" />
+        <path
+          ref={bezierPathRef}
+          className="react-flow__connection-path"
+          fill="none"
+          style={{ transition: 'opacity 160ms ease' }}
+        />
+        <path
+          ref={smoothStepPathRef}
+          className="react-flow__connection-path"
+          fill="none"
+          style={{ transition: 'opacity 160ms ease' }}
+        />
       </svg>
       <span ref={cursorRef} className="workflowConnectionCursor" aria-hidden="true" />
     </>,
@@ -1393,8 +1491,7 @@ function WorkflowDashboard({
         target: route.targetId,
         sourceHandle: 'output',
         targetHandle: 'input',
-        type: 'smoothstep',
-        pathOptions: { borderRadius: WORKFLOW_EDGE_BORDER_RADIUS },
+        type: 'workflow',
         interactionWidth: 28,
         animated: autoRun,
         className: route.id === selectedRouteId ? 'selectedRoute' : '',
@@ -1498,6 +1595,7 @@ function WorkflowDashboard({
     >
       <ReactFlow
         nodeTypes={workflowNodeTypes}
+        edgeTypes={workflowEdgeTypes}
         onInit={setFlowInstance}
         nodes={nodes}
         edges={edges}
