@@ -35,6 +35,7 @@ import {
   type TurnActivityObservation,
 } from './workflow-watchdog.ts'
 import { deliveryDeduplicationSignature } from './delivery-deduplication.ts'
+import { explicitAgentStatusIds } from './agent-status-assignment.ts'
 import { summarizeDeliveryAttempts } from './delivery-outcome.ts'
 import {
   DEFAULT_CEO_INSTRUCTIONS,
@@ -172,7 +173,7 @@ type Agent = {
   teamProvisioningEnabled: boolean
   managementInstructionRules: string[]
   lastAppliedTeamPlanSignature: string
-  workflowStatusIds: string[] | null
+  workflowStatusIds: string[]
   workflowStatusUpdatedAt: string
   finishSignal: string
   lastResult: string
@@ -721,7 +722,7 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
     lastAppliedTeamPlanSignature: agent.lastAppliedTeamPlanSignature ?? '',
     workflowStatusIds: Array.isArray(agent.workflowStatusIds)
       ? Array.from(new Set(agent.workflowStatusIds.filter((id): id is string => typeof id === 'string')))
-      : null,
+      : [],
     workflowStatusUpdatedAt: agent.workflowStatusUpdatedAt ?? '',
     finishSignal: agent.finishSignal ?? '"status":"fertig"',
     lastResult: agent.lastResult ?? '',
@@ -739,6 +740,20 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
     lastInboundAgentId: agent.lastInboundAgentId ?? '',
     updatedAt: agent.updatedAt ?? new Date().toISOString(),
   }
+}
+
+function normalizeAgentsWithExplicitStatuses(
+  values: Array<Partial<Agent>>,
+  filters: WorkflowStatusFilter[],
+  routes: WorkflowRoute[],
+) {
+  return values.map((value) => {
+    const agent = normalizeAgent(value)
+    return {
+      ...agent,
+      workflowStatusIds: explicitAgentStatusIds(value.workflowStatusIds, agent.id, filters, routes),
+    }
+  })
 }
 
 function deduplicateAgents(agents: Agent[]) {
@@ -809,17 +824,19 @@ function loadStoredState() {
 
   try {
     const parsed = JSON.parse(stored)
+    const parsedRoutes = Array.isArray(parsed.routes) ? parsed.routes : []
+    const parsedStatusFilters = Array.isArray(parsed.workflowStatusFilters) ? parsed.workflowStatusFilters : []
     return {
       agents: Array.isArray(parsed.agents)
-        ? deduplicateAgents(parsed.agents.map(normalizeAgent))
+        ? deduplicateAgents(normalizeAgentsWithExplicitStatuses(parsed.agents, parsedStatusFilters, parsedRoutes))
         : initialAgents,
       events: Array.isArray(parsed.events) ? parsed.events : [],
       hiddenThreadIds: Array.isArray(parsed.hiddenThreadIds) ? parsed.hiddenThreadIds : [],
-      routes: Array.isArray(parsed.routes) ? parsed.routes : [],
+      routes: parsedRoutes,
       workflowPrompts: Array.isArray(parsed.workflowPrompts) ? parsed.workflowPrompts : [],
       workflowInitials: Array.isArray(parsed.workflowInitials) ? parsed.workflowInitials : [],
       workflowStatuses: Array.isArray(parsed.workflowStatuses) ? parsed.workflowStatuses : [],
-      workflowStatusFilters: Array.isArray(parsed.workflowStatusFilters) ? parsed.workflowStatusFilters : [],
+      workflowStatusFilters: parsedStatusFilters,
       workflowStops: Array.isArray(parsed.workflowStops) ? parsed.workflowStops : [],
       workflowTimers: Array.isArray(parsed.workflowTimers) ? parsed.workflowTimers : [],
       workflowPositions:
@@ -1002,6 +1019,7 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
     ...existingStatusContext,
     'Nimm wiederverwendete Statusbefehle mit exakt demselben Namen und exakt derselben Bedeutung in statusCommands auf. Erstelle nur dann einen neuen Statusbefehl, wenn keiner der vorhandenen Befehle den benötigten Zweck abdeckt.',
     'Jede Verbindung muss einen vorhandenen Statusbefehl nennen. Weise jedem Agenten unter workflowStatuses genau die Statusbefehle zu, die er verwenden darf.',
+    'Der CEO selbst erhält bei der Übernahme ausschließlich den unter startStatus genannten Statusbefehl. Fachliche Verteilungsstatus gehören nur zu dem Agenten, von dessen Dashboard ihr Pfad ausgeht.',
     'Entscheide für jeden Agenten ausdrücklich mit usesProjectKnowledge: true oder false, ob er für seine Rolle auf die projektweite Wissensdatenbank zugreifen muss. Aktiviere sie nur bei fachlichem Quellenbedarf; eine bloße Workflow-Teilnahme reicht nicht aus.',
     'Definiere unter stops mindestens einen ausdrücklichen Abschlussweg. Ein Stop nennt den Quellagenten, den eindeutigen Abschlussstatus und einen kurzen Namen. Ein normaler Weiterleitungsstatus ist kein Abschlussstatus.',
     'Der Arbeitsablauf darf nicht nur aus einer Endlosschleife bestehen. Jeder erfolgreiche Gesamtabschluss muss über einen Status-Filter zu einem Stop führen.',
@@ -1103,10 +1121,7 @@ function taskSignature(result: string) {
 
 function workflowStatusesForAgent(agent: Agent, statuses: WorkflowStatusDefinition[]) {
   const projectStatuses = statuses.filter((status) => samePath(status.projectPath, agent.projectPath))
-  const selectedStatusIds = agent.workflowStatusIds
-  return selectedStatusIds === null
-    ? projectStatuses
-    : projectStatuses.filter((status) => selectedStatusIds.includes(status.id))
+  return projectStatuses.filter((status) => agent.workflowStatusIds.includes(status.id))
 }
 
 function buildMonitoringMessage(
@@ -1856,8 +1871,10 @@ function App() {
   }, [agents, autoRun, deliveryQueue, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops, workflowTimers])
 
   const applySharedState = useCallback((state: ReturnType<typeof loadStoredState>) => {
+    const incomingRoutes = Array.isArray(state.routes) ? state.routes : []
+    const incomingStatusFilters = Array.isArray(state.workflowStatusFilters) ? state.workflowStatusFilters : []
     const incomingAgents = Array.isArray(state.agents)
-      ? deduplicateAgents(state.agents.map(normalizeAgent))
+      ? deduplicateAgents(normalizeAgentsWithExplicitStatuses(state.agents, incomingStatusFilters, incomingRoutes))
       : []
     setAgents((current) => {
       const localAgents = new Map(current.map((agent) => [agent.id, agent]))
@@ -1878,11 +1895,11 @@ function App() {
     })
     setEvents(Array.isArray(state.events) ? state.events : [])
     setHiddenThreadIds(Array.isArray(state.hiddenThreadIds) ? state.hiddenThreadIds : [])
-    setRoutes(Array.isArray(state.routes) ? state.routes : [])
+    setRoutes(incomingRoutes)
     setWorkflowPrompts(Array.isArray(state.workflowPrompts) ? state.workflowPrompts : [])
     setWorkflowInitials(Array.isArray(state.workflowInitials) ? state.workflowInitials : [])
     setWorkflowStatuses(Array.isArray(state.workflowStatuses) ? state.workflowStatuses : [])
-    setWorkflowStatusFilters(Array.isArray(state.workflowStatusFilters) ? state.workflowStatusFilters : [])
+    setWorkflowStatusFilters(incomingStatusFilters)
     setWorkflowStops(Array.isArray(state.workflowStops) ? state.workflowStops : [])
     setWorkflowTimers(Array.isArray(state.workflowTimers) ? state.workflowTimers : [])
     setWorkflowPositions(state.workflowPositions ?? {})
@@ -2553,7 +2570,7 @@ function App() {
             teamProvisioningEnabled: false,
             managementInstructionRules: [...DEFAULT_CEO_INSTRUCTIONS],
             lastAppliedTeamPlanSignature: '',
-            workflowStatusIds: null,
+            workflowStatusIds: [],
             workflowStatusUpdatedAt: '',
             finishSignal: '"status":"fertig"',
             lastResult: '',
@@ -2803,17 +2820,12 @@ function App() {
   }
 
   const setAgentWorkflowStatusEnabled = (agent: Agent, statusId: string, enabled: boolean) => {
-    const availableStatuses = workflowStatuses.filter((status) => samePath(status.projectPath, agent.projectPath))
-    const currentIds = agent.workflowStatusIds === null
-      ? availableStatuses.map((status) => status.id)
-      : agent.workflowStatusIds
     const nextIds = enabled
-      ? Array.from(new Set([...currentIds, statusId]))
-      : currentIds.filter((id) => id !== statusId)
-    const allSelected = availableStatuses.length > 0 && availableStatuses.every((status) => nextIds.includes(status.id))
+      ? Array.from(new Set([...agent.workflowStatusIds, statusId]))
+      : agent.workflowStatusIds.filter((id) => id !== statusId)
 
     updateAgent(agent.id, {
-      workflowStatusIds: allSelected ? null : nextIds,
+      workflowStatusIds: nextIds,
       workflowStatusUpdatedAt: new Date().toISOString(),
     })
   }
@@ -3106,7 +3118,7 @@ function App() {
       teamProvisioningEnabled: false,
       managementInstructionRules: [...DEFAULT_CEO_INSTRUCTIONS],
       lastAppliedTeamPlanSignature: '',
-      workflowStatusIds: null,
+      workflowStatusIds: [],
       workflowStatusUpdatedAt: '',
       finishSignal: '"status":"fertig"',
       lastResult: '',
@@ -3219,7 +3231,7 @@ function App() {
         teamProvisioningEnabled: false,
         managementInstructionRules: [...DEFAULT_CEO_INSTRUCTIONS],
         lastAppliedTeamPlanSignature: '',
-        workflowStatusIds: null,
+        workflowStatusIds: [],
         workflowStatusUpdatedAt: '',
         finishSignal: '"status":"fertig"',
         lastResult: '',
@@ -3445,7 +3457,7 @@ function App() {
             status: data.turn?.id ? 'laeuft' : 'wartet',
             workflowStatusIds: specification.workflowStatuses.length > 0
               ? specification.workflowStatuses.map((status) => statusByName.get(status.toLocaleLowerCase('de-DE'))?.id).filter((id): id is string => Boolean(id))
-              : null,
+              : [],
             usesProjectKnowledge: specification.usesProjectKnowledge,
             pendingTurnId: data.turn?.id ?? '',
             runStartedAt: data.turn?.id ? new Date().toISOString() : '',
@@ -3462,7 +3474,7 @@ function App() {
               : [...agent.promptDocuments, nextDocument],
             workflowStatusIds: specification.workflowStatuses.length > 0
               ? specification.workflowStatuses.map((status) => statusByName.get(status.toLocaleLowerCase('de-DE'))?.id).filter((id): id is string => Boolean(id))
-              : null,
+              : [],
             usesProjectKnowledge: specification.usesProjectKnowledge,
             updatedAt: new Date().toISOString(),
           }
@@ -3643,9 +3655,7 @@ function App() {
       if (!startStatusId) throw new Error(`${tx('Statusbefehl fehlt', 'Missing status command')}: ${plan.startStatus}`)
       const finalAgents = resolvedAgents.map((agent) => ({
         ...agent,
-        workflowStatusIds: agent.id === manager.id && agent.workflowStatusIds !== null
-          ? Array.from(new Set([...agent.workflowStatusIds, startStatusId]))
-          : agent.workflowStatusIds,
+        workflowStatusIds: agent.id === manager.id ? [startStatusId] : agent.workflowStatusIds,
         lastAppliedTeamPlanSignature: agent.id === manager.id
           ? signature
           : agent.lastAppliedTeamPlanSignature,
@@ -6935,9 +6945,7 @@ function App() {
                   <summary title={tx('Workflow-Status für diesen Agenten auswählen', 'Select workflow statuses for this agent')}>
                     <span>Workflow-Status</span>
                     <small>
-                      {selectedAgent.workflowStatusIds === null
-                        ? tx('Alle Projektstatus', 'All project statuses')
-                        : `${workflowStatusesForAgent(selectedAgent, workflowStatuses).length} ${tx('ausgewählt', 'selected')}`}
+                      {workflowStatusesForAgent(selectedAgent, workflowStatuses).length} {tx('ausgewählt', 'selected')}
                     </small>
                   </summary>
                   <div className="promptStatusOptions">
@@ -6949,8 +6957,7 @@ function App() {
                       <span className="empty">{tx('Im Projekt sind noch keine Status angelegt.', 'No statuses have been created in this project.')}</span>
                     ) : (
                       projectWorkflowStatuses.map((status) => {
-                        const enabled = selectedAgent.workflowStatusIds === null ||
-                          selectedAgent.workflowStatusIds.includes(status.id)
+                        const enabled = selectedAgent.workflowStatusIds.includes(status.id)
                         return (
                           <label className="promptStatusOption" key={status.id}>
                             <input
@@ -7918,8 +7925,7 @@ function App() {
                       <span className="empty">{tx('Im Projekt sind noch keine Status angelegt.', 'No statuses have been created in this project.')}</span>
                     ) : (
                       projectWorkflowStatuses.map((status) => {
-                        const enabled = selectedAgent.workflowStatusIds === null ||
-                          selectedAgent.workflowStatusIds.includes(status.id)
+                        const enabled = selectedAgent.workflowStatusIds.includes(status.id)
                         return (
                           <label className="promptStatusOption" key={status.id}>
                             <input

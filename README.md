@@ -175,7 +175,9 @@ Beim kontrollierten Team-Aufbau schlägt der CEO das Feld `projectGoal` vor. Ers
 
 ## Statusbefehle
 
-Statusbefehle werden projektweit unter `Statusbefehle` angelegt. Jeder Eintrag besteht aus einem Namen und einer eindeutigen Bedeutung. Im Agenten-Setup wird ausgewählt, welche Statusbefehle der Agent verwenden darf. Dadurch erhält der Agent die erlaubten Statusbefehle samt Beschreibung automatisch als Arbeitskontext.
+Statusbefehle werden projektweit unter `Statusbefehle` angelegt. Jeder Eintrag besteht aus einem Namen und einer eindeutigen Bedeutung. Im Agenten-Setup und über `S` im Workflow-Dashboard wird ausdrücklich ausgewählt, welche Statusbefehle der Agent verwenden darf. Dadurch erhält der Agent ausschließlich diese erlaubten Statusbefehle samt Beschreibung als Arbeitskontext. Neu angelegte Agenten starten ohne Statusfreigabe; eine globale Statusdefinition bedeutet niemals automatisch eine globale Verwendung.
+
+Der frühere Kompatibilitätswert `null = alle Projektstatus` wird nicht mehr verwendet. Beim Laden eines älteren Zustands leitet der Orchestrator die einmalige explizite Zuweisung ausschließlich aus vollständig verbundenen Pfaden `Agent → Statusfilter → Ziel/Stopp` ab. Nicht verbundene oder fremde Statusfilter werden nicht übernommen. Bei einem kontrollierten Team-Aufbau erhält der CEO ausschließlich den freigegebenen `startStatus`; fachliche Verteilungsstatus bleiben dem jeweils zuständigen Agenten zugewiesen.
 
 ![Projektweite Statusbefehle](bilder/Status_Setup.PNG)
 
