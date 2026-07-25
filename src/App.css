@@ -456,10 +456,6 @@ h2 {
 
 .railHeader {
   border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
   margin-bottom: 4px;
   padding: 6px 5px 14px;
 }
@@ -470,13 +466,25 @@ h2 {
   min-width: 0;
 }
 
+.railProjectName {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.railHeaderMeta {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-height: 34px;
+}
+
 .railHeader small {
   color: #8f9daf;
 }
 
 .railAddAgent {
   align-items: center;
-  align-self: flex-start;
   background: #172235;
   border: 1px solid #31425d;
   color: #dce6f5;

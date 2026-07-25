@@ -7077,23 +7077,27 @@ function App() {
         <aside className="agentRail">
           <div className="railHeader">
             <div className="railHeaderTitle">
-              <strong>{selectedProject?.label ?? tx('Kein Projekt', 'No project')}</strong>
-              <small>{projectAgents.length} {tx('Agenten', 'agents')}</small>
+              <strong className="railProjectName">
+                {selectedProject?.label ?? tx('Kein Projekt', 'No project')}
+              </strong>
+              <div className="railHeaderMeta">
+                <small>{projectAgents.length} {tx('Agenten', 'agents')}</small>
+                <button
+                  className="railAddAgent"
+                  disabled={autoRun}
+                  title={autoRun
+                    ? tx('Agenten können nur bei Auto Stop erstellt werden.', 'Agents can only be created while Auto Stop is active.')
+                    : tx('Agent im aktuellen Projekt erstellen', 'Create agent in current project')}
+                  onClick={() => {
+                    setAgentCreationError('')
+                    setNewAgentName('')
+                    setAgentCreationOpen(true)
+                  }}
+                >
+                  + {tx('Agent', 'Agent')}
+                </button>
+              </div>
             </div>
-            <button
-              className="railAddAgent"
-              disabled={autoRun}
-              title={autoRun
-                ? tx('Agenten können nur bei Auto Stop erstellt werden.', 'Agents can only be created while Auto Stop is active.')
-                : tx('Agent im aktuellen Projekt erstellen', 'Create agent in current project')}
-              onClick={() => {
-                setAgentCreationError('')
-                setNewAgentName('')
-                setAgentCreationOpen(true)
-              }}
-            >
-              + {tx('Agent', 'Agent')}
-            </button>
           </div>
           {projectAgents.length === 0 && (
             <p className="empty railEmpty">{tx('Keine sichtbaren Chats oder Agenten in diesem Projekt.', 'No visible chats or agents in this project.')}</p>
