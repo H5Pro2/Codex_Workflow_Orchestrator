@@ -292,6 +292,8 @@ type WorkflowNodeData = {
   kind: 'agent' | 'prompt' | 'initial' | 'status' | 'stop' | 'timer'
   status?: AgentStatus
   kindLabel?: string
+  hasInstruction?: boolean
+  instructionIndicatorLabel?: string
 }
 
 function chatMessageIdentity(message: ChatMessage, agentName: string, language: UiLanguage) {
@@ -329,6 +331,14 @@ function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
   const isTimer = data.kind === 'timer'
   return (
     <div className={`workflowNodeContent ${data.kind}`}>
+      {isInitial && data.hasInstruction && (
+        <span
+          className="initialInstructionIndicator nodrag"
+          role="img"
+          aria-label={data.instructionIndicatorLabel}
+          title={data.instructionIndicatorLabel}
+        />
+      )}
       {!isInitial && !isTimer && <Handle id="input" type="target" position={Position.Left} />}
       {!isInitial && !isTimer && <span className="portLabel input">In</span>}
       <strong>{data.label}</strong>
@@ -1450,7 +1460,15 @@ function WorkflowDashboard({
           width: 190,
           height: 64,
           position: positions[initial.id] ?? { x: 40, y: 70 + index * 130 },
-          data: { label: initial.name, kind: 'initial' as const, kindLabel: language === 'de' ? 'Start' : 'Start' },
+          data: {
+            label: initial.name,
+            kind: 'initial' as const,
+            kindLabel: 'Start',
+            hasInstruction: initial.instructionSource === 'user' && Boolean(initial.instruction.trim()),
+            instructionIndicatorLabel: language === 'de'
+              ? 'Optionale Anweisung vorhanden'
+              : 'Optional instruction available',
+          },
           className: 'workflowNode initial',
         })),
         ...statusFilters.map((filter, index) => {

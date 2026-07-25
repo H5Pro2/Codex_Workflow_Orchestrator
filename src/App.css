@@ -1834,6 +1834,28 @@ label {
   padding-left: 18px;
 }
 
+.initialInstructionIndicator {
+  border: 1.5px solid #facc15;
+  border-radius: 3px;
+  height: 9px;
+  left: 10px;
+  position: absolute;
+  top: 9px;
+  width: 12px;
+}
+
+.initialInstructionIndicator::after {
+  border-bottom: 1.5px solid #facc15;
+  border-left: 1.5px solid #facc15;
+  bottom: -3px;
+  content: "";
+  height: 4px;
+  left: 2px;
+  position: absolute;
+  transform: skewY(-35deg);
+  width: 4px;
+}
+
 .workflowNodeContent.initial .portLabel {
   color: #facc15;
 }

@@ -146,6 +146,8 @@ Die kompakten Aktionen im Dashboard sind:
 | Stop | Beendet den Workflow-Pfad an dieser Stelle. |
 | Zeitplan | Sendet eine Aufgabe einmalig, in einem Intervall oder zu einer festen Uhrzeit. |
 
+Enthält der Initial-Baustein eine optionale Benutzeranweisung, zeigt er im Dashboard oben links einen kleinen Sprechblasen-Indikator. Ohne gespeicherten Benutzertext bleibt der Knoten unverändert.
+
 Bausteine werden per Doppelklick konfiguriert. Ein einfacher Klick wählt einen Baustein oder eine Verbindung aus. Konfigurationsdialoge enthalten auch die jeweilige Löschfunktion.
 
 ## Statusbefehle
