@@ -90,6 +90,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 30_000 
 
   let sharedState = fixtureState()
   let projectSources = []
+  let projectGoal = ''
   let version = '2026-07-25T12:00:00.000Z'
   const browser = await chromium.launch({ executablePath, headless: true })
   t.after(() => browser.close())
@@ -144,6 +145,15 @@ test('manages internal CEO instructions through the real UI', { timeout: 30_000 
       await route.fulfill({ json: { sources: projectSources } })
       return
     }
+    if (pathname === '/api/project-goal' && request.method() === 'GET') {
+      await route.fulfill({ json: { goal: projectGoal } })
+      return
+    }
+    if (pathname === '/api/project-goal' && request.method() === 'PUT') {
+      projectGoal = request.postDataJSON().goal.trim()
+      await route.fulfill({ json: { goal: projectGoal } })
+      return
+    }
     await route.fulfill({ json: {} })
   })
 
@@ -169,6 +179,12 @@ test('manages internal CEO instructions through the real UI', { timeout: 30_000 
   assert.equal(await dialog.locator('.managementInstructionItem').count(), 3)
   await dialog.getByRole('button', { name: 'Fertig' }).click()
   await page.getByText('3 Einträge · intern angewendet und im Chat ausgeblendet').waitFor()
+
+  await page.getByRole('button', { name: 'Projektziel' }).click()
+  const projectGoalDialog = page.getByRole('dialog', { name: 'Projektziel bearbeiten' })
+  await projectGoalDialog.getByLabel('Übergeordnetes Projektziel').fill('Ein nachvollziehbar geprüftes Forschungsergebnis.')
+  await projectGoalDialog.getByRole('button', { name: 'Übernehmen' }).click()
+  assert.equal(projectGoal, 'Ein nachvollziehbar geprüftes Forschungsergebnis.')
 
   await page.getByRole('button', { name: 'Datenbank' }).click()
   const database = page.getByRole('dialog', { name: 'Wissensdatenbank konfigurieren' })

@@ -291,6 +291,7 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
       }
     })
     const projectGoal = typeof raw.projectGoal === 'string' ? raw.projectGoal.trim() : ''
+    if (!projectGoal || projectGoal.length > 4000) throw new Error('invalid project goal')
     const requestedStartAgent = typeof raw.startAgent === 'string' ? raw.startAgent.trim() : ''
     const startAgent = agents.find((agent) => normalizedName(agent.name) === normalizedName(requestedStartAgent))?.name ?? agents[0].name
     const requestedStartStatus = typeof raw.startStatus === 'string' ? raw.startStatus.trim() : ''

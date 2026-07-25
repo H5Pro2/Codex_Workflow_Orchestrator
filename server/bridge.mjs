@@ -10,6 +10,7 @@ import { createProvisioningJournal } from './provisioning-journal.mjs'
 import { createSharedStateStore } from './shared-state.mjs'
 import { applyThreadProjectAssignments, savedProjectsFromState } from './codex-project-state.mjs'
 import { readKnowledgeSources, writeKnowledgeSources } from './knowledge-sources.mjs'
+import { readProjectGoal, writeProjectGoal } from './project-goal.mjs'
 import {
   projectThreadExecutionParams,
   projectTurnExecutionParams,
@@ -812,6 +813,35 @@ const server = createServer(async (incoming, response) => {
       } catch (error) {
         sendJson(response, 400, {
           error: error instanceof Error ? error.message : 'Wissensquellen sind ungültig.',
+        })
+      }
+      return
+    }
+
+    if (incoming.method === 'GET' && url.pathname === '/api/project-goal') {
+      const requestedPath = url.searchParams.get('cwd')?.trim() ?? ''
+      const projectPath = requestedPath ? await savedProjectPath(requestedPath) : ''
+      if (!projectPath) {
+        sendJson(response, 400, { error: 'Ein registrierter Projektpfad ist erforderlich.' })
+        return
+      }
+      sendJson(response, 200, { goal: await readProjectGoal(projectPath) })
+      return
+    }
+
+    if (incoming.method === 'PUT' && url.pathname === '/api/project-goal') {
+      const body = await readJson(incoming)
+      const requestedPath = typeof body.cwd === 'string' ? body.cwd.trim() : ''
+      const projectPath = requestedPath ? await savedProjectPath(requestedPath) : ''
+      if (!projectPath || typeof body.goal !== 'string') {
+        sendJson(response, 400, { error: 'Registrierter Projektpfad und Projektziel sind erforderlich.' })
+        return
+      }
+      try {
+        sendJson(response, 200, { goal: await writeProjectGoal(projectPath, body.goal) })
+      } catch (error) {
+        sendJson(response, 400, {
+          error: error instanceof Error ? error.message : 'Das Projektziel ist ungültig.',
         })
       }
       return

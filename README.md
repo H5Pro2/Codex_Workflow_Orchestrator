@@ -15,6 +15,7 @@ Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der Codex-Ch
 - kontrollierte Team-Vorschläge eines Verwaltungsagenten prüfen und übernehmen
 - mehrere Prompt-Dateien pro Agent verwalten
 - projektweite Wissensquellen als Ordner, Repository, Datei oder Weblink verwalten
+- ein übergeordnetes Projektziel als gemeinsame, nicht ausführbare Orientierung verwalten
 - direkte Nachrichten an einzelne Codex-Chats senden
 - individuelle Workflows visuell aus Agenten und Werkzeugen aufbauen
 - Ergebnisse anhand frei definierbarer Statusbefehle weiterleiten
@@ -163,6 +164,14 @@ Die kompakten Aktionen im Dashboard sind:
 Enthält der Initial-Baustein eine optionale Benutzeranweisung, zeigt er im Dashboard oben links einen kleinen Sprechblasen-Indikator. Ohne gespeicherten Benutzertext bleibt der Knoten unverändert.
 
 Bausteine werden per Doppelklick konfiguriert. Ein einfacher Klick wählt einen Baustein oder eine Verbindung aus. Konfigurationsdialoge enthalten auch die jeweilige Löschfunktion.
+
+## Projektziel
+
+`Projektziel` neben `Statusbefehle` und `Datenbank` verwaltet genau ein übergeordnetes Ziel für das ausgewählte Projekt. Der Benutzer kann es einsehen, bearbeiten oder entfernen. Es wird projektlokal unter `.codex-orchestrator/project-goal.json` gespeichert und nicht mit Zielen anderer Projekte vermischt.
+
+Das Projektziel wird allen Agenten bei direkten Nachrichten, Prompt-Übergaben, Initial-Starts, Workflow-Übergaben, Zeitplänen und Verwaltungsprüfungen als interne Orientierung und Qualitätskontrolle mitgegeben. Es ist ausdrücklich keine eigenständig auszuführende Aufgabe, kein Initialauftrag und kein Ersatz für Rollen-Prompts oder konkrete Übergaben. Ein Agent bearbeitet weiterhin ausschließlich seinen aktuellen Auftrag und meldet erkennbare Abweichungen vom Projektziel in seinem Ergebnis.
+
+Beim kontrollierten Team-Aufbau schlägt der CEO das Feld `projectGoal` vor. Erst die Benutzerfreigabe über `Team übernehmen` speichert dieses Ziel. Scheitert die Team-Einrichtung, wird auch das vorherige Projektziel wiederhergestellt.
 
 ## Statusbefehle
 

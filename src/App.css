@@ -58,7 +58,7 @@
 .codexPicker {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(210px, 300px) 320px auto auto;
+  grid-template-columns: minmax(210px, 300px) 320px auto auto auto;
 }
 
 .projectStatusButton {
@@ -1422,6 +1422,26 @@ label {
 
 .promptModal.knowledgeLibraryModal {
   max-width: 980px;
+}
+
+.projectGoalModal {
+  max-width: 720px;
+}
+
+.projectGoalEditor textarea {
+  min-height: 210px;
+  resize: vertical;
+}
+
+.projectGoalMeta {
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+}
+
+.modalActionGroup {
+  display: flex;
+  gap: 8px;
 }
 
 .knowledgeSourceCreate {

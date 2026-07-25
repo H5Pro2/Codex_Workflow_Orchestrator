@@ -71,6 +71,11 @@ import {
   type KnowledgeSourceType,
 } from './knowledge-sources.ts'
 import {
+  projectGoalForProject,
+  projectGoalInstruction,
+  type ProjectGoal,
+} from './project-goal.ts'
+import {
   parseWorkflowSignal,
   workflowSignalIssue,
   workflowStatusInstruction,
@@ -1006,12 +1011,18 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
   ].join('\n')
 }
 
+function internalProjectGoalInstruction(goal: string) {
+  const instruction = projectGoalInstruction(goal)
+  return instruction ? withInternalInstructions('', instruction) : ''
+}
+
 function buildInstruction(
   agent: Agent,
   promptPath: string,
   statuses: WorkflowStatusDefinition[],
   monitoredAgents: Agent[],
   sources: KnowledgeSource[],
+  projectGoal: string,
 ) {
   return [
     `Rollen-Anweisung für: ${agent.name}`,
@@ -1020,6 +1031,8 @@ function buildInstruction(
     '',
     `Verbindliche Prompt-Datei: \`${promptPath}\``,
     'Lies diese Datei zu Beginn vollständig und verwende sie als aktuelle Arbeitsanweisung. Bei Konflikten hat diese Datei Vorrang.',
+    '',
+    internalProjectGoalInstruction(projectGoal),
     '',
     knowledgeSourceInstruction(sources),
     '',
@@ -1033,6 +1046,7 @@ function buildHandoffMessage(
   route: WorkflowRoute,
   statuses: WorkflowStatusDefinition[],
   sources: KnowledgeSource[],
+  projectGoal: string,
 ) {
   return [
     `Übergabe von ${source.name} an ${target.name}`,
@@ -1053,6 +1067,8 @@ function buildHandoffMessage(
     '',
     'Ergebnis / Auftrag:',
     source.lastResult || 'Kein Ergebnistext hinterlegt.',
+    '',
+    internalProjectGoalInstruction(projectGoal),
     '',
     knowledgeSourceInstruction(sources),
     '',
@@ -1098,6 +1114,7 @@ function buildMonitoringMessage(
   monitoredAgents: Agent[],
   statuses: WorkflowStatusDefinition[],
   sources: KnowledgeSource[],
+  projectGoal: string,
 ) {
   const snapshots = monitoredAgents.map((agent) => [
     `Agent: ${agent.name}`,
@@ -1119,6 +1136,8 @@ function buildMonitoringMessage(
     'Fasse anschließend knapp zusammen, ob eingegriffen werden muss und welche konkrete Aufgabe als Nächstes sinnvoll ist.',
     '',
     snapshots.join('\n\n---\n\n'),
+    '',
+    internalProjectGoalInstruction(projectGoal),
     '',
     knowledgeSourceInstruction(sources),
     '',
@@ -1502,6 +1521,7 @@ function App() {
   const [workflowInitials, setWorkflowInitials] = useState<WorkflowInitial[]>(storedState.workflowInitials)
   const [workflowStatuses, setWorkflowStatuses] = useState<WorkflowStatusDefinition[]>(storedState.workflowStatuses)
   const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([])
+  const [projectGoals, setProjectGoals] = useState<ProjectGoal[]>([])
   const [workflowStatusFilters, setWorkflowStatusFilters] = useState<WorkflowStatusFilter[]>(
     storedState.workflowStatusFilters,
   )
@@ -1520,6 +1540,10 @@ function App() {
   const [newWorkflowStatusDescription, setNewWorkflowStatusDescription] = useState('')
   const [statusLibraryOpen, setStatusLibraryOpen] = useState(false)
   const [knowledgeLibraryOpen, setKnowledgeLibraryOpen] = useState(false)
+  const [projectGoalOpen, setProjectGoalOpen] = useState(false)
+  const [projectGoalDraft, setProjectGoalDraft] = useState('')
+  const [projectGoalSaving, setProjectGoalSaving] = useState(false)
+  const [projectGoalError, setProjectGoalError] = useState('')
   const [knowledgeSourceName, setKnowledgeSourceName] = useState('')
   const [knowledgeSourceType, setKnowledgeSourceType] = useState<KnowledgeSourceType>('repository')
   const [knowledgeSourceLocation, setKnowledgeSourceLocation] = useState('')
@@ -1940,6 +1964,32 @@ function App() {
   }, [selectedProjectPath])
 
   useEffect(() => {
+    if (!selectedProjectPath) return
+    let active = true
+    const loadProjectGoal = async () => {
+      try {
+        const response = await fetch(`/api/project-goal?cwd=${encodeURIComponent(selectedProjectPath)}`)
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || 'Projektziel konnte nicht geladen werden.')
+        if (!active) return
+        setProjectGoals((current) => [
+          ...current.filter((entry) => !samePath(entry.projectPath, selectedProjectPath)),
+          { projectPath: selectedProjectPath, goal: typeof data.goal === 'string' ? data.goal : '' },
+        ])
+        setProjectGoalError('')
+      } catch (error) {
+        if (active) {
+          setProjectGoalError(error instanceof Error ? error.message : 'Projektziel konnte nicht geladen werden.')
+        }
+      }
+    }
+    void loadProjectGoal()
+    return () => {
+      active = false
+    }
+  }, [selectedProjectPath])
+
+  useEffect(() => {
     const agentIds = agents.map((agent) => agent.id)
     const nodeIds = [
       ...agentIds,
@@ -2044,6 +2094,10 @@ function App() {
   }, [chatMessages])
   const selectedTeamPlanComplete = useMemo(() => {
     if (!selectedAgent || !selectedTeamPlan || !selectedAgent.projectPath) return false
+    if (
+      normalizedInstructionText(projectGoalForProject(projectGoals, selectedAgent.projectPath)) !==
+      normalizedInstructionText(selectedTeamPlan.plan.projectGoal)
+    ) return false
 
     const projectAgentByName = new Map(
       agents
@@ -2154,7 +2208,7 @@ function App() {
         routes.some((route) => route.ownerAgentId === agent.id && route.sourceId === agent.id && route.targetId === filter.id) &&
         routes.some((route) => route.ownerAgentId === agent.id && route.sourceId === filter.id && route.targetId === selectedAgent.id))
     })
-  }, [agents, routes, selectedAgent, selectedTeamPlan, workflowBoardAgentIds, workflowInitials, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [agents, projectGoals, routes, selectedAgent, selectedTeamPlan, workflowBoardAgentIds, workflowInitials, workflowStatusFilters, workflowStatuses, workflowStops])
   const selectedTeamPlanMalformed = Boolean(
     selectedAgent?.teamProvisioningEnabled &&
     selectedTeamPlanRequestAuthorized &&
@@ -2232,6 +2286,7 @@ function App() {
     knowledgeSources,
     selectedProject?.path ?? '',
   )
+  const selectedProjectGoal = projectGoalForProject(projectGoals, selectedProject?.path ?? '')
   const visibleProjectKnowledgeSources = projectKnowledgeSources.filter(
     (source) => source.type === knowledgeSourceType,
   )
@@ -3335,6 +3390,12 @@ function App() {
           }
         })
 
+        const previousProjectGoal = projectGoalForProject(projectGoals, selectedProject.path)
+        await persistProjectGoal(selectedProject.path, plan.projectGoal)
+        addRollback(async () => {
+          await persistProjectGoal(selectedProject.path, previousProjectGoal)
+        })
+
         for (const [index, specification] of plan.agents.entries()) {
         setTeamPlanProgress(tx(
           `Agent ${index + 1} von ${plan.agents.length} wird eingerichtet: ${specification.name}`,
@@ -4022,6 +4083,7 @@ function App() {
       workflowStatusesForAgent(agent, workflowStatuses),
       monitoredAgentsFor(agent, agents),
       knowledgeSourcesForAgent(knowledgeSources, agent.projectPath, agent.usesProjectKnowledge),
+      projectGoalForProject(projectGoals, agent.projectPath),
     )
     let startedTurnId = ''
     try {
@@ -4108,6 +4170,10 @@ function App() {
     const sourceInstruction = knowledgeSourceInstruction(
       knowledgeSourcesForAgent(knowledgeSources, agent.projectPath, agent.usesProjectKnowledge),
     )
+    const goalInstruction = projectGoalInstruction(projectGoalForProject(projectGoals, agent.projectPath))
+    if (goalInstruction) {
+      messageParts.push('', withInternalInstructions('', goalInstruction))
+    }
     if (sourceInstruction) {
       messageParts.push('', withInternalInstructions('', sourceInstruction))
     }
@@ -4463,6 +4529,7 @@ function App() {
         route,
         workflowStatusesForAgent(target, workflowStatuses),
         knowledgeSourcesForAgent(knowledgeSources, target.projectPath, target.usesProjectKnowledge),
+        projectGoalForProject(projectGoals, target.projectPath),
       )
       if (!target.threadId) {
         activeDeliveryTargetIds.current.delete(target.id)
@@ -4563,7 +4630,7 @@ function App() {
         `${agent.name}: Kein Ziel-Chat hat die Übergabe angenommen.`,
       )
     }
-  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, requestSystemDiagnosis, routes, updateAgent, updateDeliveryQueue, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, projectGoals, requestSystemDiagnosis, routes, updateAgent, updateDeliveryQueue, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   const connectAgents = useCallback((connection: Connection) => {
     if (
@@ -4647,6 +4714,41 @@ function App() {
       delete next[`${activeDashboardOwnerId}:${promptId}`]
       return next
     })
+  }
+
+  const persistProjectGoal = async (projectPath: string, goal: string) => {
+    const response = await fetch('/api/project-goal', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd: projectPath, goal }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Projektziel konnte nicht gespeichert werden.')
+    const storedGoal = typeof data.goal === 'string' ? data.goal : ''
+    setProjectGoals((current) => [
+      ...current.filter((entry) => !samePath(entry.projectPath, projectPath)),
+      { projectPath, goal: storedGoal },
+    ])
+    return storedGoal
+  }
+
+  const saveProjectGoal = async (goal = projectGoalDraft) => {
+    if (!selectedProject || projectGoalSaving) return
+    setProjectGoalSaving(true)
+    setProjectGoalError('')
+    try {
+      const storedGoal = await persistProjectGoal(selectedProject.path, goal)
+      setProjectGoalDraft(storedGoal)
+      setProjectGoalOpen(false)
+      addEvent(
+        storedGoal ? 'Projektziel gespeichert' : 'Projektziel entfernt',
+        selectedProject.label,
+      )
+    } catch (error) {
+      setProjectGoalError(error instanceof Error ? error.message : 'Projektziel konnte nicht gespeichert werden.')
+    } finally {
+      setProjectGoalSaving(false)
+    }
   }
 
   const saveProjectKnowledgeSources = async (sources: KnowledgeSource[]) => {
@@ -5580,6 +5682,7 @@ function App() {
             monitoredAgents,
             workflowStatusesForAgent(manager, workflowStatuses),
             knowledgeSourcesForAgent(knowledgeSources, manager.projectPath, manager.usesProjectKnowledge),
+            projectGoalForProject(projectGoals, manager.projectPath),
           )
           const response = await fetch(`/api/threads/${encodeURIComponent(manager.threadId)}/messages`, {
             method: 'POST',
@@ -5619,7 +5722,7 @@ function App() {
     void dispatchManagementReviews()
     const timer = window.setInterval(() => void dispatchManagementReviews(), 10_000)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, applyThreadReplacement, automationLeader, autoRun, knowledgeSources, selectedProject?.path, setAgentTransmission, updateAgent, workflowStatuses])
+  }, [addEvent, agents, applyThreadReplacement, automationLeader, autoRun, knowledgeSources, projectGoals, selectedProject?.path, setAgentTransmission, updateAgent, workflowStatuses])
 
   useEffect(() => {
     if (!autoRun || !automationLeader) return
@@ -5675,6 +5778,8 @@ function App() {
               'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
               agentPromptInstruction(target),
               '',
+              internalProjectGoalInstruction(projectGoalForProject(projectGoals, target.projectPath)),
+              '',
               knowledgeSourceInstruction(
                 knowledgeSourcesForAgent(knowledgeSources, target.projectPath, target.usesProjectKnowledge),
               ),
@@ -5712,7 +5817,7 @@ function App() {
     void dispatchDueTimers()
     const timer = window.setInterval(() => void dispatchDueTimers(), 10_000)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, applyThreadReplacement, automationLeader, autoRun, knowledgeSources, routes, selectedProject?.path, updateAgent, workflowStatuses, workflowTimers])
+  }, [addEvent, agents, applyThreadReplacement, automationLeader, autoRun, knowledgeSources, projectGoals, routes, selectedProject?.path, updateAgent, workflowStatuses, workflowTimers])
 
   const startInitialWorkflows = useCallback(async () => {
     const activeProjectPath = selectedProject?.path ?? ''
@@ -5765,6 +5870,8 @@ function App() {
           agentPromptInstruction(target),
           managementRulebook('automation', target.managementInstructionRules),
           '',
+          projectGoalInstruction(projectGoalForProject(projectGoals, target.projectPath)),
+          '',
           knowledgeSourceInstruction(
             knowledgeSourcesForAgent(knowledgeSources, target.projectPath, target.usesProjectKnowledge),
           ),
@@ -5808,7 +5915,7 @@ function App() {
         }
       }),
     )
-  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, routes, selectedProject?.path, updateAgent, workflowInitials, workflowStatuses])
+  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, projectGoals, routes, selectedProject?.path, updateAgent, workflowInitials, workflowStatuses])
 
   const toggleAutomation = () => {
     if (autoRun) {
@@ -6418,6 +6525,18 @@ function App() {
                 })}
               </div>
             </details>
+            <button
+              className="projectStatusButton"
+              onClick={() => {
+                setProjectGoalDraft(selectedProjectGoal)
+                setProjectGoalError('')
+                setProjectGoalOpen(true)
+              }}
+              title={tx('Übergeordnetes Projektziel bearbeiten', 'Edit overarching project goal')}
+              type="button"
+            >
+              {tx('Projektziel', 'Project goal')}
+            </button>
             <button
               className="projectStatusButton"
               onClick={() => setStatusLibraryOpen(true)}
@@ -7368,6 +7487,79 @@ function App() {
           </div>
         </aside>
       </section>
+
+      {projectGoalOpen && (
+        <div
+          className="modalBackdrop"
+          role="presentation"
+          onMouseDown={() => setProjectGoalOpen(false)}
+        >
+          <section
+            aria-label={tx('Projektziel bearbeiten', 'Edit project goal')}
+            aria-modal="true"
+            className="promptModal projectGoalModal"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">{tx('Projektorientierung', 'Project orientation')}</p>
+                <h2>{tx('Projektziel', 'Project goal')}</h2>
+              </div>
+              <button
+                aria-label={tx('Projektziel-Fenster schließen', 'Close project goal window')}
+                onClick={() => setProjectGoalOpen(false)}
+                title={tx('Projektziel-Fenster schließen', 'Close project goal window')}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+            <label className="projectGoalEditor">
+              {tx('Übergeordnetes Projektziel', 'Overarching project goal')}
+              <textarea
+                autoFocus
+                maxLength={4000}
+                onChange={(event) => setProjectGoalDraft(event.target.value)}
+                rows={9}
+                value={projectGoalDraft}
+              />
+            </label>
+            <div className="projectGoalMeta">
+              <small>{selectedProject?.label ?? tx('Kein Projekt', 'No project')}</small>
+              <small>{projectGoalDraft.length}/4000</small>
+            </div>
+            {projectGoalError && <p className="formError">{projectGoalError}</p>}
+            <div className="modalActions splitActions">
+              <div>
+                {selectedProjectGoal && (
+                  <button
+                    className="deleteButton"
+                    disabled={projectGoalSaving}
+                    onClick={() => void saveProjectGoal('')}
+                    type="button"
+                  >
+                    {tx('Löschen', 'Delete')}
+                  </button>
+                )}
+              </div>
+              <div className="modalActionGroup">
+                <button disabled={projectGoalSaving} onClick={() => setProjectGoalOpen(false)} type="button">
+                  {tx('Abbrechen', 'Cancel')}
+                </button>
+                <button
+                  className="primary"
+                  disabled={projectGoalSaving || !projectGoalDraft.trim()}
+                  onClick={() => void saveProjectGoal()}
+                  type="button"
+                >
+                  {projectGoalSaving ? tx('Speichert…', 'Saving…') : tx('Übernehmen', 'Apply')}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
 
       {knowledgeLibraryOpen && (
         <div
