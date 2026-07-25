@@ -149,6 +149,13 @@ test('manages internal CEO instructions through the real UI', { timeout: 30_000 
 
   await page.goto(`http://127.0.0.1:${port}/`)
   await page.getByRole('button', { name: 'Setup öffnen' }).click()
+  const knowledgeAccess = page.locator('section[aria-label="Projektwissen verwenden"]')
+  const knowledgeAccessToggle = knowledgeAccess.getByRole('checkbox')
+  assert.equal(await knowledgeAccessToggle.isChecked(), true)
+  await knowledgeAccessToggle.uncheck()
+  await page.waitForTimeout(700)
+  assert.equal(sharedState.agents[0].usesProjectKnowledge, false)
+  await knowledgeAccessToggle.check()
   await page.getByRole('button', { name: 'Bearbeiten' }).click()
   const dialog = page.getByRole('dialog', { name: 'CEO-Anweisungen bearbeiten' })
   await dialog.waitFor()

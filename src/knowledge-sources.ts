@@ -20,6 +20,14 @@ export function knowledgeSourcesForProject(
   ))
 }
 
+export function knowledgeSourcesForAgent(
+  sources: readonly KnowledgeSource[],
+  projectPath: string,
+  usesProjectKnowledge: boolean,
+) {
+  return usesProjectKnowledge ? knowledgeSourcesForProject(sources, projectPath) : []
+}
+
 export function knowledgeSourceInstruction(sources: readonly KnowledgeSource[]) {
   const enabled = sources.filter((source) => source.enabled)
   if (enabled.length === 0) return ''

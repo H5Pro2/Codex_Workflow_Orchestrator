@@ -65,6 +65,7 @@ import { pruneWorkflowBoardAgentIds, pruneWorkflowPositions } from './workflow-s
 import { projectForThread, threadBelongsToProject } from './codex-project.ts'
 import {
   knowledgeSourceInstruction,
+  knowledgeSourcesForAgent,
   knowledgeSourcesForProject,
   type KnowledgeSource,
   type KnowledgeSourceType,
@@ -156,6 +157,7 @@ type Agent = {
   status: AgentStatus
   talkTo: string[]
   autoForward: boolean
+  usesProjectKnowledge: boolean
   assignment: AgentAssignment
   monitoringScope: 'all' | 'selected'
   monitoredAgentIds: string[]
@@ -691,6 +693,7 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
         ? [legacyAgent.handoffTo]
         : [],
     autoForward: agent.autoForward ?? true,
+    usesProjectKnowledge: agent.usesProjectKnowledge ?? true,
     assignment: agent.assignment === 'management' ? 'management' : 'agent',
     monitoringScope: agent.monitoringScope === 'selected'
       ? 'selected'
@@ -2481,6 +2484,7 @@ function App() {
             status: 'wartet',
             talkTo: [],
             autoForward: true,
+            usesProjectKnowledge: true,
             assignment: 'agent',
             monitoringScope: 'all',
             monitoredAgentIds: [],
@@ -3033,6 +3037,7 @@ function App() {
       status: thread.status === 'active' ? 'laeuft' : 'wartet',
       talkTo: [],
       autoForward: true,
+      usesProjectKnowledge: true,
       assignment: 'agent',
       monitoringScope: 'all',
       monitoredAgentIds: [],
@@ -3145,6 +3150,7 @@ function App() {
         status: data.turn?.id ? 'laeuft' : 'wartet',
         talkTo: [],
         autoForward: true,
+        usesProjectKnowledge: true,
         assignment: 'agent',
         monitoringScope: 'all',
         monitoredAgentIds: [],
@@ -4009,7 +4015,7 @@ function App() {
       filePath,
       workflowStatusesForAgent(agent, workflowStatuses),
       monitoredAgentsFor(agent, agents),
-      knowledgeSourcesForProject(knowledgeSources, agent.projectPath),
+      knowledgeSourcesForAgent(knowledgeSources, agent.projectPath, agent.usesProjectKnowledge),
     )
     let startedTurnId = ''
     try {
@@ -4093,7 +4099,9 @@ function App() {
     } else {
       authorizedTeamPlanRequestAgentIds.current.delete(agent.id)
     }
-    const sourceInstruction = knowledgeSourceInstruction(knowledgeSourcesForProject(knowledgeSources, agent.projectPath))
+    const sourceInstruction = knowledgeSourceInstruction(
+      knowledgeSourcesForAgent(knowledgeSources, agent.projectPath, agent.usesProjectKnowledge),
+    )
     if (sourceInstruction) {
       messageParts.push('', withInternalInstructions('', sourceInstruction))
     }
@@ -4448,7 +4456,7 @@ function App() {
         target,
         route,
         workflowStatusesForAgent(target, workflowStatuses),
-        knowledgeSourcesForProject(knowledgeSources, target.projectPath),
+        knowledgeSourcesForAgent(knowledgeSources, target.projectPath, target.usesProjectKnowledge),
       )
       if (!target.threadId) {
         activeDeliveryTargetIds.current.delete(target.id)
@@ -5565,7 +5573,7 @@ function App() {
             manager,
             monitoredAgents,
             workflowStatusesForAgent(manager, workflowStatuses),
-            knowledgeSourcesForProject(knowledgeSources, manager.projectPath),
+            knowledgeSourcesForAgent(knowledgeSources, manager.projectPath, manager.usesProjectKnowledge),
           )
           const response = await fetch(`/api/threads/${encodeURIComponent(manager.threadId)}/messages`, {
             method: 'POST',
@@ -5661,7 +5669,9 @@ function App() {
               'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
               agentPromptInstruction(target),
               '',
-              knowledgeSourceInstruction(knowledgeSourcesForProject(knowledgeSources, target.projectPath)),
+              knowledgeSourceInstruction(
+                knowledgeSourcesForAgent(knowledgeSources, target.projectPath, target.usesProjectKnowledge),
+              ),
               '',
               'Bearbeite diese Aufgabe selbst anhand deines Projektkontexts. Die weitere Übergabe übernimmt ausschließlich der Workflow-Orchestrator.',
               workflowStatusInstruction(workflowStatusesForAgent(target, workflowStatuses)),
@@ -5749,7 +5759,9 @@ function App() {
           agentPromptInstruction(target),
           managementRulebook('automation', target.managementInstructionRules),
           '',
-          knowledgeSourceInstruction(knowledgeSourcesForProject(knowledgeSources, target.projectPath)),
+          knowledgeSourceInstruction(
+            knowledgeSourcesForAgent(knowledgeSources, target.projectPath, target.usesProjectKnowledge),
+          ),
           '',
           'Bearbeite dieses Startsignal ausschließlich als Teamleiter. Kontaktiere keine anderen Codex-Chats; die Weitergabe übernimmt ausschließlich der Workflow-Orchestrator.',
           'Formuliere die Delegationsentscheidung und den vollständigen Arbeitsauftrag für den gewählten Fachagenten.',
@@ -7075,6 +7087,21 @@ function App() {
                   </section>
                 </div>
               )}
+            </section>
+
+            <section className="autoForwardControl" aria-label={tx('Projektwissen verwenden', 'Use project knowledge')}>
+              <div>
+                <p className="eyebrow">{tx('Wissensdatenbank', 'Knowledge database')}</p>
+                <strong>{tx('Projektwissen verwenden', 'Use project knowledge')}</strong>
+              </div>
+              <label className="checkbox">
+                <input
+                  checked={selectedAgent.usesProjectKnowledge}
+                  type="checkbox"
+                  onChange={(event) => updateAgent(selectedAgent.id, { usesProjectKnowledge: event.target.checked })}
+                />
+                {tx('Aktiv', 'Active')}
+              </label>
             </section>
 
             <section className="autoForwardControl" aria-label={tx('Automatische Weitergabe', 'Automatic forwarding')}>
