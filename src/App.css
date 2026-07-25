@@ -483,8 +483,10 @@ h2 {
   display: inline-flex;
   flex: 0 0 auto;
   font-size: 11px;
-  min-height: 28px;
-  padding: 0 9px;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  width: 68px;
 }
 
 .railAddAgent:hover {
@@ -1067,9 +1069,15 @@ h2 {
 }
 
 .status.wartet {
+  align-items: center;
   background: #302a17;
   border-color: #665525;
   color: #fde68a;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  width: 68px;
 }
 
 .status.laeuft {
