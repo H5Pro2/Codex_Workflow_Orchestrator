@@ -13,6 +13,7 @@ export function shouldRequestWorkflowStatusRepair({
 }) {
   return (
     signalKind !== 'valid' &&
+    signalKind !== 'none' &&
     activeRouteCount > 0 &&
     runPurpose !== 'status-repair' &&
     hasThread
@@ -30,6 +31,7 @@ export function workflowStatusRepairInstruction(
     'Korrigiere ausschließlich das Abschlussformat dieser vorherigen Antwort.',
     'Führe keine Facharbeit erneut aus, ändere keine fachliche Entscheidung und erfinde keinen neuen Auftrag.',
     'Wähle den einen Status, der zu dem in deiner vorherigen Antwort bereits genannten nächsten Schritt passt.',
+    'Wenn keine fachliche Statusmeldung eindeutig passt, verwende den reservierten Status "Interner Workflow-Fehler" und benenne die geprüften Statusmeldungen sowie die erkannte Konfigurationslücke.',
     'Antworte mit einer knappen Bestätigung und setze als allerletzte Zeile genau einen Status.',
     'Verwende exakt einen Namen aus dieser Liste:',
     ...(statuses.length > 0

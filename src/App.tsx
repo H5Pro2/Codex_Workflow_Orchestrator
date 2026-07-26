@@ -64,6 +64,14 @@ import {
 } from './delivery-queue.ts'
 import { pruneWorkflowBoardAgentIds, pruneWorkflowPositions } from './workflow-state.ts'
 import { normalizeGermanTypography } from './german-typography.ts'
+import {
+  INTERNAL_WORKFLOW_ERROR_STATUS_ID,
+  INTERNAL_WORKFLOW_ERROR_STATUS_NAME,
+  internalWorkflowErrorHandoffInstruction,
+  internalWorkflowErrorManagerId,
+  internalWorkflowErrorStatus,
+  shouldEscalateInternalWorkflowError,
+} from './internal-workflow-error.ts'
 import { projectForThread, threadBelongsToProject } from './codex-project.ts'
 import {
   knowledgeSourceInstruction,
@@ -572,6 +580,7 @@ const eventTitleTranslations: Record<string, string> = {
   'Codex-Task umbenannt': 'Codex task renamed',
   'Ergebnisabfrage fehlgeschlagen': 'Result query failed',
   'Identische Aufgabe nicht weitergegeben': 'Duplicate task not forwarded',
+  'Interner Workflow-Fehler gemeldet': 'Internal workflow error reported',
   'Initial-Anfrage gesendet': 'Initial request sent',
   'Keine Status-Weitergabe': 'No status forwarding',
   'Agentenüberwachung ausgeführt': 'Agent monitoring executed',
@@ -1152,7 +1161,8 @@ function taskSignature(result: string) {
 
 function workflowStatusesForAgent(agent: Agent, statuses: WorkflowStatusDefinition[]) {
   const projectStatuses = statuses.filter((status) => samePath(status.projectPath, agent.projectPath))
-  return projectStatuses.filter((status) => agent.workflowStatusIds.includes(status.id))
+  const assignedStatuses = projectStatuses.filter((status) => agent.workflowStatusIds.includes(status.id))
+  return [...assignedStatuses, internalWorkflowErrorStatus(agent.projectPath)]
 }
 
 function buildMonitoringMessage(
@@ -4473,8 +4483,19 @@ function App() {
     )
     const projectStatuses = workflowStatusesForAgent(agent, workflowStatuses)
     const workflowSignal = parseWorkflowSignal(agent.lastResult, projectStatuses)
-    const resultStatusIds = workflowSignal.statusIds
-    const reportsTechnicalFailure = projectStatuses.some(
+    const reportsInternalWorkflowError = shouldEscalateInternalWorkflowError({
+      assignment: agent.assignment,
+      signalKind: workflowSignal.kind,
+      runPurpose: agent.runPurpose,
+      statusIds: workflowSignal.statusIds,
+    })
+    const resultStatusIds = reportsInternalWorkflowError
+      ? [INTERNAL_WORKFLOW_ERROR_STATUS_ID]
+      : workflowSignal.statusIds
+    const resultStatusNames = reportsInternalWorkflowError
+      ? [INTERNAL_WORKFLOW_ERROR_STATUS_NAME]
+      : workflowSignal.names
+    const reportsTechnicalFailure = reportsInternalWorkflowError || projectStatuses.some(
       (status) =>
         resultStatusIds.includes(status.id) &&
         status.name.trim().toLocaleLowerCase('de-DE') ===
@@ -4485,7 +4506,7 @@ function App() {
       agent.lastCompletedTurnId,
       reportsTechnicalFailure,
     )
-    const configuredDeliveries = resolveConfiguredDeliveries({
+    const configuredDeliveries = (reportsInternalWorkflowError ? [] : resolveConfiguredDeliveries({
       sourceId: agent.id,
       result: agent.lastResult,
       resultStatusIds,
@@ -4494,13 +4515,31 @@ function App() {
       promptNodes: workflowPrompts,
       targetIds: new Set(agents.map((item) => item.id)),
       stopIds: new Set(workflowStops.map((item) => item.id)),
-    }).flatMap<WorkflowDelivery>(({ targetId, stopId, route }) => {
+    })).flatMap<WorkflowDelivery>(({ targetId, stopId, route }) => {
       const resolvedRoute = route as WorkflowRoute
       const target = agents.find((item) => item.id === targetId)
       if (target) return [{ target, route: resolvedRoute }]
       const stop = workflowStops.find((item) => item.id === stopId)
       return stop ? [{ stop, route: resolvedRoute }] : []
     })
+    const internalErrorManagerId = reportsInternalWorkflowError
+      ? internalWorkflowErrorManagerId(agent, agents)
+      : ''
+    const internalErrorManager = agents.find((item) => item.id === internalErrorManagerId)
+    const internalErrorDelivery: WorkflowDelivery | null = internalErrorManager
+      ? {
+          target: internalErrorManager,
+          route: {
+            id: `internal-workflow-error:${agent.id}:${internalErrorManager.id}`,
+            ownerAgentId: agent.id,
+            projectPath: agent.projectPath,
+            sourceId: agent.id,
+            targetId: internalErrorManager.id,
+            condition: INTERNAL_WORKFLOW_ERROR_STATUS_NAME,
+            prompt: internalWorkflowErrorHandoffInstruction(workflowSignalIssue(workflowSignal)),
+          },
+        }
+      : null
     const managementRecoveryTargetId = resolveManagementRecoveryTargetId({
       isManagementAgent: agent.assignment === 'management',
       inboundSourceAgentId: agent.lastInboundAgentId,
@@ -4528,6 +4567,7 @@ function App() {
       : null
     const deliveries = [
       ...configuredDeliveries,
+      ...(internalErrorDelivery ? [internalErrorDelivery] : []),
       ...(managementRecoveryDelivery ? [managementRecoveryDelivery] : []),
     ]
 
@@ -4606,7 +4646,7 @@ function App() {
             workflowRunEntry('status-repair', {
               agentId: agent.id,
               agentName: agent.name,
-              statusNames: workflowSignal.names,
+              statusNames: resultStatusNames,
               detail: availableStatuses,
             }),
           ))
@@ -4632,7 +4672,7 @@ function App() {
         source: agent,
         targets: [],
         statusIds: resultStatusIds,
-        statusNames: workflowSignal.names,
+        statusNames: resultStatusNames,
         state: 'blocked',
         reason: continuation.reason || availableStatuses,
       })
@@ -4692,7 +4732,7 @@ function App() {
         source: agent,
         targets: agentDeliveries.map((delivery) => delivery.target),
         statusIds: resultStatusIds,
-        statusNames: workflowSignal.names,
+        statusNames: resultStatusNames,
         state: 'pending',
       })
     }
@@ -4735,7 +4775,7 @@ function App() {
             agentId: agent.id,
             agentName: agent.name,
             statusIds: resultStatusIds,
-            statusNames: workflowSignal.names,
+            statusNames: resultStatusNames,
             detail: `${agent.name} -> ${stopDeliveries.map((delivery) => delivery.stop.name).join(', ')}`,
           }),
         )
@@ -4890,14 +4930,16 @@ function App() {
               .map((delivery) => delivery.target.id),
             targetAgentNames: deliveryOutcome.deliveredTargets,
             statusIds: resultStatusIds,
-            statusNames: workflowSignal.names,
+            statusNames: resultStatusNames,
             detail: `${agent.name} -> ${deliveryOutcome.deliveredTargets.join(', ')}`,
           }),
         )
       })
       addEvent(
-        'Aufgabe weitergegeben',
-        `${agent.name} -> ${deliveryOutcome.deliveredTargets.join(', ')}`,
+        reportsInternalWorkflowError ? 'Interner Workflow-Fehler gemeldet' : 'Aufgabe weitergegeben',
+        reportsInternalWorkflowError
+          ? `${agent.name} -> ${deliveryOutcome.deliveredTargets.join(', ')}: Der CEO muss die Statusdefinition oder Workflow-Konfiguration prüfen.`
+          : `${agent.name} -> ${deliveryOutcome.deliveredTargets.join(', ')}`,
       )
     } else {
       addEvent(
@@ -7326,8 +7368,23 @@ function App() {
                       'Diese Status werden dem Agenten bei Workflow-Aufgaben erklärt und gelten für alle seine Prompt-Dateien.',
                       'These statuses are explained to the agent for workflow tasks and apply to all of its prompt files.',
                     )}</p>
+                    <label className="promptStatusOption systemStatusOption">
+                      <input checked disabled readOnly type="checkbox" />
+                      <span>
+                        <strong>{INTERNAL_WORKFLOW_ERROR_STATUS_NAME}</strong>
+                        <small>{selectedAgent.assignment === 'management'
+                          ? tx(
+                              'Nicht abwählbarer Systemstatus: Eine interne Workflow-Lücke des CEO blockiert kontrolliert für eine Benutzerentscheidung.',
+                              'Required system status: an internal CEO workflow gap blocks safely for a user decision.',
+                            )
+                          : tx(
+                              'Nicht abwählbarer Systemstatus: Keine fachliche Statusmeldung passt eindeutig. Übergabe ausschließlich an den CEO.',
+                              'Required system status: no functional status clearly matches. Delivered only to the CEO.',
+                            )}</small>
+                      </span>
+                    </label>
                     {projectWorkflowStatuses.length === 0 ? (
-                      <span className="empty">{tx('Im Projekt sind noch keine Status angelegt.', 'No statuses have been created in this project.')}</span>
+                      <span className="empty">{tx('Im Projekt sind noch keine fachlichen Status angelegt.', 'No functional statuses have been created in this project.')}</span>
                     ) : (
                       projectWorkflowStatuses.map((status) => {
                         const enabled = selectedAgent.workflowStatusIds.includes(status.id)
@@ -8383,8 +8440,23 @@ function App() {
                       'Workflow-Status für diesen Agenten',
                       'Workflow statuses for this agent',
                     )}</p>
+                    <label className="promptStatusOption systemStatusOption">
+                      <input checked disabled readOnly type="checkbox" />
+                      <span>
+                        <strong>{INTERNAL_WORKFLOW_ERROR_STATUS_NAME}</strong>
+                        <small>{selectedAgent.assignment === 'management'
+                          ? tx(
+                              'Nicht abwählbarer Systemstatus: blockiert kontrolliert für eine Benutzerentscheidung.',
+                              'Required system status: blocks safely for a user decision.',
+                            )
+                          : tx(
+                              'Nicht abwählbarer Systemstatus: Übergabe ausschließlich an den CEO.',
+                              'Required system status: delivered only to the CEO.',
+                            )}</small>
+                      </span>
+                    </label>
                     {projectWorkflowStatuses.length === 0 ? (
-                      <span className="empty">{tx('Im Projekt sind noch keine Status angelegt.', 'No statuses have been created in this project.')}</span>
+                      <span className="empty">{tx('Im Projekt sind noch keine fachlichen Status angelegt.', 'No functional statuses have been created in this project.')}</span>
                     ) : (
                       projectWorkflowStatuses.map((status) => {
                         const enabled = selectedAgent.workflowStatusIds.includes(status.id)

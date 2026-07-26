@@ -16,6 +16,8 @@ test('CEO rulebook prohibits programming and specialist work', () => {
   assert.match(rulebook, /keine technische Verbindung erzeugen/)
   assert.match(rulebook, /Projektziel wird ausschließlich vom Benutzer/)
   assert.match(rulebook, /echten Umlauten und ß/)
+  assert.match(rulebook, /Interner Workflow-Fehler/)
+  assert.match(rulebook, /nicht als fachlichen Projektfehler/)
 })
 
 test('manual CEO work prepares delegation and waits for Auto Start', () => {

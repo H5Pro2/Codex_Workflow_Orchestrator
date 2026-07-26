@@ -33,6 +33,12 @@ test('does not repair missing topology or a valid signal', () => {
     runPurpose: 'handoff',
     hasThread: true,
   }), false)
+  assert.equal(shouldRequestWorkflowStatusRepair({
+    signalKind: 'none',
+    activeRouteCount: 1,
+    runPurpose: 'handoff',
+    hasThread: true,
+  }), false)
 })
 
 test('builds a correction-only instruction with the allowed statuses', () => {

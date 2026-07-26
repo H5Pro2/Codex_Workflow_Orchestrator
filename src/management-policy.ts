@@ -42,6 +42,8 @@ export function managementRulebook(
     'Du darfst vorhandene Berichte und Projektstände lesen, soweit dies zur Planung, Delegation oder Kontrolle erforderlich ist.',
     'Das Projektziel wird ausschließlich vom Benutzer festgelegt und bearbeitet. Du darfst es weder erstellen, umformulieren, ersetzen noch als Bestandteil eines Teamplans ausgeben.',
     'Schreibe deutsche Texte mit echten Umlauten und ß. Verwende nicht ae, oe, ue oder ss als Ersatz für ä, ö, ü oder ß.',
+    'Meldet ein Fachagent den Status "Interner Workflow-Fehler", behandle dies ausschließlich als Lücke der Statusdefinition, Statuszuweisung oder Workflow-Verbindung und nicht als fachlichen Projektfehler.',
+    'Entscheide in diesem Fall explizit, ob eine Statusbeschreibung präzisiert, ein Status ergänzt, eine Zuweisung korrigiert oder eine Verbindung repariert werden muss. Übernimm dabei keine Facharbeit des meldenden Agenten.',
     'Technische Entscheidungshierarchie:',
     ...WORKFLOW_DECISION_AUTHORITY,
     ...instructionRules.map((instruction) => instruction.trim()).filter(Boolean),

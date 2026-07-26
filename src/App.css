@@ -2477,6 +2477,17 @@ label {
   border-color: color-mix(in srgb, var(--line-strong) 70%, var(--accent) 30%);
 }
 
+.promptStatusOption.systemStatusOption {
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--accent) 12%);
+  border-color: color-mix(in srgb, var(--line-strong) 55%, var(--accent) 45%);
+  cursor: default;
+}
+
+.promptStatusOption.systemStatusOption:hover {
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--accent) 12%);
+  border-color: color-mix(in srgb, var(--line-strong) 55%, var(--accent) 45%);
+}
+
 .promptStatusOption input {
   margin: 3px 0 0;
 }

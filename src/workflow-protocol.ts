@@ -25,6 +25,7 @@ export const WORKFLOW_DECISION_AUTHORITY = [
   'Ein Agententext liefert ausschließlich ein zu validierendes Statussignal.',
   'Nur genau ein erlaubter Status kann einen Statusfilter aktivieren.',
   'Sprachliche Rollen- und Ablaufregeln dürfen keine technische Verbindung erzeugen oder umgehen.',
+  'Einzige Ausnahme ist der reservierte Systemstatus "Interner Workflow-Fehler": Er ist ein fest definierter Diagnosekanal zum Projekt-CEO und niemals eine fachliche Projektverbindung.',
 ] as const
 
 function normalizeStatusName(value: string) {
@@ -152,7 +153,11 @@ export function workflowStatusInstruction(statuses: readonly WorkflowStatusLike[
       ? statuses.map((status) => `- ${status.name}: ${status.description || 'Keine Beschreibung'}`)
       : ['- Keine Status definiert: verwende [Workflow-Status: Kein Status].']),
     '',
-    'Wenn kein Status zutrifft, verwende [Workflow-Status: Kein Status]. Erfinde keine Statusnamen.',
+    'Vergleiche dein Ergebnis mit den Bedeutungen aller zugewiesenen fachlichen Statusmeldungen.',
+    'Wenn genau eine fachliche Statusmeldung passt, verwende ausschließlich diesen Status.',
+    'Wenn keine fachliche Statusmeldung eindeutig passt oder mehrere gleichwertig passen, melde den reservierten Status [Workflow-Status: Interner Workflow-Fehler].',
+    'Begründe dann in deiner Antwort, welche Statusmeldungen du geprüft hast und warum keine eindeutige Auswahl möglich war. Das ist ein interner Konfigurationsfehler und kein Projektfehler.',
+    'Verwende [Workflow-Status: Kein Status] nur, wenn eine interne Systemanweisung ausdrücklich eine nicht weiterzuleitende Antwort verlangt. Erfinde keine Statusnamen.',
     'Mehrere Statusangaben, unbekannte Statusnamen und Text nach der Statuszeile werden vom Orchestrator als ungültige Antwort behandelt.',
   ].join('\n')
 }
