@@ -63,6 +63,7 @@ import {
   type DeliveryQueue,
 } from './delivery-queue.ts'
 import { pruneWorkflowBoardAgentIds, pruneWorkflowPositions } from './workflow-state.ts'
+import { normalizeGermanTypography } from './german-typography.ts'
 import { projectForThread, threadBelongsToProject } from './codex-project.ts'
 import {
   knowledgeSourceInstruction,
@@ -681,16 +682,16 @@ function isDefaultAgentRole(role: string, name: string) {
 
 function normalizeAgent(agent: Partial<Agent>): Agent {
   const legacyAgent = agent as Partial<Agent> & { handoffTo?: string; managementInstructions?: string }
-  const name = agent.name ?? 'Agent'
-  const legacyPrompt = agent.prompt ?? ''
+  const name = normalizeGermanTypography(agent.name ?? 'Agent')
+  const legacyPrompt = normalizeGermanTypography(agent.prompt ?? '')
   const normalizedStatus =
     agent.status === 'laeuft' && !agent.pendingTurnId ? 'wartet' : agent.status ?? 'wartet'
   const promptDocuments = Array.isArray(agent.promptDocuments) && agent.promptDocuments.length > 0
     ? agent.promptDocuments.map((document) => ({
         id: document.id || crypto.randomUUID(),
-        name: document.name || 'Anweisung',
+        name: normalizeGermanTypography(document.name || 'Anweisung'),
         fileName: promptFileName(document.fileName || document.name || 'Anweisung'),
-        content: document.content ?? '',
+        content: normalizeGermanTypography(document.content ?? ''),
         filePath: document.filePath ?? '',
         lastSentContent: typeof document.lastSentContent === 'string' ? document.lastSentContent : null,
         updatedAt: document.updatedAt ?? new Date().toISOString(),
@@ -706,7 +707,9 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
   return {
     id: agent.id ?? crypto.randomUUID(),
     name,
-    role: isDefaultAgentRole(agent.role ?? '', name) ? defaultAgentRole(name) : agent.role as string,
+    role: isDefaultAgentRole(agent.role ?? '', name)
+      ? defaultAgentRole(name)
+      : normalizeGermanTypography(agent.role as string),
     projectId: agent.projectId ?? '',
     projectPath: agent.projectPath ?? '',
     threadTitle: agent.threadTitle ?? '',
@@ -1020,10 +1023,11 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
     'Nur wenn der Benutzer ausdrücklich verlangt, ein Team neu zu erstellen, umzustrukturieren oder Agenten hinzuzufügen beziehungsweise zu ersetzen, planst du vollständig: Agenten, Rollen-Prompts, benötigte Statusbefehle und alle Dashboard-Verbindungen.',
     'Eine Produktänderung, Weiterentwicklung, Reparatur oder neue Funktion ist niemals ein Team-Aufbau. Nutze dafür immer das vorhandene Team und seine Statuswege. Gib in diesem Fall keinen orchestrator_team_plan aus und ändere weder Rollen-Prompts noch Dashboard-Verbindungen.',
     'Der Initial-Baustein enthält niemals eine fachliche Aufgabe. Er führt bei Auto Start immer zuerst zum Verwaltungsagenten beziehungsweise CEO. Erst der CEO wählt mit einem normalen Statusbefehl den ersten Fachagenten aus.',
+    'Das Projektziel ist ausschließlich benutzerverwaltet. Nimm kein Feld projectGoal in den Teamplan auf und schlage keine Änderung des Projektziels vor.',
+    'Verwende in allen deutschen Namen, Rollen, Bedeutungen und Anweisungen echte Umlaute und ß; niemals ae, oe, ue oder ss als Ersatz.',
     'Liefere zusätzlich genau einen maschinenlesbaren Vorschlag in diesem Format:',
     '<orchestrator_team_plan>',
     '{',
-    '  "projectGoal": "Kurze Zielbeschreibung",',
     '  "startAgent": "Erster Fachagent nach der Entscheidung des CEO",',
     '  "startStatus": "Statusbefehl, mit dem der CEO an diesen Fachagenten übergibt",',
     '  "startInstruction": "Nur Dokumentation des Projektziels; wird niemals im Initial gespeichert",',
@@ -2155,11 +2159,6 @@ function App() {
   }, [chatMessages])
   const selectedTeamPlanComplete = useMemo(() => {
     if (!selectedAgent || !selectedTeamPlan || !selectedAgent.projectPath) return false
-    if (
-      normalizedInstructionText(projectGoalForProject(projectGoals, selectedAgent.projectPath)) !==
-      normalizedInstructionText(selectedTeamPlan.plan.projectGoal)
-    ) return false
-
     const projectAgentByName = new Map(
       agents
         .filter((agent) => samePath(agent.projectPath, selectedAgent.projectPath))
@@ -2269,7 +2268,7 @@ function App() {
         routes.some((route) => route.ownerAgentId === agent.id && route.sourceId === agent.id && route.targetId === filter.id) &&
         routes.some((route) => route.ownerAgentId === agent.id && route.sourceId === filter.id && route.targetId === selectedAgent.id))
     })
-  }, [agents, projectGoals, routes, selectedAgent, selectedTeamPlan, workflowBoardAgentIds, workflowInitials, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [agents, routes, selectedAgent, selectedTeamPlan, workflowBoardAgentIds, workflowInitials, workflowStatusFilters, workflowStatuses, workflowStops])
   const selectedTeamPlanMalformed = Boolean(
     selectedAgent?.teamProvisioningEnabled &&
     selectedTeamPlanRequestAuthorized &&
@@ -3444,12 +3443,6 @@ function App() {
               'The incomplete team setup could not be cleaned up completely.',
             ))
           }
-        })
-
-        const previousProjectGoal = projectGoalForProject(projectGoals, selectedProject.path)
-        await persistProjectGoal(selectedProject.path, plan.projectGoal)
-        addRollback(async () => {
-          await persistProjectGoal(selectedProject.path, previousProjectGoal)
         })
 
         for (const [index, specification] of plan.agents.entries()) {
@@ -5001,7 +4994,7 @@ function App() {
     const response = await fetch('/api/project-goal', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cwd: projectPath, goal }),
+      body: JSON.stringify({ cwd: projectPath, goal, source: 'user' }),
     })
     const data = await response.json()
     if (!response.ok) throw new Error(data.error || 'Projektziel konnte nicht gespeichert werden.')
@@ -7526,7 +7519,7 @@ function App() {
                         <div className="managementTeamPlanTitle">
                           <div>
                             <span>{tx('Geprüfter Vorschlag', 'Validated proposal')}</span>
-                            <strong>{selectedTeamPlan.plan.projectGoal || tx('Team für das aktuelle Projekt', 'Team for the current project')}</strong>
+                            <strong>{tx('Team für das aktuelle Projekt', 'Team for the current project')}</strong>
                           </div>
                           <small>
                             {selectedTeamPlan.plan.agents.length} {tx('Agenten', 'agents')} ·{' '}

@@ -12,11 +12,11 @@ import {
   looksLikeManagementTeamPlan,
   parseManagementTeamPlan,
   repairManagementStartTopology,
+  usesGermanTransliteration,
 } from './team-plan.ts'
 
 const teamProposal = `<orchestrator_team_plan>
 {
-  "projectGoal": "Ein getestetes Browser-Spiel",
   "startAgent": "Architekt",
   "startStatus": "Weiterleitung",
   "startInstruction": "Erstelle die technische Spezifikation und übergib sie an die Entwicklung.",
@@ -167,14 +167,29 @@ test('detects an alternative machine-readable team schema that needs format corr
 
 test('uses the newest valid team proposal when the chat contains revisions', () => {
   const revisedProposal = teamProposal
-    .replace('Ein getestetes Browser-Spiel', 'Die neueste Projektfassung')
     .replace('Erstelle die technische Spezifikation und übergib sie an die Entwicklung.', 'Beginne mit der freigegebenen Revision.')
 
   const parsed = parseManagementTeamPlan(`${teamProposal}\n\n${revisedProposal}`)
 
   assert.ok(parsed)
-  assert.equal(parsed.plan.projectGoal, 'Die neueste Projektfassung')
   assert.equal(parsed.plan.startInstruction, 'Beginne mit der freigegebenen Revision.')
+})
+
+test('rejects agent-authored project goals in team proposals', () => {
+  const proposalWithProjectGoal = teamProposal.replace(
+    '{',
+    '{\n  "projectGoal": "Ein Agentenziel",',
+  )
+  assert.equal(parseManagementTeamPlan(proposalWithProjectGoal), null)
+})
+
+test('rejects German replacement spellings in visible team text', () => {
+  assert.equal(usesGermanTransliteration('Prueft das Ergebnis und fuehrt es zurueck.'), true)
+  assert.equal(usesGermanTransliteration('Prüft das Ergebnis und führt es zurück.'), false)
+  assert.equal(
+    parseManagementTeamPlan(teamProposal.replace('Prüft das Ergebnis', 'Prueft das Ergebnis')),
+    null,
+  )
 })
 
 test('requires an explicit project knowledge decision for every proposed agent', () => {

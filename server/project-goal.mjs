@@ -3,6 +3,12 @@ import { dirname, join, resolve } from 'node:path'
 
 export const PROJECT_GOAL_MAX_LENGTH = 4000
 
+export function assertUserProjectGoalWriteSource(source) {
+  if (source !== 'user') {
+    throw new Error('Das Projektziel darf ausschließlich durch eine Benutzeraktion geändert werden.')
+  }
+}
+
 export function projectGoalFile(projectPath) {
   return join(resolve(projectPath), '.codex-orchestrator', 'project-goal.json')
 }

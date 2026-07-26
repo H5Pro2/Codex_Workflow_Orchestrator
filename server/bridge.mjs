@@ -10,7 +10,7 @@ import { createProvisioningJournal } from './provisioning-journal.mjs'
 import { createSharedStateStore } from './shared-state.mjs'
 import { applyThreadProjectAssignments, savedProjectsFromState } from './codex-project-state.mjs'
 import { readKnowledgeSources, writeKnowledgeSources } from './knowledge-sources.mjs'
-import { readProjectGoal, writeProjectGoal } from './project-goal.mjs'
+import { assertUserProjectGoalWriteSource, readProjectGoal, writeProjectGoal } from './project-goal.mjs'
 import {
   projectThreadExecutionParams,
   projectTurnExecutionParams,
@@ -835,6 +835,12 @@ const server = createServer(async (incoming, response) => {
       const projectPath = requestedPath ? await savedProjectPath(requestedPath) : ''
       if (!projectPath || typeof body.goal !== 'string') {
         sendJson(response, 400, { error: 'Registrierter Projektpfad und Projektziel sind erforderlich.' })
+        return
+      }
+      try {
+        assertUserProjectGoalWriteSource(body.source)
+      } catch (error) {
+        sendJson(response, 403, { error: error.message })
         return
       }
       try {

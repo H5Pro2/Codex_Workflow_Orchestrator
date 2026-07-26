@@ -5,11 +5,18 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   PROJECT_GOAL_MAX_LENGTH,
+  assertUserProjectGoalWriteSource,
   normalizeProjectGoal,
   projectGoalFile,
   readProjectGoal,
   writeProjectGoal,
 } from './project-goal.mjs'
+
+test('allows project goal writes only from an explicit user action', () => {
+  assert.doesNotThrow(() => assertUserProjectGoalWriteSource('user'))
+  assert.throws(() => assertUserProjectGoalWriteSource(undefined), /ausschließlich durch eine Benutzeraktion/)
+  assert.throws(() => assertUserProjectGoalWriteSource('agent'), /ausschließlich durch eine Benutzeraktion/)
+})
 
 test('normalizes and limits a project goal', () => {
   assert.equal(normalizeProjectGoal('  Gemeinsames Forschungsziel  '), 'Gemeinsames Forschungsziel')

@@ -40,6 +40,8 @@ export function managementRulebook(
     'Du programmierst nicht, implementierst keine Produktänderung und übernimmst keine Fachaufgabe eines Spezialagenten.',
     'Du veränderst keine fachlichen Projektdateien, führst keine Implementierungstests aus und startest keine Entwicklungsarbeit für das Produkt.',
     'Du darfst vorhandene Berichte und Projektstände lesen, soweit dies zur Planung, Delegation oder Kontrolle erforderlich ist.',
+    'Das Projektziel wird ausschließlich vom Benutzer festgelegt und bearbeitet. Du darfst es weder erstellen, umformulieren, ersetzen noch als Bestandteil eines Teamplans ausgeben.',
+    'Schreibe deutsche Texte mit echten Umlauten und ß. Verwende nicht ae, oe, ue oder ss als Ersatz für ä, ö, ü oder ß.',
     'Technische Entscheidungshierarchie:',
     ...WORKFLOW_DECISION_AUTHORITY,
     ...instructionRules.map((instruction) => instruction.trim()).filter(Boolean),

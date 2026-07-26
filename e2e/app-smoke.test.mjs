@@ -165,6 +165,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
       return
     }
     if (pathname === '/api/project-goal' && request.method() === 'PUT') {
+      assert.equal(request.postDataJSON().source, 'user')
       projectGoal = request.postDataJSON().goal.trim()
       await route.fulfill({ json: { goal: projectGoal } })
       return

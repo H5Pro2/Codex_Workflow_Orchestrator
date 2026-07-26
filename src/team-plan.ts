@@ -28,7 +28,6 @@ export type ManagementTeamPlanStop = {
 }
 
 export type ManagementTeamPlan = {
-  projectGoal: string
   startAgent: string
   startStatus: string
   startInstruction: string
@@ -192,6 +191,12 @@ function normalizedName(value: string) {
   return value.trim().toLocaleLowerCase('de-DE')
 }
 
+const DISALLOWED_GERMAN_TRANSLITERATION = /\b(?:fuer\w*|ueber\w*|pruef\w*|frueh\w*|schliess\w*|ausschliess\w*|zusaetz\w*|zurueck\w*|naechst\w*|ausfuehr\w*|verfueg\w*|unguelt\w*|benoet\w*|vollstaend\w*|eigenstaend\w*|aender\w*|hinzufueg\w*|waehl\w*|koenn\w*|duerf\w*|waehr\w*|spaet\w*|aeusser\w*|oeffn\w*|hoechst\w*|moeglich\w*|loesch\w*)\b/i
+
+export function usesGermanTransliteration(value: string) {
+  return DISALLOWED_GERMAN_TRANSLITERATION.test(value)
+}
+
 function samePath(left: string, right: string) {
   return left.replaceAll('\\', '/').replace(/\/$/, '').toLocaleLowerCase('de-DE') ===
     right.replaceAll('\\', '/').replace(/\/$/, '').toLocaleLowerCase('de-DE')
@@ -290,8 +295,7 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
         source.workflowStatuses.push(path.status)
       }
     })
-    const projectGoal = typeof raw.projectGoal === 'string' ? raw.projectGoal.trim() : ''
-    if (!projectGoal || projectGoal.length > 4000) throw new Error('invalid project goal')
+    if (raw.projectGoal !== undefined) throw new Error('project goal is user-managed')
     const requestedStartAgent = typeof raw.startAgent === 'string' ? raw.startAgent.trim() : ''
     const startAgent = agents.find((agent) => normalizedName(agent.name) === normalizedName(requestedStartAgent))?.name ?? agents[0].name
     const requestedStartStatus = typeof raw.startStatus === 'string' ? raw.startStatus.trim() : ''
@@ -302,8 +306,16 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
     }
     const startInstruction = typeof raw.startInstruction === 'string' && raw.startInstruction.trim()
       ? raw.startInstruction.trim()
-      : `Beginne mit der dir zugewiesenen Arbeit für dieses Projektziel: ${projectGoal || 'Setze den beschriebenen Teamauftrag um.'}`
-    const plan = { projectGoal, startAgent, startStatus, startInstruction, statusCommands, agents, connections, stops }
+      : 'Setze den beschriebenen Teamauftrag um.'
+    const visibleTexts = [
+      startInstruction,
+      ...agents.flatMap((agent) => [agent.name, agent.role, agent.prompt, ...agent.workflowStatuses]),
+      ...statusCommands.flatMap((status) => [status.name, status.meaning]),
+      ...connections.flatMap((connection) => [connection.from, connection.to, connection.status]),
+      ...stops.flatMap((stop) => [stop.from, stop.status, stop.name]),
+    ]
+    if (visibleTexts.some(usesGermanTransliteration)) throw new Error('German text must use umlauts')
+    const plan = { startAgent, startStatus, startInstruction, statusCommands, agents, connections, stops }
       return { plan, signature: JSON.stringify(plan) }
     } catch {
       continue
