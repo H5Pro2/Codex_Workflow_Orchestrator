@@ -180,6 +180,27 @@ export function resumableWorkflowCheckpoint(runtime: WorkflowRuntime, projectPat
   ) ?? null
 }
 
+type CheckpointAgentState = {
+  id: string
+  status: string
+  pendingTurnId: string
+}
+
+export function isOrphanedPendingCheckpoint(
+  checkpoint: WorkflowCheckpoint,
+  agents: CheckpointAgentState[],
+) {
+  if (checkpoint.state !== 'pending' || checkpoint.targetAgentIds.length === 0) return false
+  const source = agents.find((agent) => agent.id === checkpoint.sourceAgentId)
+  const targets = checkpoint.targetAgentIds.map((targetId) =>
+    agents.find((agent) => agent.id === targetId),
+  )
+  if (!source || targets.some((target) => !target)) return false
+  const isBusy = (agent: CheckpointAgentState) =>
+    Boolean(agent.pendingTurnId) || agent.status === 'laeuft'
+  return !isBusy(source) && targets.every((target) => !isBusy(target!))
+}
+
 export function removeProjectCheckpointsSupersededAt(
   runtime: WorkflowRuntime,
   projectPath: string,

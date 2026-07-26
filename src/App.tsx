@@ -104,6 +104,7 @@ import {
   activeWorkflowRun,
   beginWorkflowRun,
   ensureWorkflowRun,
+  isOrphanedPendingCheckpoint,
   normalizeWorkflowRuntime,
   removeProjectCheckpointsSupersededAt,
   removeWorkflowCheckpoint,
@@ -136,6 +137,7 @@ const workflowNodeTypes = { workflow: WorkflowNode }
 const workflowEdgeTypes = { workflow: WorkflowEdge }
 
 const INVENTORY_RECONCILIATION_GRACE_MS = 5 * 60 * 1000
+const ORPHANED_HANDOFF_GRACE_MS = 15_000
 const AUTOMATION_LEASE_KEY = 'codex-orchestrator-automation-lease-v1'
 const AUTOMATION_LEASE_DURATION_MS = 7_000
 
@@ -1749,6 +1751,7 @@ function App() {
     unlimited: false,
   })
   const [sharedStateReady, setSharedStateReady] = useState(false)
+  const [checkpointRecoveryRevision, setCheckpointRecoveryRevision] = useState(0)
   const sharedStateVersion = useRef('')
   const sharedStateDirty = useRef(false)
   const sharedStateWrites = useRef(createLatestWriteQueue())
@@ -1763,6 +1766,11 @@ function App() {
   const agentsRef = useRef(agents)
   agentsRef.current = agents
   const pollingTurnIds = useRef(new Set<string>())
+  const processedTurnIds = useRef(new Set(agents.map((agent) => agent.lastCompletedTurnId).filter(Boolean)))
+  const recoveredCheckpointIds = useRef(new Set<string>())
+  agents.forEach((agent) => {
+    if (agent.lastCompletedTurnId) processedTurnIds.current.add(agent.lastCompletedTurnId)
+  })
   const watchdogInterventionTurnIds = useRef(new Set<string>())
   const terminalResultObservations = useRef(new Map<string, number>())
   const turnActivityObservations = useRef(new Map<string, TurnActivityObservation>())
@@ -4984,6 +4992,41 @@ function App() {
     }
   }, [addEvent, agents, applyThreadReplacement, knowledgeSources, persistWorkflowCheckpoint, projectGoals, requestSystemDiagnosis, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
+  useEffect(() => {
+    if (!autoRun || !automationLeader || !sharedStateReady || !selectedProjectPath) return
+    const checkpoint = resumableWorkflowCheckpoint(
+      workflowRuntimeRef.current,
+      selectedProjectPath,
+    )
+    if (!checkpoint || recoveredCheckpointIds.current.has(checkpoint.id)) return
+    const checkpointAge = Date.now() - Date.parse(checkpoint.updatedAt)
+    if (!Number.isFinite(checkpointAge) || checkpointAge < ORPHANED_HANDOFF_GRACE_MS) {
+      const remainingDelay = Number.isFinite(checkpointAge)
+        ? Math.max(250, ORPHANED_HANDOFF_GRACE_MS - checkpointAge)
+        : ORPHANED_HANDOFF_GRACE_MS
+      const timer = window.setTimeout(
+        () => setCheckpointRecoveryRevision((current) => current + 1),
+        remainingDelay,
+      )
+      return () => window.clearTimeout(timer)
+    }
+    if (!isOrphanedPendingCheckpoint(checkpoint, agents)) return
+    const source = agents.find((agent) => agent.id === checkpoint.sourceAgentId)
+    if (!source) return
+
+    recoveredCheckpointIds.current.add(checkpoint.id)
+    checkpoint.targetAgentIds.forEach((targetId) => activeDeliveryTargetIds.current.delete(targetId))
+    addEvent(
+      'Unterbrochene Übergabe wird fortgesetzt',
+      `${checkpoint.sourceAgentName} → ${checkpoint.targetAgentNames.join(', ')}`,
+    )
+    void handoff({
+      ...source,
+      lastResult: checkpoint.result,
+      lastCompletedTurnId: checkpoint.sourceTurnId,
+    })
+  }, [addEvent, agents, autoRun, automationLeader, checkpointRecoveryRevision, handoff, selectedProjectPath, sharedStateReady])
+
   const connectAgents = useCallback((connection: Connection) => {
     if (
       !connection.source ||
@@ -5647,7 +5690,9 @@ function App() {
               threadId: agent.threadId,
               pendingTurnId: agent.pendingTurnId,
               lastCompletedTurnId: agent.lastCompletedTurnId,
-              isAlreadyPolling: pollingTurnIds.current.has(agent.pendingTurnId),
+              isAlreadyPolling:
+                pollingTurnIds.current.has(agent.pendingTurnId) ||
+                processedTurnIds.current.has(agent.pendingTurnId),
             }),
           )
           .map(async (agent) => {
@@ -5780,6 +5825,16 @@ function App() {
               if (data.turnId) {
                 watchdogInterventionTurnIds.current.delete(data.turnId)
               }
+              if (data.status === 'completed') {
+                if (
+                  processedTurnIds.current.has(agent.pendingTurnId) ||
+                  (data.turnId && processedTurnIds.current.has(data.turnId))
+                ) {
+                  return
+                }
+                processedTurnIds.current.add(agent.pendingTurnId)
+                if (data.turnId) processedTurnIds.current.add(data.turnId)
+              }
               if (data.status !== 'completed') {
                 const observations =
                   (terminalResultObservations.current.get(agent.pendingTurnId) ?? 0) + 1
@@ -5792,6 +5847,8 @@ function App() {
                   return
                 }
                 terminalResultObservations.current.delete(agent.pendingTurnId)
+                processedTurnIds.current.add(agent.pendingTurnId)
+                if (data.turnId) processedTurnIds.current.add(data.turnId)
                 turnActivityObservations.current.delete(agent.id)
                 const failureDetail = data.error?.message ?? data.status
                 const consecutiveFailedRuns = nextConsecutiveFailedRuns(agent.consecutiveFailedRuns)

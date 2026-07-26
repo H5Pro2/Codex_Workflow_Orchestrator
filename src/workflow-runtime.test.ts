@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   appendWorkflowRunEntry,
   ensureWorkflowRun,
+  isOrphanedPendingCheckpoint,
   normalizeWorkflowRuntime,
   removeProjectCheckpointsSupersededAt,
   removeWorkflowCheckpoint,
@@ -81,4 +82,32 @@ test('selects and removes a pending project checkpoint', () => {
 
   assert.equal(resumableWorkflowCheckpoint(saved, 'c:/project')?.id, 'checkpoint-1')
   assert.equal(resumableWorkflowCheckpoint(removeWorkflowCheckpoint(saved, 'checkpoint-1'), 'C:\\Project'), null)
+})
+
+test('recognizes a pending handoff orphaned by an application restart', () => {
+  const checkpoint = {
+    id: 'checkpoint-1',
+    runId: 'run-1',
+    projectPath: 'C:\\Project',
+    sourceAgentId: 'lead',
+    sourceAgentName: 'Leitung',
+    sourceTurnId: 'turn-1',
+    targetAgentIds: ['video'],
+    targetAgentNames: ['Video'],
+    statusIds: ['search'],
+    statusNames: ['Quellen suchen'],
+    result: 'Auftrag',
+    state: 'pending' as const,
+    reason: '',
+    createdAt: '2026-01-01T00:01:00Z',
+    updatedAt: '2026-01-01T00:01:00Z',
+  }
+  assert.equal(isOrphanedPendingCheckpoint(checkpoint, [
+    { id: 'lead', status: 'fertig', pendingTurnId: '' },
+    { id: 'video', status: 'wartet', pendingTurnId: '' },
+  ]), true)
+  assert.equal(isOrphanedPendingCheckpoint(checkpoint, [
+    { id: 'lead', status: 'fertig', pendingTurnId: '' },
+    { id: 'video', status: 'laeuft', pendingTurnId: 'turn-2' },
+  ]), false)
 })
