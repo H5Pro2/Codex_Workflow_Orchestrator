@@ -26,9 +26,9 @@ const teamProposal = `<orchestrator_team_plan>
     { "name": "Projekt abgeschlossen", "meaning": "Die Abnahme ist erfolgreich abgeschlossen." }
   ],
   "agents": [
-    { "name": "Architekt", "role": "Plant die Architektur", "prompt": "Erstelle eine umsetzbare technische Spezifikation.", "usesProjectKnowledge": true, "workflowStatuses": ["Weiterleitung"] },
-    { "name": "Entwickler", "role": "Implementiert das Produkt", "prompt": "Implementiere die Spezifikation und behebe Rückmeldungen.", "usesProjectKnowledge": false, "workflowStatuses": ["Weiterleitung"] },
-    { "name": "QA", "role": "Prüft das Ergebnis", "prompt": "Teste die Umsetzung und entscheide über Abnahme oder Überarbeitung.", "usesProjectKnowledge": true, "workflowStatuses": ["Überarbeiten", "Projekt abgeschlossen"] }
+    { "name": "Architekt", "role": "Plant die Architektur", "prompt": "Erstelle eine umsetzbare technische Spezifikation.", "usesProjectKnowledge": true, "webAccess": "prompt", "workflowStatuses": ["Weiterleitung"] },
+    { "name": "Entwickler", "role": "Implementiert das Produkt", "prompt": "Implementiere die Spezifikation und behebe Rückmeldungen.", "usesProjectKnowledge": false, "webAccess": "off", "workflowStatuses": ["Weiterleitung"] },
+    { "name": "QA", "role": "Prüft das Ergebnis", "prompt": "Teste die Umsetzung und entscheide über Abnahme oder Überarbeitung.", "usesProjectKnowledge": true, "webAccess": "allowed", "workflowStatuses": ["Überarbeiten", "Projekt abgeschlossen"] }
   ],
   "connections": [
     { "from": "Architekt", "to": "Entwickler", "status": "Weiterleitung" },
@@ -201,6 +201,18 @@ test('requires an explicit project knowledge decision for every proposed agent',
   assert.deepEqual(
     parsed.plan.agents.map((agent) => [agent.name, agent.usesProjectKnowledge]),
     [['Architekt', true], ['Entwickler', false], ['QA', true]],
+  )
+})
+
+test('requires a valid web access decision for every proposed agent', () => {
+  assert.equal(parseManagementTeamPlan(teamProposal.replace(', "webAccess": "prompt"', '')), null)
+  assert.equal(parseManagementTeamPlan(teamProposal.replace('"webAccess": "prompt"', '"webAccess": "unrestricted"')), null)
+
+  const parsed = parseManagementTeamPlan(teamProposal)
+  assert.ok(parsed)
+  assert.deepEqual(
+    parsed.plan.agents.map((agent) => [agent.name, agent.webAccess]),
+    [['Architekt', 'prompt'], ['Entwickler', 'off'], ['QA', 'allowed']],
   )
 })
 
@@ -396,6 +408,7 @@ test('does not create a technical error route from the manager back to itself', 
         role: 'Leitet das Team',
         prompt: 'Koordiniere das Team und entscheide bei Fehlern.',
         usesProjectKnowledge: true,
+        webAccess: 'off' as const,
         workflowStatuses: [MANAGEMENT_ERROR_STATUS_NAME],
       },
       ...parsed.plan.agents,

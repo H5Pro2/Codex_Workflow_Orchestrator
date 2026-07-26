@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  normalizeAgentWebAccess,
   PROJECT_WORKSPACE_DIRECTORY,
   projectThreadExecutionParams,
   projectTurnExecutionParams,
@@ -21,4 +22,21 @@ test('existing project turns receive an explicit scoped workspace policy', () =>
   assert.equal(params.sandboxPolicy.type, 'workspaceWrite')
   assert.deepEqual(params.sandboxPolicy.writableRoots, [params.cwd])
   assert.equal(params.sandboxPolicy.networkAccess, false)
+})
+
+test('agent web access changes network and approval policy without widening workspace writes', () => {
+  const prompted = projectTurnExecutionParams('C:\\projects\\demo', 'prompt')
+  const allowed = projectTurnExecutionParams('C:\\projects\\demo', 'allowed')
+
+  assert.equal(prompted.approvalPolicy, 'on-request')
+  assert.equal(prompted.sandboxPolicy.networkAccess, false)
+  assert.deepEqual(prompted.sandboxPolicy.writableRoots, [prompted.cwd])
+  assert.equal(allowed.approvalPolicy, 'never')
+  assert.equal(allowed.sandboxPolicy.networkAccess, true)
+  assert.deepEqual(allowed.sandboxPolicy.writableRoots, [allowed.cwd])
+})
+
+test('unknown agent web access remains disabled', () => {
+  assert.equal(normalizeAgentWebAccess('unrestricted'), 'off')
+  assert.equal(projectTurnExecutionParams('C:\\projects\\demo', 'unrestricted').sandboxPolicy.networkAccess, false)
 })

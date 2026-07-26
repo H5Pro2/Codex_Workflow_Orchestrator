@@ -44,8 +44,10 @@ const LOCAL_CODEX_ENTRY = join(
   'codex.js',
 )
 const pending = new Map()
+const pendingApprovals = new Map()
 const inactiveTurnSince = new Map()
 let nextRequestId = 1
+let nextApprovalId = 1
 let initialized = false
 let latestRateLimits = null
 let latestProvisioningRecovery = {
@@ -102,6 +104,29 @@ lines.on('line', (line) => {
     return
   }
 
+  if (message.method) {
+    const supportedApprovalMethods = new Set([
+      'item/commandExecution/requestApproval',
+      'item/fileChange/requestApproval',
+      'item/permissions/requestApproval',
+      'execCommandApproval',
+      'applyPatchApproval',
+    ])
+    if (supportedApprovalMethods.has(message.method)) {
+      const approvalId = `approval-${nextApprovalId++}`
+      pendingApprovals.set(approvalId, {
+        id: approvalId,
+        rpcId: message.id,
+        method: message.method,
+        params: message.params ?? {},
+        createdAt: new Date().toISOString(),
+      })
+    } else {
+      send({ id: message.id, error: { code: -32601, message: `Nicht unterstützte Anfrage: ${message.method}` } })
+    }
+    return
+  }
+
   const entry = pending.get(message.id)
   if (!entry) {
     return
@@ -123,7 +148,47 @@ codex.on('exit', (code) => {
     entry.reject(new Error(`Codex App Server wurde beendet (${code ?? 'unbekannt'}).`))
   }
   pending.clear()
+  pendingApprovals.clear()
 })
+
+function publicApprovalRequest(approval) {
+  return {
+    id: approval.id,
+    method: approval.method,
+    threadId: approval.params.threadId ?? approval.params.conversationId ?? '',
+    turnId: approval.params.turnId ?? '',
+    reason: approval.params.reason ?? '',
+    command: approval.params.command ?? '',
+    cwd: approval.params.cwd ?? '',
+    createdAt: approval.createdAt,
+  }
+}
+
+function resolveApprovalRequest(approval, approved) {
+  if (approval.method === 'item/permissions/requestApproval') {
+    if (!approved) {
+      send({ id: approval.rpcId, error: { code: -32000, message: 'Freigabe durch den Benutzer abgelehnt.' } })
+      return
+    }
+    const requested = approval.params.permissions ?? {}
+    send({
+      id: approval.rpcId,
+      result: {
+        permissions: {
+          ...(requested.network ? { network: requested.network } : {}),
+          ...(requested.fileSystem ? { fileSystem: requested.fileSystem } : {}),
+        },
+        scope: 'turn',
+      },
+    })
+    return
+  }
+
+  send({
+    id: approval.rpcId,
+    result: { decision: approved ? 'accept' : 'decline' },
+  })
+}
 
 async function initialize() {
   await request('initialize', {
@@ -437,14 +502,14 @@ async function finalizeCreatedThreadName(threadId, turnId, name) {
   await request('thread/name/set', { threadId, name })
 }
 
-async function startTurn(threadId, text, model = '', cwd = '') {
+async function startTurn(threadId, text, model = '', cwd = '', webAccess = 'off') {
   const previousTurnIds = await readThreadTurnIds(threadId)
   if (cwd) await mkdir(projectWorkspacePath(cwd), { recursive: true })
   const turnParams = {
     threadId,
     input: [{ type: 'text', text, text_elements: [] }],
     ...(model ? { model } : {}),
-    ...(cwd ? projectTurnExecutionParams(cwd) : {}),
+    ...(cwd ? projectTurnExecutionParams(cwd, webAccess) : {}),
   }
   try {
     const started = await request('turn/start', turnParams)
@@ -481,11 +546,11 @@ async function startTurn(threadId, text, model = '', cwd = '') {
     )
     return persistedTurn ? { ...started, turn: persistedTurn } : started
   } catch {
-    return migrateLegacyThreadAndStart(thread, text, model)
+    return migrateLegacyThreadAndStart(thread, text, model, webAccess)
   }
 }
 
-async function migrateLegacyThreadAndStart(thread, text, model = '') {
+async function migrateLegacyThreadAndStart(thread, text, model = '', webAccess = 'off') {
   let previousResult = null
   try {
     previousResult = await readThreadResultFromRollout(thread.id, null)
@@ -508,7 +573,7 @@ async function migrateLegacyThreadAndStart(thread, text, model = '') {
   const turn = await request('turn/start', {
     threadId: started.thread.id,
     ...(model ? { model } : {}),
-    ...projectTurnExecutionParams(thread.cwd),
+    ...projectTurnExecutionParams(thread.cwd, webAccess),
     input: [{
       type: 'text',
       text: [
@@ -679,6 +744,28 @@ const server = createServer(async (incoming, response) => {
     if (incoming.method === 'GET' && url.pathname === '/api/health') {
       await ready
       sendJson(response, 200, { online: initialized })
+      return
+    }
+
+    if (incoming.method === 'GET' && url.pathname === '/api/approvals') {
+      sendJson(response, 200, {
+        approvals: [...pendingApprovals.values()].map(publicApprovalRequest),
+      })
+      return
+    }
+
+    const approvalMatch = url.pathname.match(/^\/api\/approvals\/([^/]+)$/)
+    if (incoming.method === 'POST' && approvalMatch) {
+      const approvalId = decodeURIComponent(approvalMatch[1])
+      const approval = pendingApprovals.get(approvalId)
+      if (!approval) {
+        sendJson(response, 404, { error: 'Die Freigabe ist nicht mehr offen.' })
+        return
+      }
+      const body = await readJson(incoming)
+      pendingApprovals.delete(approvalId)
+      resolveApprovalRequest(approval, body.approved === true)
+      sendJson(response, 200, { ok: true })
       return
     }
 
@@ -921,7 +1008,7 @@ const server = createServer(async (incoming, response) => {
         ? null
         : await request('turn/start', {
             threadId: result.thread.id,
-            ...projectTurnExecutionParams(body.cwd),
+            ...projectTurnExecutionParams(body.cwd, body.webAccess),
             input: [
               {
                 type: 'text',
@@ -1043,6 +1130,7 @@ const server = createServer(async (incoming, response) => {
         body.text,
         typeof body.model === 'string' ? body.model : '',
         typeof body.cwd === 'string' ? body.cwd : '',
+        typeof body.webAccess === 'string' ? body.webAccess : 'off',
       )
       sendJson(response, 202, {
         turn: result.turn,

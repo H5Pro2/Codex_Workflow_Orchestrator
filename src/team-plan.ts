@@ -2,11 +2,14 @@ export const MANAGEMENT_ERROR_STATUS_NAME = 'Fehler'
 export const MANAGEMENT_ERROR_STATUS_MEANING =
   'Der Agent konnte seinen Codex-Lauf nicht abschließen und benötigt eine Entscheidung oder neue Anweisung.'
 
+export type AgentWebAccess = 'off' | 'prompt' | 'allowed'
+
 export type ManagementTeamPlanAgent = {
   name: string
   role: string
   prompt: string
   usesProjectKnowledge: boolean
+  webAccess: AgentWebAccess
   workflowStatuses: string[]
 }
 
@@ -217,7 +220,18 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
       const role = typeof item.role === 'string' ? item.role.trim() : ''
       const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : ''
       const usesProjectKnowledge = item.usesProjectKnowledge
-      if (!name || !role || !prompt || name.length > 80 || typeof usesProjectKnowledge !== 'boolean') {
+      const webAccess: AgentWebAccess | null =
+        item.webAccess === 'off' || item.webAccess === 'prompt' || item.webAccess === 'allowed'
+          ? item.webAccess
+          : null
+      if (
+        !name ||
+        !role ||
+        !prompt ||
+        name.length > 80 ||
+        typeof usesProjectKnowledge !== 'boolean' ||
+        webAccess === null
+      ) {
         throw new Error('invalid agent')
       }
       return {
@@ -225,6 +239,7 @@ export function parseManagementTeamPlan(text: string): { plan: ManagementTeamPla
         role,
         prompt,
         usesProjectKnowledge,
+        webAccess,
         workflowStatuses: Array.isArray(item.workflowStatuses)
           ? item.workflowStatuses.filter((status): status is string => typeof status === 'string').map((status) => status.trim()).filter(Boolean)
           : [],

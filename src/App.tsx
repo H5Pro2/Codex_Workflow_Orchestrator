@@ -22,6 +22,7 @@ import {
   looksLikeManagementTeamPlan,
   parseManagementTeamPlan,
   repairManagementStartTopology,
+  type AgentWebAccess,
 } from './team-plan.ts'
 import { runProvisioningTransaction } from './provisioning-transaction.ts'
 import {
@@ -197,6 +198,7 @@ type Agent = {
   talkTo: string[]
   autoForward: boolean
   usesProjectKnowledge: boolean
+  webAccess: AgentWebAccess
   assignment: AgentAssignment
   monitoringScope: 'all' | 'selected'
   monitoredAgentIds: string[]
@@ -234,6 +236,17 @@ type StallNotice = {
   agentName: string
   turnId: string
   durationSeconds: number
+}
+
+type PendingApproval = {
+  id: string
+  method: string
+  threadId: string
+  turnId: string
+  reason: string
+  command: string
+  cwd: string
+  createdAt: string
 }
 
 type CodexProject = {
@@ -744,6 +757,7 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
         : [],
     autoForward: agent.autoForward ?? true,
     usesProjectKnowledge: agent.usesProjectKnowledge ?? true,
+    webAccess: agent.webAccess === 'prompt' || agent.webAccess === 'allowed' ? agent.webAccess : 'off',
     assignment: agent.assignment === 'management' ? 'management' : 'agent',
     monitoringScope: agent.monitoringScope === 'selected'
       ? 'selected'
@@ -1053,7 +1067,7 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
     '    { "name": "Weiterleitung", "meaning": "Das Ergebnis soll an den nächsten Agenten weitergegeben werden." }',
     '  ],',
     '  "agents": [',
-    '    { "name": "Agentenname", "role": "Klare Rolle", "prompt": "Vollständige Arbeitsanweisung", "usesProjectKnowledge": true, "workflowStatuses": ["Weiterleitung"] }',
+    '    { "name": "Agentenname", "role": "Klare Rolle", "prompt": "Vollständige Arbeitsanweisung", "usesProjectKnowledge": true, "webAccess": "off", "workflowStatuses": ["Weiterleitung"] }',
     '  ],',
     '  "connections": [',
     '    { "from": "Agentenname", "to": "Anderer Agent", "status": "Weiterleitung" }',
@@ -1069,6 +1083,7 @@ function managementTeamPlanInstruction(existingStatuses: WorkflowStatusDefinitio
     'Jede Verbindung muss einen vorhandenen Statusbefehl nennen. Weise jedem Agenten unter workflowStatuses genau die Statusbefehle zu, die er verwenden darf.',
     'Der CEO selbst erhält bei der Übernahme ausschließlich den unter startStatus genannten Statusbefehl. Fachliche Verteilungsstatus gehören nur zu dem Agenten, von dessen Dashboard ihr Pfad ausgeht.',
     'Entscheide für jeden Agenten ausdrücklich mit usesProjectKnowledge: true oder false, ob er für seine Rolle auf die projektweite Wissensdatenbank zugreifen muss. Aktiviere sie nur bei fachlichem Quellenbedarf; eine bloße Workflow-Teilnahme reicht nicht aus.',
+    'Entscheide für jeden Agenten ausdrücklich mit webAccess: "off", "prompt" oder "allowed" über den externen Webzugriff. Verwende "allowed" nur, wenn die Rolle das Internet zwingend benötigt, "prompt" für bestätigungspflichtige Ausnahmezugriffe und ansonsten "off".',
     'Definiere unter stops mindestens einen ausdrücklichen Abschlussweg. Ein Stop nennt den Quellagenten, den eindeutigen Abschlussstatus und einen kurzen Namen. Ein normaler Weiterleitungsstatus ist kein Abschlussstatus.',
     'Der Arbeitsablauf darf nicht nur aus einer Endlosschleife bestehen. Jeder erfolgreiche Gesamtabschluss muss über einen Status-Filter zu einem Stop führen.',
     `Der Systemstatus "${MANAGEMENT_ERROR_STATUS_NAME}" ist verpflichtend. Verwende ihn mit der Bedeutung: "${MANAGEMENT_ERROR_STATUS_MEANING}". Weise ihn jedem vorgeschlagenen Agenten zu. Der Orchestrator verdrahtet diesen Status automatisch zurück zum Verwaltungsagenten.`,
@@ -1550,6 +1565,9 @@ function App() {
   const [codexProjects, setCodexProjects] = useState<CodexProject[]>(initialCodexProjects)
   const [codexThreads, setCodexThreads] = useState<CodexThread[]>(initialCodexThreads)
   const [connectorOnline, setConnectorOnline] = useState(false)
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
+  const [approvalResolvingId, setApprovalResolvingId] = useState('')
+  const [approvalError, setApprovalError] = useState('')
   const [maintenanceOpen, setMaintenanceOpen] = useState(false)
   const [maintenanceIncident, setMaintenanceIncident] = useState('')
   const [stallNotice, setStallNotice] = useState<StallNotice | null>(null)
@@ -2220,6 +2238,9 @@ function App() {
     if (proposedAgents.some(({ specification, agent }) =>
       agent?.usesProjectKnowledge !== specification.usesProjectKnowledge,
     )) return false
+    if (proposedAgents.some(({ specification, agent }) =>
+      agent?.webAccess !== specification.webAccess,
+    )) return false
 
     const startAgentId = projectAgentByName.get(selectedTeamPlan.plan.startAgent.trim().toLocaleLowerCase('de-DE'))?.id
     const startStatusId = statusByName.get(selectedTeamPlan.plan.startStatus.trim().toLocaleLowerCase('de-DE'))?.id
@@ -2639,6 +2660,7 @@ function App() {
             talkTo: [],
             autoForward: true,
             usesProjectKnowledge: true,
+            webAccess: 'off',
             assignment: 'agent',
             monitoringScope: 'all',
             monitoredAgentIds: [],
@@ -3105,6 +3127,47 @@ function App() {
 
   useEffect(() => {
     let active = true
+    const syncApprovals = async () => {
+      try {
+        const response = await fetch('/api/approvals')
+        const data = await response.json()
+        if (active && response.ok) {
+          setPendingApprovals(Array.isArray(data.approvals) ? data.approvals : [])
+        }
+      } catch {
+        // Connector health reporting already covers an unavailable bridge.
+      }
+    }
+    void syncApprovals()
+    const timer = window.setInterval(() => void syncApprovals(), 1000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  const resolvePendingApproval = async (approval: PendingApproval, approved: boolean) => {
+    if (approvalResolvingId) return
+    setApprovalResolvingId(approval.id)
+    setApprovalError('')
+    try {
+      const response = await fetch(`/api/approvals/${encodeURIComponent(approval.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Freigabe konnte nicht übermittelt werden.')
+      setPendingApprovals((current) => current.filter((item) => item.id !== approval.id))
+    } catch (error) {
+      setApprovalError(error instanceof Error ? error.message : 'Freigabe konnte nicht übermittelt werden.')
+    } finally {
+      setApprovalResolvingId('')
+    }
+  }
+
+  useEffect(() => {
+    let active = true
     const loadCodexMeta = async () => {
       try {
         const [modelsResponse, usageResponse, accountResponse] = await Promise.all([
@@ -3187,6 +3250,7 @@ function App() {
       talkTo: [],
       autoForward: true,
       usesProjectKnowledge: true,
+      webAccess: 'off',
       assignment: 'agent',
       monitoringScope: 'all',
       monitoredAgentIds: [],
@@ -3300,6 +3364,7 @@ function App() {
         talkTo: [],
         autoForward: true,
         usesProjectKnowledge: true,
+        webAccess: 'off',
         assignment: 'agent',
         monitoringScope: 'all',
         monitoredAgentIds: [],
@@ -3494,6 +3559,7 @@ function App() {
             body: JSON.stringify({
               cwd: selectedProject.path,
               name: specification.name,
+              webAccess: specification.webAccess,
               provisioningTransactionId,
               initialPrompt: tx(
                 'Dieser Codex-Chat wurde als Agent eingerichtet. Antworte ausschließlich mit BEREIT und warte danach auf eine Benutzeranweisung.',
@@ -3531,6 +3597,7 @@ function App() {
               ? specification.workflowStatuses.map((status) => statusByName.get(status.toLocaleLowerCase('de-DE'))?.id).filter((id): id is string => Boolean(id))
               : [],
             usesProjectKnowledge: specification.usesProjectKnowledge,
+            webAccess: specification.webAccess,
             pendingTurnId: data.turn?.id ?? '',
             runStartedAt: data.turn?.id ? new Date().toISOString() : '',
           })
@@ -3548,6 +3615,7 @@ function App() {
               ? specification.workflowStatuses.map((status) => statusByName.get(status.toLocaleLowerCase('de-DE'))?.id).filter((id): id is string => Boolean(id))
               : [],
             usesProjectKnowledge: specification.usesProjectKnowledge,
+            webAccess: specification.webAccess,
             updatedAt: new Date().toISOString(),
           }
         }
@@ -4192,7 +4260,7 @@ function App() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: instruction, model: agent.model || undefined, cwd: agent.projectPath }),
+          body: JSON.stringify({ text: instruction, model: agent.model || undefined, cwd: agent.projectPath, webAccess: agent.webAccess }),
         },
       )
       const data = await response.json()
@@ -4285,7 +4353,7 @@ function App() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: message, model: agent.model || undefined, cwd: agent.projectPath }),
+          body: JSON.stringify({ text: message, model: agent.model || undefined, cwd: agent.projectPath, webAccess: agent.webAccess }),
         },
       )
       const data = await response.json()
@@ -4339,7 +4407,7 @@ function App() {
       const response = await fetch(`/api/threads/${encodeURIComponent(agent.threadId)}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: message, model: agent.model || undefined, cwd: agent.projectPath }),
+        body: JSON.stringify({ text: message, model: agent.model || undefined, cwd: agent.projectPath, webAccess: agent.webAccess }),
       })
       const data = await response.json()
       if (!response.ok) {
@@ -4668,6 +4736,7 @@ function App() {
                 text: correctionMessage,
                 model: agent.model || undefined,
                 cwd: agent.projectPath,
+                webAccess: agent.webAccess,
               }),
             },
           )
@@ -4899,7 +4968,7 @@ function App() {
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: message, model: target.model || undefined, cwd: target.projectPath }),
+            body: JSON.stringify({ text: message, model: target.model || undefined, cwd: target.projectPath, webAccess: target.webAccess }),
           },
         )
         const data = await response.json()
@@ -6127,7 +6196,7 @@ function App() {
           const response = await fetch(`/api/threads/${encodeURIComponent(manager.threadId)}/messages`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: message, model: manager.model || undefined, cwd: manager.projectPath }),
+            body: JSON.stringify({ text: message, model: manager.model || undefined, cwd: manager.projectPath, webAccess: manager.webAccess }),
           })
           const data = await response.json()
           if (!response.ok) {
@@ -6230,7 +6299,7 @@ function App() {
             const response = await fetch(`/api/threads/${encodeURIComponent(target.threadId)}/messages`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: message, model: target.model || undefined, cwd: target.projectPath }),
+              body: JSON.stringify({ text: message, model: target.model || undefined, cwd: target.projectPath, webAccess: target.webAccess }),
             })
             const data = await response.json()
             if (!response.ok) throw new Error(data.error || 'Zeitgesteuerte Aufgabe konnte nicht gesendet werden.')
@@ -6328,7 +6397,7 @@ function App() {
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: message, model: target.model || undefined, cwd: target.projectPath }),
+              body: JSON.stringify({ text: message, model: target.model || undefined, cwd: target.projectPath, webAccess: target.webAccess }),
             },
           )
           const data = await response.json()
@@ -6773,6 +6842,55 @@ function App() {
           </button>
         </div>
       </section>
+
+      {pendingApprovals[0] && (
+        <div className="modalBackdrop" role="presentation">
+          <section
+            aria-labelledby="web-approval-title"
+            aria-modal="true"
+            className="promptModal webApprovalModal"
+            role="alertdialog"
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">{tx('WEBZUGRIFF', 'WEB ACCESS')}</p>
+                <h2 id="web-approval-title">{tx('Freigabe erforderlich', 'Approval required')}</h2>
+              </div>
+            </div>
+            <p className="modalHint">
+              {agents.find((agent) => agent.threadId === pendingApprovals[0].threadId)?.name
+                ?? tx('Unbekannter Agent', 'Unknown agent')}
+            </p>
+            <p className="webApprovalReason">
+              {pendingApprovals[0].reason || tx(
+                'Der Agent benötigt eine einmalige Freigabe für diesen Arbeitsschritt.',
+                'The agent needs one-time approval for this work step.',
+              )}
+            </p>
+            {pendingApprovals[0].command && <pre>{pendingApprovals[0].command}</pre>}
+            {approvalError && <p className="modalError" role="alert">{approvalError}</p>}
+            <div className="modalActions">
+              <button
+                disabled={Boolean(approvalResolvingId)}
+                onClick={() => void resolvePendingApproval(pendingApprovals[0], false)}
+                type="button"
+              >
+                {tx('Ablehnen', 'Decline')}
+              </button>
+              <button
+                className="primary"
+                disabled={Boolean(approvalResolvingId)}
+                onClick={() => void resolvePendingApproval(pendingApprovals[0], true)}
+                type="button"
+              >
+                {approvalResolvingId
+                  ? tx('Wird übermittelt…', 'Submitting…')
+                  : tx('Einmal erlauben', 'Allow once')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {stallNotice && (
         <div className="modalBackdrop" role="presentation" onMouseDown={() => setStallNotice(null)}>
@@ -7708,6 +7826,11 @@ function App() {
                               <small className={agent.usesProjectKnowledge ? 'knowledgeEnabled' : 'knowledgeDisabled'}>{agent.usesProjectKnowledge
                                 ? tx('Projektwissen aktiv', 'Project knowledge enabled')
                                 : tx('Ohne Projektwissen', 'Without project knowledge')}</small>
+                              <small>{tx('Webzugriff', 'Web access')}: {agent.webAccess === 'allowed'
+                                ? tx('Erlaubt', 'Allowed')
+                                : agent.webAccess === 'prompt'
+                                  ? tx('Nach Freigabe', 'On approval')
+                                  : tx('Aus', 'Off')}</small>
                             </article>
                           ))}
                         </div>
@@ -7782,6 +7905,22 @@ function App() {
                 />
                 {tx('Aktiv', 'Active')}
               </label>
+            </section>
+
+            <section className="autoForwardControl" aria-label={tx('Webzugriff', 'Web access')}>
+              <div>
+                <p className="eyebrow">{tx('Netzwerk', 'Network')}</p>
+                <strong>{tx('Webzugriff', 'Web access')}</strong>
+              </div>
+              <select
+                className="webAccessSelect"
+                value={selectedAgent.webAccess}
+                onChange={(event) => updateAgent(selectedAgent.id, { webAccess: event.target.value as AgentWebAccess })}
+              >
+                <option value="off">{tx('Aus', 'Off')}</option>
+                <option value="prompt">{tx('Nach Freigabe', 'On approval')}</option>
+                <option value="allowed">{tx('Erlaubt', 'Allowed')}</option>
+              </select>
             </section>
 
             <section className="autoForwardControl" aria-label={tx('Automatische Weitergabe', 'Automatic forwarding')}>
