@@ -105,6 +105,7 @@ import {
   beginWorkflowRun,
   ensureWorkflowRun,
   normalizeWorkflowRuntime,
+  removeProjectCheckpointsSupersededAt,
   removeWorkflowCheckpoint,
   resumableWorkflowCheckpoint,
   saveWorkflowCheckpoint,
@@ -6317,11 +6318,34 @@ function App() {
       return
     }
     const activeProjectPath = selectedProject?.path ?? ''
+    const latestManualManager = agents
+      .filter((agent) =>
+        agent.assignment === 'management' &&
+        samePath(agent.projectPath, activeProjectPath) &&
+        agent.runPurpose === 'chat' &&
+        Boolean(agent.lastCompletedTurnId),
+      )
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+    const resumeRuntime = latestManualManager
+      ? removeProjectCheckpointsSupersededAt(
+          workflowRuntimeRef.current,
+          activeProjectPath,
+          latestManualManager.updatedAt,
+        )
+      : workflowRuntimeRef.current
+    if (resumeRuntime !== workflowRuntimeRef.current) {
+      const removedCount = workflowRuntimeRef.current.checkpoints.length - resumeRuntime.checkpoints.length
+      updateWorkflowRuntime(() => resumeRuntime)
+      addEvent(
+        'Alte Wiederaufnahme verworfen',
+        `${latestManualManager?.name ?? 'CEO'}: ${removedCount} ältere Kontrollpunkte wurden durch die neuere manuelle Entscheidung ersetzt.`,
+      )
+    }
     const pendingCheckpoint = resumableWorkflowCheckpoint(
-      workflowRuntimeRef.current,
+      resumeRuntime,
       activeProjectPath,
     )
-    const blockedCheckpoint = workflowRuntimeRef.current.checkpoints.find(
+    const blockedCheckpoint = resumeRuntime.checkpoints.find(
       (checkpoint) =>
         samePath(checkpoint.projectPath, activeProjectPath) &&
         checkpoint.state === 'blocked',

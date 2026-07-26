@@ -4,6 +4,7 @@ import {
   appendWorkflowRunEntry,
   ensureWorkflowRun,
   normalizeWorkflowRuntime,
+  removeProjectCheckpointsSupersededAt,
   removeWorkflowCheckpoint,
   resumableWorkflowCheckpoint,
   saveWorkflowCheckpoint,
@@ -21,6 +22,40 @@ test('creates one active run and keeps ordered entries', () => {
   assert.equal(second.runs.length, 1)
   assert.equal(second.runs[0].id, 'run-1')
   assert.equal(second.runs[0].entries[0].detail, 'Ergebnis')
+})
+
+test('a newer manual management decision supersedes old project checkpoints', () => {
+  const runtime = normalizeWorkflowRuntime({
+    checkpoints: [
+      {
+        id: 'old-project',
+        projectPath: 'C:\\Project',
+        updatedAt: '2026-01-01T00:01:00Z',
+        state: 'blocked',
+      },
+      {
+        id: 'new-project',
+        projectPath: 'C:\\Project',
+        updatedAt: '2026-01-01T00:03:00Z',
+        state: 'pending',
+      },
+      {
+        id: 'other-project',
+        projectPath: 'C:\\Other',
+        updatedAt: '2026-01-01T00:01:00Z',
+        state: 'pending',
+      },
+    ],
+  })
+  const result = removeProjectCheckpointsSupersededAt(
+    runtime,
+    'c:/project',
+    '2026-01-01T00:02:00Z',
+  )
+  assert.deepEqual(result.checkpoints.map((checkpoint) => checkpoint.id), [
+    'new-project',
+    'other-project',
+  ])
 })
 
 test('selects and removes a pending project checkpoint', () => {

@@ -180,6 +180,23 @@ export function resumableWorkflowCheckpoint(runtime: WorkflowRuntime, projectPat
   ) ?? null
 }
 
+export function removeProjectCheckpointsSupersededAt(
+  runtime: WorkflowRuntime,
+  projectPath: string,
+  supersededAt: string,
+) {
+  const cutoff = Date.parse(supersededAt)
+  if (!Number.isFinite(cutoff)) return runtime
+  const checkpoints = runtime.checkpoints.filter((checkpoint) => {
+    if (!samePath(checkpoint.projectPath, projectPath)) return true
+    const checkpointTime = Date.parse(checkpoint.updatedAt)
+    return !Number.isFinite(checkpointTime) || checkpointTime > cutoff
+  })
+  return checkpoints.length === runtime.checkpoints.length
+    ? runtime
+    : { ...runtime, checkpoints }
+}
+
 export function removeWorkflowCheckpoint(runtime: WorkflowRuntime, checkpointId: string) {
   return {
     ...runtime,
