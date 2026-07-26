@@ -39,21 +39,33 @@ async function waitForServer(url) {
 
 function fixtureState() {
   return {
-    agents: [{
-      id: 'ceo',
-      name: 'CEO',
-      role: 'du bist CEO',
-      projectId: 'project-1',
-      projectPath: 'C:\\fixture-project',
-      threadTitle: 'CEO',
-      threadId: 'thread-ceo',
-      assignment: 'management',
-      managementInstructionRules: [
-        'Nutze das vorhandene Team.',
-        'Prüfe zuerst die Eignung des Teams.',
-        'Verwende einen Workflow-Status.',
-      ],
-    }],
+    agents: [
+      {
+        id: 'ceo',
+        name: 'CEO',
+        role: 'du bist CEO',
+        projectId: 'project-1',
+        projectPath: 'C:\\fixture-project',
+        threadTitle: 'CEO',
+        threadId: 'thread-ceo',
+        assignment: 'management',
+        managementInstructionRules: [
+          'Nutze das vorhandene Team.',
+          'Prüfe zuerst die Eignung des Teams.',
+          'Verwende einen Workflow-Status.',
+        ],
+      },
+      {
+        id: 'analyst',
+        name: 'Projektanalyst mit langer Bezeichnung',
+        role: 'du bist Projektanalyst',
+        projectId: 'project-1',
+        projectPath: 'C:\\fixture-project',
+        threadTitle: 'Projektanalyst',
+        threadId: 'thread-analyst',
+        assignment: 'specialist',
+      },
+    ],
     events: [],
     hiddenThreadIds: [],
     routes: [],
@@ -72,7 +84,7 @@ function fixtureState() {
   }
 }
 
-test('manages internal CEO instructions through the real UI', { timeout: 30_000 }, async (t) => {
+test('manages internal CEO instructions through the real UI', { timeout: 45_000 }, async (t) => {
   const executablePath = chromeCandidates.find((candidate) => existsSync(candidate))
   if (!executablePath) {
     t.skip('Kein unterstützter lokaler Chromium-Browser gefunden.')
@@ -117,7 +129,10 @@ test('manages internal CEO instructions through the real UI', { timeout: 30_000 
       return
     }
     if (pathname === '/api/threads') {
-      await route.fulfill({ json: { threads: [{ id: 'thread-ceo', name: 'CEO', cwd: 'C:\\fixture-project', status: 'idle' }] } })
+      await route.fulfill({ json: { threads: [
+        { id: 'thread-ceo', name: 'CEO', cwd: 'C:\\fixture-project', status: 'idle' },
+        { id: 'thread-analyst', name: 'Projektanalyst', cwd: 'C:\\fixture-project', status: 'idle' },
+      ] } })
       return
     }
     if (pathname === '/api/provisioning-recovery') {
@@ -209,4 +224,15 @@ test('manages internal CEO instructions through the real UI', { timeout: 30_000 
   await database.getByRole('button', { name: 'Wissensquelle löschen: Mental Core Matrix' }).click()
   await database.getByText('In dieser Kategorie wurden noch keine Wissensquellen angelegt.').waitFor()
   assert.equal(projectSources.length, 0)
+
+  await database.getByRole('button', { name: 'Datenbank-Fenster schließen' }).click({ timeout: 5_000 })
+  await page.getByRole('button', { name: 'Workflow-Dashboard öffnen' }).click({ timeout: 5_000 })
+  const workflowDashboard = page.getByRole('dialog', { name: 'Workflow-Dashboard von CEO' })
+  await workflowDashboard.waitFor({ timeout: 5_000 })
+  await workflowDashboard.getByRole('button', { name: 'Agentenauswahl öffnen' }).click({ timeout: 5_000 })
+  const analystOption = workflowDashboard.getByText('Projektanalyst mit langer Bezeichnung').locator('..').locator('..')
+  await analystOption.getByRole('checkbox').check({ timeout: 5_000 })
+  await workflowDashboard.locator('.react-flow__node', { hasText: 'Projektanalyst mit langer Bezeichnung' }).waitFor({ timeout: 5_000 })
+  await page.waitForTimeout(700)
+  assert.deepEqual(sharedState.workflowBoardAgentIds.ceo, ['ceo', 'analyst'])
 })

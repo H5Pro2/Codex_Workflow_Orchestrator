@@ -134,12 +134,13 @@ Unveränderte Inhalte werden nicht erneut versendet.
 
 ### Workflow-Dashboard
 
-Jeder Agent besitzt eine eigene gespeicherte Verdrahtung. Verbindungen verlaufen immer vom Ausgang `Out` zum Eingang `In`. Agenten können aus der Seitenleiste in das Dashboard gezogen und dort mit Werkzeugen verbunden werden. Bausteine lassen sich frei und ohne Raster positionieren; nur die Aktion `A` ordnet sie automatisch an.
+Jeder Agent besitzt eine eigene gespeicherte Verdrahtung. Verbindungen verlaufen immer vom Ausgang `Out` zum Eingang `In`. Die Agentenauswahl `+` zeigt alle Agenten des aktuellen Projekts und fügt sie direkt in das geöffnete Dashboard ein. Bereits enthaltene Agenten lassen sich dort wieder entfernen; der Eigentümer des Dashboards bleibt fest sichtbar. Drag-and-drop aus der Seitenleiste steht zusätzlich zur Verfügung. Bausteine lassen sich frei und ohne Raster positionieren; nur die Aktion `A` ordnet sie automatisch an.
 
 ![Workflow-Dashboard mit mehreren Statusrouten](bilder/Workflow_Dashboard.PNG)
 
 Die kompakten Aktionen im Dashboard sind:
 
+- `+`: Projektagenten im Dashboard ein- oder ausblenden
 - `A`: Bausteine automatisch anordnen
 - `S`: Statusbefehle des Agenten bearbeiten
 - `T`: Werkzeugpalette öffnen

@@ -1695,13 +1695,15 @@ label {
 }
 
 .dashboardTools,
-.dashboardStatusMenu {
+.dashboardStatusMenu,
+.dashboardAgentMenu {
   position: relative;
 }
 
 .dashboardActions .compactAction,
 .dashboardStatusMenu > summary,
-.dashboardTools > summary {
+.dashboardTools > summary,
+.dashboardAgentMenu > summary {
   background: var(--surface-hover);
   border: 1px solid var(--line-strong);
   border-radius: 6px;
@@ -1719,7 +1721,8 @@ label {
 
 .dashboardActions .iconAction,
 .dashboardStatusMenu > summary,
-.dashboardTools > summary {
+.dashboardTools > summary,
+.dashboardAgentMenu > summary {
   align-items: center;
   display: flex;
   justify-content: center;
@@ -1733,7 +1736,8 @@ label {
 }
 
 .dashboardStatusMenu > summary::-webkit-details-marker,
-.dashboardTools > summary::-webkit-details-marker {
+.dashboardTools > summary::-webkit-details-marker,
+.dashboardAgentMenu > summary::-webkit-details-marker {
   display: none;
 }
 
@@ -1759,13 +1763,15 @@ label {
 
 .dashboardActions .compactAction:hover,
 .dashboardStatusMenu > summary:hover,
-.dashboardTools > summary:hover {
+.dashboardTools > summary:hover,
+.dashboardAgentMenu > summary:hover {
   background: color-mix(in srgb, var(--surface-hover) 88%, var(--text) 12%);
   border-color: color-mix(in srgb, var(--line-strong) 70%, var(--accent) 30%);
 }
 
 .dashboardStatusMenu[open] > summary,
-.dashboardTools[open] > summary {
+.dashboardTools[open] > summary,
+.dashboardAgentMenu[open] > summary {
   background: var(--surface-accent);
   border-color: var(--accent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
@@ -1779,6 +1785,17 @@ label {
   right: 0;
   top: calc(100% + 6px);
   z-index: 30;
+}
+
+.dashboardAgentOptions {
+  box-sizing: border-box;
+  max-height: min(430px, calc(100vh - 150px));
+  min-width: 330px;
+  overflow-y: auto;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 50;
 }
 
 .dashboardToolMenu {
@@ -3844,7 +3861,8 @@ summary:focus-visible {
   }
 
   .dashboardStatusMenu,
-  .dashboardTools {
+  .dashboardTools,
+  .dashboardAgentMenu {
     position: relative;
   }
 

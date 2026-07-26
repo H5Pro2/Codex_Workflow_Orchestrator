@@ -5433,6 +5433,19 @@ function App() {
     setSelectedWorkflowAgentId(agentId)
   }
 
+  const addAgentToDashboard = (agentId: string) => {
+    if (activeBoardAgentIds.includes(agentId)) return
+    const index = dashboardAgents.length
+    dropAgentIntoDashboard(agentId, {
+      x: 70 + (index % 4) * 220,
+      y: 90 + Math.floor(index / 4) * 130,
+    })
+    addEvent(
+      'Agent ins Dashboard eingefügt',
+      projectAgents.find((agent) => agent.id === agentId)?.name ?? 'Agent',
+    )
+  }
+
   const autoArrangeWorkflow = () => {
     const nodeIds = [
       ...projectInitials.map((initial) => initial.id),
@@ -8296,6 +8309,49 @@ function App() {
                   <span>{tx('Verbindungen', 'connections')}</span>
                 </div>
                 <div className="dashboardActionGroup">
+                  <details className="dashboardAgentMenu">
+                    <summary
+                      aria-label={tx('Agentenauswahl öffnen', 'Open agent selection')}
+                      role="button"
+                      title={tx('Agenten', 'Agents')}
+                    >
+                      +
+                    </summary>
+                    <div className="promptStatusOptions dashboardAgentOptions">
+                      <p>{tx(
+                        'Agenten in diesem Dashboard',
+                        'Agents in this dashboard',
+                      )}</p>
+                      {projectAgents.map((agent) => {
+                        const enabled = activeBoardAgentIds.includes(agent.id)
+                        const isOwner = agent.id === activeDashboardOwnerId
+                        return (
+                          <label className="promptStatusOption" key={agent.id}>
+                            <input
+                              checked={enabled}
+                              disabled={isOwner}
+                              onChange={(event) => {
+                                if (event.target.checked) {
+                                  addAgentToDashboard(agent.id)
+                                } else {
+                                  removeAgentFromDashboard(agent.id)
+                                }
+                              }}
+                              type="checkbox"
+                            />
+                            <span>
+                              <strong>{agent.name}</strong>
+                              <small>{isOwner
+                                ? tx('Eigentümer dieses Dashboards', 'Owner of this dashboard')
+                                : enabled
+                                  ? tx('Im Dashboard enthalten', 'Included in dashboard')
+                                  : tx('Zum Dashboard hinzufügen', 'Add to dashboard')}</small>
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </details>
                   <button
                     aria-label={tx('Workflow anordnen', 'Arrange workflow')}
                     className="compactAction iconAction"
