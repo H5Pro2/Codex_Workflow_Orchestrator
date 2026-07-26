@@ -360,6 +360,8 @@ start.bat                     Windows-Startskript
 
 Der Orchestrator-Zustand wird lokal gespeichert. Prompt-Dateien werden im jeweiligen Projekt unter `.codex-orchestrator/prompts/` verwaltet. Lokale Zustände, Zugangsdaten und Chatdaten werden nicht versioniert.
 
+Gemeinsame Zustandsänderungen werden pro Browserfenster serialisiert. Veraltete, noch wartende Snapshots werden verworfen, damit beispielsweise ein bereits ausgelöster `Auto Stop` nicht durch eine verspätete ältere `Auto Start`-Speicherung zurückgesetzt wird.
+
 ### Entscheidungshierarchie
 
 Die technische Workflow-Topologie ist die maßgebliche Entscheidungsebene. Ein Agententext darf keine Verbindung erzeugen, verändern oder umgehen. Er liefert ausschließlich genau ein Statussignal in der letzten Zeile. Das Protokoll akzeptiert nur einen exakten, für den Agenten erlaubten Statusnamen. Fehlende, unbekannte, mehrfach gesetzte oder nicht abschließend platzierte Statusangaben stoppen den betroffenen Fach- oder Initialpfad kontrolliert, statt aus dem Fließtext ein Ziel zu erraten. Nur ein vom Orchestrator ausdrücklich mit dem Laufzweck `monitoring` gestarteter CEO-Lauf darf als ereignislose Beobachtung ohne Status enden. Der persistierte Laufzweck verhindert, dass eine unvollständige Initial- oder Chatantwort fälschlich als Überwachung behandelt wird. Erst ein gültiges Signal darf einen vorhandenen Statusfilter aktivieren; der Statusfilter und seine gespeicherte Verbindung bestimmen anschließend das tatsächliche Ziel.

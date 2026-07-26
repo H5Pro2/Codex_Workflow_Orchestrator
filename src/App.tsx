@@ -73,6 +73,7 @@ import {
   shouldEscalateInternalWorkflowError,
 } from './internal-workflow-error.ts'
 import { verifiedPromptInstruction } from './prompt-delivery.ts'
+import { createLatestWriteQueue } from './latest-write-queue.ts'
 import { projectForThread, threadBelongsToProject } from './codex-project.ts'
 import {
   knowledgeSourceInstruction,
@@ -1749,6 +1750,7 @@ function App() {
   const [sharedStateReady, setSharedStateReady] = useState(false)
   const sharedStateVersion = useRef('')
   const sharedStateDirty = useRef(false)
+  const sharedStateWrites = useRef(createLatestWriteQueue())
   const teamPlanApplyingRef = useRef(false)
   const automaticTeamPlanFormatRequests = useRef(new Set<string>())
   const authorizedTeamPlanRequestAgentIds = useRef(new Set<string>())
@@ -1905,28 +1907,32 @@ function App() {
       return
     }
     sharedStateDirty.current = true
-    const timer = window.setTimeout(async () => {
-      try {
-        const response = await fetch('/api/state', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            state,
-            expectedUpdatedAt: sharedStateVersion.current,
-          }),
-        })
-        if (response.ok) {
+    const revision = sharedStateWrites.current.nextRevision()
+    const timer = window.setTimeout(() => {
+      void sharedStateWrites.current.enqueue(revision, async (isLatest) => {
+        try {
+          const response = await fetch('/api/state', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              state,
+              expectedUpdatedAt: sharedStateVersion.current,
+            }),
+          })
           const data = await response.json()
-          sharedStateVersion.current = data.updatedAt
-          sharedStateDirty.current = false
-        } else if (response.status === 409) {
-          // Let the polling loop apply the newer shared snapshot. This prevents
-          // an older browser tab from overwriting changes made in another tab.
-          sharedStateDirty.current = false
+          if (response.ok) {
+            sharedStateVersion.current = data.updatedAt
+            if (isLatest()) {
+              sharedStateDirty.current = false
+            }
+          } else if (response.status === 409 && isLatest()) {
+            // Let the polling loop apply a genuinely newer snapshot from another tab.
+            sharedStateDirty.current = false
+          }
+        } catch {
+          // LocalStorage remains the offline fallback.
         }
-      } catch {
-        // LocalStorage remains the offline fallback.
-      }
+      })
     }, 450)
     return () => window.clearTimeout(timer)
   }, [agents, autoRun, deliveryQueue, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowPositions, workflowPrompts, workflowRuntime, workflowStatusFilters, workflowStatuses, workflowStops, workflowTimers])
