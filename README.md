@@ -168,7 +168,7 @@ Bausteine werden per Doppelklick konfiguriert. Ein einfacher Klick wählt einen 
 
 ## Projektziel
 
-`Projektziel` neben `Statusbefehle` und `Datenbank` verwaltet genau ein übergeordnetes Ziel für das ausgewählte Projekt. Ausschließlich der Benutzer kann es über diesen Dialog erstellen, bearbeiten oder entfernen. Agenten, CEO, Teampläne, Stopp-Bausteine und automatische Abläufe besitzen keinen Schreibpfad für das Projektziel. Es wird projektlokal unter `.codex-orchestrator/project-goal.json` gespeichert und nicht mit Zielen anderer Projekte vermischt.
+`Projektziel` neben `Statusbefehle` und `Datenbank` verwaltet genau ein übergeordnetes Ziel für das ausgewählte Projekt. Ausschließlich der Benutzer kann es über diesen Dialog erstellen, bearbeiten oder entfernen. Eingefügter Text wird einschließlich Leerzeichen und Zeilenumbrüchen unverändert gespeichert. Agenten, CEO, Teampläne, Stopp-Bausteine und automatische Abläufe besitzen keinen Schreibpfad für das Projektziel. Es wird projektlokal unter `.codex-orchestrator/project-goal.json` gespeichert und nicht mit Zielen anderer Projekte vermischt.
 
 Das Projektziel wird allen Agenten bei direkten Nachrichten, Prompt-Übergaben, Initial-Starts, Workflow-Übergaben, Zeitplänen und Verwaltungsprüfungen als interne Orientierung und Qualitätskontrolle mitgegeben. Es ist ausdrücklich keine eigenständig auszuführende Aufgabe, kein Initialauftrag und kein Ersatz für Rollen-Prompts oder konkrete Übergaben. Ein Agent bearbeitet weiterhin ausschließlich seinen aktuellen Auftrag und meldet erkennbare Abweichungen vom Projektziel in seinem Ergebnis.
 

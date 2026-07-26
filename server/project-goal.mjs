@@ -17,11 +17,10 @@ export function normalizeProjectGoal(value) {
   if (typeof value !== 'string') {
     throw new Error('Das Projektziel muss als Text angegeben werden.')
   }
-  const goal = value.trim()
-  if (goal.length > PROJECT_GOAL_MAX_LENGTH) {
+  if (value.length > PROJECT_GOAL_MAX_LENGTH) {
     throw new Error(`Das Projektziel darf höchstens ${PROJECT_GOAL_MAX_LENGTH} Zeichen enthalten.`)
   }
-  return goal
+  return value
 }
 
 export async function readProjectGoal(projectPath) {

@@ -73,6 +73,7 @@ import {
   type KnowledgeSourceType,
 } from './knowledge-sources.ts'
 import {
+  insertProjectGoalText,
   projectGoalForProject,
   projectGoalInstruction,
   type ProjectGoal,
@@ -7930,6 +7931,22 @@ function App() {
                 autoFocus
                 maxLength={4000}
                 onChange={(event) => setProjectGoalDraft(event.target.value)}
+                onPaste={(event) => {
+                  const pastedText = event.clipboardData.getData('text/plain')
+                  if (!pastedText) return
+                  event.preventDefault()
+                  const textarea = event.currentTarget
+                  const inserted = insertProjectGoalText(
+                    projectGoalDraft,
+                    pastedText,
+                    textarea.selectionStart,
+                    textarea.selectionEnd,
+                  )
+                  setProjectGoalDraft(inserted.value)
+                  window.requestAnimationFrame(() => {
+                    textarea.setSelectionRange(inserted.cursor, inserted.cursor)
+                  })
+                }}
                 rows={9}
                 value={projectGoalDraft}
               />

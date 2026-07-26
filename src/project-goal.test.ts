@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { projectGoalForProject, projectGoalInstruction, type ProjectGoal } from './project-goal.ts'
+import {
+  insertProjectGoalText,
+  projectGoalForProject,
+  projectGoalInstruction,
+  type ProjectGoal,
+} from './project-goal.ts'
 
 const goals: ProjectGoal[] = [
   { projectPath: 'C:\\MCM', goal: 'MCM nachvollziehbar erforschen.' },
@@ -18,4 +23,14 @@ test('builds non-executable project orientation', () => {
   assert.match(instruction, /keine eigenständig auszuführende Aufgabe/)
   assert.match(instruction, /MCM nachvollziehbar erforschen/)
   assert.equal(projectGoalInstruction('  '), '')
+})
+
+test('inserts pasted project goal text without changing whitespace', () => {
+  assert.deepEqual(
+    insertProjectGoalText('VorherNachher', '  erste Zeile\n\nzweite Zeile  ', 6, 6),
+    {
+      value: 'Vorher  erste Zeile\n\nzweite Zeile  Nachher',
+      cursor: 35,
+    },
+  )
 })

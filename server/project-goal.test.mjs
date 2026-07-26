@@ -19,7 +19,10 @@ test('allows project goal writes only from an explicit user action', () => {
 })
 
 test('normalizes and limits a project goal', () => {
-  assert.equal(normalizeProjectGoal('  Gemeinsames Forschungsziel  '), 'Gemeinsames Forschungsziel')
+  assert.equal(
+    normalizeProjectGoal('  Gemeinsames\n\nForschungsziel  '),
+    '  Gemeinsames\n\nForschungsziel  ',
+  )
   assert.throws(() => normalizeProjectGoal(null), /als Text/)
   assert.throws(() => normalizeProjectGoal('x'.repeat(PROJECT_GOAL_MAX_LENGTH + 1)), /höchstens/)
 })
@@ -28,11 +31,12 @@ test('stores one project goal inside the selected project', async () => {
   const projectPath = await mkdtemp(join(tmpdir(), 'orchestrator-goal-'))
   try {
     assert.equal(await readProjectGoal(projectPath), '')
-    assert.equal(await writeProjectGoal(projectPath, 'Nachweisbare MCM-Forschung'), 'Nachweisbare MCM-Forschung')
-    assert.equal(await readProjectGoal(projectPath), 'Nachweisbare MCM-Forschung')
+    const formattedGoal = '  Nachweisbare MCM-Forschung\n\nmit genauer Formatierung  '
+    assert.equal(await writeProjectGoal(projectPath, formattedGoal), formattedGoal)
+    assert.equal(await readProjectGoal(projectPath), formattedGoal)
     const stored = JSON.parse(await readFile(projectGoalFile(projectPath), 'utf8'))
-    assert.deepEqual(stored, { version: 1, goal: 'Nachweisbare MCM-Forschung' })
-    assert.equal(await writeProjectGoal(projectPath, '  '), '')
+    assert.deepEqual(stored, { version: 1, goal: formattedGoal })
+    assert.equal(await writeProjectGoal(projectPath, ''), '')
     assert.equal(await readProjectGoal(projectPath), '')
   } finally {
     await rm(projectPath, { recursive: true, force: true })

@@ -166,7 +166,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
     }
     if (pathname === '/api/project-goal' && request.method() === 'PUT') {
       assert.equal(request.postDataJSON().source, 'user')
-      projectGoal = request.postDataJSON().goal.trim()
+      projectGoal = request.postDataJSON().goal
       await route.fulfill({ json: { goal: projectGoal } })
       return
     }
@@ -198,9 +198,17 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
 
   await page.getByRole('button', { name: 'Projektziel' }).click()
   const projectGoalDialog = page.getByRole('dialog', { name: 'Projektziel bearbeiten' })
-  await projectGoalDialog.getByLabel('Übergeordnetes Projektziel').fill('Ein nachvollziehbar geprüftes Forschungsergebnis.')
+  const projectGoalEditor = projectGoalDialog.getByLabel('Übergeordnetes Projektziel')
+  await projectGoalEditor.fill('AnfangEnde')
+  await projectGoalEditor.evaluate((element) => {
+    const textarea = element
+    textarea.setSelectionRange(6, 6)
+    const clipboardData = new DataTransfer()
+    clipboardData.setData('text/plain', '  Absatz eins\n\nAbsatz zwei  ')
+    textarea.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData }))
+  })
   await projectGoalDialog.getByRole('button', { name: 'Übernehmen' }).click()
-  assert.equal(projectGoal, 'Ein nachvollziehbar geprüftes Forschungsergebnis.')
+  assert.equal(projectGoal, 'Anfang  Absatz eins\n\nAbsatz zwei  Ende')
 
   await page.getByRole('button', { name: 'Datenbank' }).click()
   const database = page.getByRole('dialog', { name: 'Wissensdatenbank konfigurieren' })
