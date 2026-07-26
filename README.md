@@ -120,7 +120,7 @@ Beim Löschen bestätigt der Benutzer den Vorgang in einem anwendungseigenen Dia
 
 ### Prompt-Dateien
 
-Jeder Agent kann mehrere Arbeitsanweisungen als Markdown-Dateien besitzen. Dateien lassen sich erstellen, auswählen, umbenennen und bearbeiten. `Speichern und übergeben` schreibt die Datei und sendet geänderte Inhalte nach Bestätigung an den zugeordneten Codex-Chat.
+Jeder Agent kann mehrere Arbeitsanweisungen als Markdown-Dateien besitzen. Dateien lassen sich erstellen, auswählen, umbenennen und bearbeiten. `Speichern und übergeben` schreibt die Datei atomar, liest sie serverseitig zurück und prüft den Inhalt per SHA-256. Erst danach werden der vollständige Prompt, der Dateipfad und der Prüfwert an den zugeordneten Codex-Chat gesendet. Der eingebettete Prompt ist die Ausführungsgrundlage; die Datei bleibt die persistente Prüffassung. Ein fehlgeschlagener Dateizugriff im Agenten blockiert deshalb nicht mehr die fachliche Bearbeitung.
 
 ![Editor für Prompt-Dateien](bilder/Prompt_Overlay.PNG)
 
@@ -353,6 +353,7 @@ src/workflow-runtime.ts       Persistentes Laufjournal und Wiederaufnahme-Kontro
 src/delivery-queue.ts         Persistierbare Warteschlange paralleler Übergaben
 src/workflow-state.ts         Bereinigung verwaister Dashboard- und Positionsreferenzen
 server/bridge.mjs             Lokaler Connector zum Codex-App-Server
+server/prompt-files.mjs       Atomares Schreiben und SHA-256-Prüfung von Prompt-Dateien
 server/bridge-supervisor.mjs  Health-Check, Fehlerprotokoll und automatischer Neustart
 start.bat                     Windows-Startskript
 ```

@@ -72,6 +72,7 @@ import {
   internalWorkflowErrorStatus,
   shouldEscalateInternalWorkflowError,
 } from './internal-workflow-error.ts'
+import { verifiedPromptInstruction } from './prompt-delivery.ts'
 import { projectForThread, threadBelongsToProject } from './codex-project.ts'
 import {
   knowledgeSourceInstruction,
@@ -171,6 +172,7 @@ type PromptDocument = {
   fileName: string
   content: string
   filePath: string
+  sha256?: string
   lastSentContent: string | null
   updatedAt: string
 }
@@ -654,6 +656,7 @@ function createDefaultPromptDocument(content = ''): PromptDocument {
     fileName: 'Anweisung.md',
     content,
     filePath: '',
+    sha256: '',
     lastSentContent: null,
     updatedAt: new Date().toISOString(),
   }
@@ -703,6 +706,7 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
         fileName: promptFileName(document.fileName || document.name || 'Anweisung'),
         content: normalizeGermanTypography(document.content ?? ''),
         filePath: document.filePath ?? '',
+        sha256: document.sha256 ?? '',
         lastSentContent: typeof document.lastSentContent === 'string' ? document.lastSentContent : null,
         updatedAt: document.updatedAt ?? new Date().toISOString(),
       }))
@@ -1077,6 +1081,8 @@ function internalProjectGoalInstruction(goal: string) {
 function buildInstruction(
   agent: Agent,
   promptPath: string,
+  promptSha256: string,
+  promptContent: string,
   statuses: WorkflowStatusDefinition[],
   monitoredAgents: Agent[],
   sources: KnowledgeSource[],
@@ -1087,8 +1093,11 @@ function buildInstruction(
     `Rolle: ${agent.role}`,
     managementInstruction(agent, monitoredAgents),
     '',
-    `Verbindliche Prompt-Datei: \`${promptPath}\``,
-    'Lies diese Datei zu Beginn vollständig und verwende sie als aktuelle Arbeitsanweisung. Bei Konflikten hat diese Datei Vorrang.',
+    verifiedPromptInstruction({
+      path: promptPath,
+      sha256: promptSha256,
+      content: promptContent,
+    }),
     '',
     internalProjectGoalInstruction(projectGoal),
     '',
@@ -3546,11 +3555,20 @@ function App() {
         if (!promptResponse.ok) {
           throw new Error(promptData.error || `${specification.name}: Prompt-Datei konnte nicht gespeichert werden.`)
         }
+        if (!promptData.path || !promptData.sha256) {
+          throw new Error(`${specification.name}: Prompt-Datei wurde nicht vollständig verifiziert.`)
+        }
         agent = {
           ...agent,
           promptDocuments: agent.promptDocuments.map((document) =>
             document.id === promptDocument.id
-              ? { ...document, content: specification.prompt, filePath: promptData.path, updatedAt: new Date().toISOString() }
+              ? {
+                  ...document,
+                  content: specification.prompt,
+                  filePath: promptData.path,
+                  sha256: promptData.sha256,
+                  updatedAt: new Date().toISOString(),
+                }
               : document,
           ),
         }
@@ -4090,7 +4108,9 @@ function App() {
     }
     if (
       promptDocument.lastSentContent !== null &&
-      promptDocument.content === promptDocument.lastSentContent
+      promptDocument.content === promptDocument.lastSentContent &&
+      promptDocument.filePath &&
+      promptDocument.sha256
     ) {
       addEvent(
         'Inhalt nicht verändert',
@@ -4102,6 +4122,7 @@ function App() {
     setAgentTransmission(agent.id, true)
     const nextVersion = agent.instructionVersion + 1
     let filePath = promptDocument.filePath
+    let promptSha256 = promptDocument.sha256 ?? ''
     try {
       const response = await fetch('/api/prompt-files', {
         method: 'POST',
@@ -4118,11 +4139,15 @@ function App() {
         throw new Error(data.error || 'Prompt-Datei konnte nicht gespeichert werden.')
       }
       filePath = data.path
+      promptSha256 = data.sha256
+      if (!filePath || !promptSha256) {
+        throw new Error('Die gespeicherte Prompt-Datei wurde vom Server nicht vollständig verifiziert.')
+      }
       updateAgent(agent.id, {
         prompt: promptDocument.content,
         promptDocuments: agent.promptDocuments.map((document) =>
           document.id === promptDocument.id
-            ? { ...document, filePath, updatedAt: new Date().toISOString() }
+            ? { ...document, filePath, sha256: promptSha256, updatedAt: new Date().toISOString() }
             : document,
         ),
       })
@@ -4138,6 +4163,8 @@ function App() {
     const instruction = buildInstruction(
       agent,
       filePath,
+      promptSha256,
+      promptDocument.content,
       workflowStatusesForAgent(agent, workflowStatuses),
       monitoredAgentsFor(agent, agents),
       knowledgeSourcesForAgent(knowledgeSources, agent.projectPath, agent.usesProjectKnowledge),
@@ -4176,6 +4203,7 @@ function App() {
           ? {
               ...document,
               filePath,
+              sha256: promptSha256,
               lastSentContent: promptDocument.content,
               updatedAt: new Date().toISOString(),
             }

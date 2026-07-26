@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createReadStream } from 'node:fs'
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve } from 'node:path'
@@ -11,6 +11,7 @@ import { createSharedStateStore } from './shared-state.mjs'
 import { applyThreadProjectAssignments, savedProjectsFromState } from './codex-project-state.mjs'
 import { readKnowledgeSources, writeKnowledgeSources } from './knowledge-sources.mjs'
 import { assertUserProjectGoalWriteSource, readProjectGoal, writeProjectGoal } from './project-goal.mjs'
+import { writeVerifiedPromptFile } from './prompt-files.mjs'
 import {
   projectThreadExecutionParams,
   projectTurnExecutionParams,
@@ -959,22 +960,18 @@ const server = createServer(async (incoming, response) => {
       const content = typeof body.content === 'string' ? body.content : ''
       const safeAgentId = agentId.replace(/[^a-zA-Z0-9_-]/g, '')
       const safeFileName = basename(requestedFileName)
-
-      if (!projectPath || !safeAgentId || !safeFileName || safeFileName !== requestedFileName) {
+      if (!projectPath || !safeAgentId || safeAgentId !== agentId || !safeFileName || safeFileName !== requestedFileName) {
         sendJson(response, 400, { error: 'Projekt, Agent und ein gültiger Dateiname sind erforderlich.' })
         return
       }
 
-      const fileName = safeFileName.toLocaleLowerCase('de-DE').endsWith('.md')
-        ? safeFileName
-        : `${safeFileName}.md`
-      const promptDirectory = join(resolve(projectPath), '.codex-orchestrator', 'prompts', safeAgentId)
-      const targetPath = join(promptDirectory, fileName)
-      await mkdir(promptDirectory, { recursive: true })
-      await writeFile(targetPath, content, 'utf8')
-      sendJson(response, 200, {
-        path: relative(resolve(projectPath), targetPath).replaceAll('\\', '/'),
+      const persistedPrompt = await writeVerifiedPromptFile({
+        projectPath,
+        agentId,
+        fileName: requestedFileName,
+        content,
       })
+      sendJson(response, 200, persistedPrompt)
       return
     }
 
