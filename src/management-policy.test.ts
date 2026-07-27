@@ -51,3 +51,9 @@ test('internal CEO instructions are hidden from the visible chat message', () =>
   assert.equal(visibleOrchestratorMessage(message), 'Start')
   assert.match(message, /CEO-Regelbuch/)
 })
+
+test('workflow status lines can be hidden without deleting them from the raw message', () => {
+  const message = 'Ergebnis liegt vor.\n\n[Workflow-Status: Weiterleitung]'
+  assert.equal(visibleOrchestratorMessage(message), 'Ergebnis liegt vor.')
+  assert.equal(visibleOrchestratorMessage(message, true), message)
+})

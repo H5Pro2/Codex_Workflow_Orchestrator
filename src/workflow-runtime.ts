@@ -18,6 +18,7 @@ export type WorkflowRunEntry = {
   targetAgentNames: string[]
   statusIds: string[]
   statusNames: string[]
+  taskSignature?: string
   detail: string
 }
 
@@ -180,6 +181,14 @@ export function resumableWorkflowCheckpoint(runtime: WorkflowRuntime, projectPat
   ) ?? null
 }
 
+export function isRecoverableContinuationCandidate(agent: {
+  status: string
+  lastResult: string
+  lastCompletedTurnId: string
+}) {
+  return agent.status === 'fertig' && Boolean(agent.lastResult && agent.lastCompletedTurnId)
+}
+
 type CheckpointAgentState = {
   id: string
   status: string
@@ -225,6 +234,31 @@ export function removeWorkflowCheckpoint(runtime: WorkflowRuntime, checkpointId:
   }
 }
 
+export function resetProjectWorkflowRuntime(
+  runtime: WorkflowRuntime,
+  projectPath: string,
+  at = new Date().toISOString(),
+) {
+  const resetEntry = workflowRunEntry('completed', {
+    detail: 'Arbeitslauf durch den Benutzer zurückgesetzt.',
+  }, at)
+  return {
+    runs: runtime.runs.map((run) =>
+      samePath(run.projectPath, projectPath) && run.status !== 'completed'
+        ? {
+            ...run,
+            status: 'completed' as const,
+            updatedAt: at,
+            entries: [...run.entries, resetEntry],
+          }
+        : run,
+    ),
+    checkpoints: runtime.checkpoints.filter(
+      (checkpoint) => !samePath(checkpoint.projectPath, projectPath),
+    ),
+  }
+}
+
 export function workflowRunEntry(
   kind: WorkflowRunEntryKind,
   values: Partial<Omit<WorkflowRunEntry, 'id' | 'at' | 'kind'>> = {},
@@ -240,6 +274,7 @@ export function workflowRunEntry(
     targetAgentNames: values.targetAgentNames ?? [],
     statusIds: values.statusIds ?? [],
     statusNames: values.statusNames ?? [],
+    taskSignature: values.taskSignature,
     detail: values.detail ?? '',
   }
 }

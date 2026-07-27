@@ -7,3 +7,15 @@ export function deliveryDeduplicationSignature(
   if (!reportEveryTurn || !completedTurnId) return taskSignature
   return `${taskSignature}::turn:${completedTurnId}`
 }
+
+export function shouldDeliverWorkflowTask({
+  currentSignature,
+  lastForwardedSignature,
+  replayCheckpoint = false,
+}: {
+  currentSignature: string
+  lastForwardedSignature?: string
+  replayCheckpoint?: boolean
+}) {
+  return replayCheckpoint || !currentSignature || lastForwardedSignature !== currentSignature
+}

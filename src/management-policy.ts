@@ -63,10 +63,15 @@ export function withInternalInstructions(visibleText: string, instructions: stri
   ].join('\n')
 }
 
-export function visibleOrchestratorMessage(text: string) {
+export function visibleOrchestratorMessage(text: string, showWorkflowStatusLines = false) {
   const internalBlock = new RegExp(
     `\\s*${INTERNAL_INSTRUCTIONS_START}[\\s\\S]*?${INTERNAL_INSTRUCTIONS_END}\\s*`,
     'g',
   )
-  return text.replace(internalBlock, '\n\n').trim()
+  const visibleText = text.replace(internalBlock, '\n\n')
+  if (showWorkflowStatusLines) return visibleText.trim()
+  return visibleText
+    .replace(/^\s*\[Workflow-Status:\s*[^\]\r\n]+\]\s*$/gimu, '')
+    .replace(/\n{3,}/gu, '\n\n')
+    .trim()
 }

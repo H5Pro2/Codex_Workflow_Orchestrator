@@ -29,7 +29,7 @@ Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der Codex-Ch
 
 ### Profil und Programmeinstellungen
 
-Am unteren Ende der Agentenleiste befindet sich der globale Profilzugang. Wenn der lokale Codex-Connector einen Kontohinweis bereitstellt, verwendet die Oberfläche dessen vorgeschlagenen Anzeigenamen; andernfalls wird neutral `Codex` angezeigt. Der Anzeigename kann ausschließlich lokal überschrieben werden. Die vollständige E-Mail-Adresse oder andere Kontodaten werden nicht an die Weboberfläche übertragen.
+Am unteren Ende der Agentenleiste befindet sich der globale Profilzugang. Wenn der lokale Codex-Connector einen Kontohinweis bereitstellt, verwendet die Oberfläche dessen vorgeschlagenen Anzeigenamen; andernfalls wird neutral `Codex` angezeigt. Ein eigener Anzeigename und die Darstellungseinstellungen werden über die Bridge im lokalen Codex-Profil gespeichert und dadurch von allen Browseransichten des Orchestrators gemeinsam verwendet. Die vollständige E-Mail-Adresse oder andere Kontodaten werden nicht an die Weboberfläche übertragen.
 
 Ein Klick auf das Profil öffnet eine eigenständige Einstellungsansicht mit einem direkten Rücksprung über `Zurück zur App`. Diese Einstellungen gelten für die gesamte Anwendung und sind von den Setups einzelner Agenten getrennt.
 
@@ -41,11 +41,12 @@ Unter `Aussehen` stehen zur Verfügung:
 - kontrastoptimierte Oberflächen für Chat, Agentenliste, Protokoll und Workflow-Dashboard in beiden Modi
 - durchgängige semantische Flächenfarben für Statusmenüs, Setup-Bereiche, Workflow-Werkzeuge, Fortschrittsanzeigen und Fehlermeldungen sowie klar erkennbare Gefahrenaktionen
 - frei wählbare Akzent-, Hintergrund- und Vordergrundfarben
+- getrennte Farben für normale Schaltflächen und deren Beschriftung
 - Auswahl der UI- und Code-Schriftart
 - regelbarer Oberflächenkontrast
 - Rücksetzen auf das Standarddesign
 
-Die gewählten Programmeinstellungen werden lokal im Browser gespeichert.
+Die gewählten Programmeinstellungen werden über die lokale Bridge global im Codex-Profil gespeichert. Dadurch verwenden normale Browserfenster und der Codex-interne Browser denselben Anzeigenamen und dieselben Farben. Eine Browserkopie dient nur als Offline-Rückfall.
 
 ### Agenten-Chat
 
@@ -151,6 +152,10 @@ Die kompakten Aktionen im Dashboard sind:
 
 Über `S` werden die Statusbefehle festgelegt, die der jeweilige Agent verwenden darf. Name und Bedeutung stammen aus den projektweiten Statusbefehlen.
 
+Der feste Status `Weiterleiten` bildet eine einfache, statuslose Übergabe: Jede abgeschlossene Antwort wird an genau einen verbundenen Zielagenten weitergegeben. Damit darf gezielt ein direkter Zwei-Agenten-Kreis aufgebaut werden, beispielsweise `Forschungsagent -> Prüfer -> Forschungsagent`. Selbstverbindungen, mehrere Ziele und Kreise mit drei oder mehr Agenten bleiben gesperrt. `Auto Stop` hält die Weitergabe an; `Arbeitslauf zurücksetzen` entfernt zusätzlich vorgemerkte Übergaben und den gespeicherten Laufzustand.
+
+Explizite Benutzergrenzen bleiben bei jeder Statusübergabe verbindlich. Ein Auftrag wie Browserwiedergabe ohne Download oder lokale Kopie darf von einem Folgeagenten nicht in eine lokale Datei-, Download- oder Installationsvoraussetzung umgedeutet werden. Erkennt der Orchestrator diesen Widerspruch, wird der normale Fachpfad unterbrochen und als interner Workflowfehler an die zuständige Verwaltung gemeldet.
+
 ![Statusauswahl eines Agenten](bilder/Statusliste.PNG)
 
 ### Workflow-Werkzeuge
@@ -236,7 +241,6 @@ Eine Übergabe gilt erst als erfolgreich, wenn der Connector für den Ziel-Chat 
 - keine neue automatische Weitergabe
 - ruhende Verbindungsanimationen
 - keine manuelle oder verwaltete Erstellung neuer Agenten
-- keine weiterlaufende, automatisch gestartete Wartungsdiagnose
 
 Ein Agent, der beim Stoppen bereits arbeitet, darf seinen laufenden Codex-Turn noch abschließen. Danach wird keine weitere Route gestartet und sein Laufstatus auf `Warten` zurückgesetzt. Auch alle bereits abgeschlossenen Agentenstatus werden bei `Auto Stop` auf `Warten` gesetzt; nur wirklich laufende Turns bleiben bis zu ihrem Abschluss aktiv sichtbar. Direkte Chat-Nachrichten und manuelle Prompt-Übergaben bleiben auch bei ausgeschalteter Automatik verfügbar. Ihr tatsächlicher Laufstatus wird unabhängig von `Auto Start` in der Agentenliste, im Chatkopf und am Codex-Chat als sichtbare Arbeitsanimation angezeigt.
 
@@ -252,22 +256,7 @@ Eine deterministische Systemüberwachung beobachtet den tatsächlich gespeichert
 
 Der Orchestrator merkt sich bei einer Übergabe zusätzlich den unmittelbar sendenden Agenten. Meldet ein Verwaltungsagent nach einer Fehleranalyse eine konkrete, begrenzte Wiederaufnahme- oder Überarbeitungsaufgabe und existiert dafür kein eigener Dashboard-Pfad, wird diese Antwort gezielt an den betroffenen Agenten zurückgegeben. Ein vollständiger Team-Vorschlag bleibt dagegen bei `Auto Stop` und wartet auf die Freigabe des Benutzers. Meldet der Verwaltungsagent selbst einen technischen Fehler oder gibt es keinen gültigen Fortsetzungsweg, stoppt die Automatik sichtbar, anstatt ohne aktive Arbeit eingeschaltet zu bleiben. Der Watchdog greift pro Codex-Turn höchstens einmal ein.
 
-Zusätzlich gehört der interne **Kommunikations-Worker** fest zum Orchestrator. Er ist kein Projektagent und erscheint deshalb weder in der Agentenliste noch in einem Projekt-Dashboard. Sein eigener Codex-Task arbeitet ausschließlich im Arbeitsordner des Orchestrators und ist auf folgende technische Diagnosebereiche beschränkt:
-
-- Connector und Codex-App-Server-Protokoll
-- Erstellung, Persistenz, Abfrage und Unterbrechung von Turns
-- Agentenstatus, Zielwarteschlangen und automatische Übergaben
-- Statusrouting, Automatik-Lease und festhängende Workflow-Verarbeitung
-
-Bei einem Watchdog-Eingriff startet der Kommunikations-Worker automatisch eine **lesende Diagnose**. Eine Diagnose kann außerdem über die kompakte Schaltfläche `W` am Connector manuell angefordert werden. Der Bericht nennt Ursache, Indizien, betroffene Komponente und den kleinstmöglichen Reparaturvorschlag. Fachliche Inhalte und Dateien ausgewählter Benutzerprojekte gehören ausdrücklich nicht zu seinem Zuständigkeitsbereich.
-
-Kommunikations-, Connector- und Routingfehler werden im Hintergrund an den Kommunikations-Worker gemeldet, ohne für jeden Fehler ein zusätzliches Dialogfenster zu öffnen. Nur wenn der Watchdog einen festhängenden Codex-Lauf tatsächlich abbricht, erscheint ein kompakter Hinweis mit Agent, Laufzeit und direktem Zugang zum Diagnosebericht.
-
-Neben der Schaltfläche zeigt die Oberfläche den aktuellen Wartungszustand dauerhaft an: `Bereit`, `Diagnose`, `Bericht` oder `Fehler`. So bleibt auch bei geschlossenem Wartungsfenster sichtbar, ob der Kommunikations-Worker arbeitet oder ein Bericht vorliegt.
-
-Der Worker ist strikt diagnose-only: Er darf keine Datei ändern, keine Workflow-Verbindung erzeugen oder bearbeiten, keine Reparatur ausführen und keinen Prozess neu starten. Bei einer automatischen, eindeutig einem Projektagenten zugeordneten Diagnose übergibt der Connector den fertigen Bericht an genau einen zuständigen und freien Verwaltungsagenten beziehungsweise CEO. Ist die Zuständigkeit nicht eindeutig oder der CEO beschäftigt, bleibt die Übergabe sichtbar ausstehend und wird beim nächsten Statusabruf erneut geprüft.
-
-Der CEO bewertet Ursache und Reparaturvorschlag. Bei bereits konfigurierten Fehlerpfaden kann eine begrenzte Wiederaufnahmeanweisung über den vorhandenen Rückgabepfad an den betroffenen Agenten gehen. Fehlt ein gültiger Fortsetzungsweg, bleibt die Automatik gestoppt. Dauerhafte Änderungen an Agenten, Statusfiltern oder Verbindungen muss der CEO als vollständigen Teamplan vorschlagen; nur der Orchestrator darf diesen nach Benutzerfreigabe validieren und anwenden. Die Oberfläche erzeugt keine automatischen Reparaturrouten mehr. Der Wartungszustand wird im Connector gespeichert, sodass Diagnose und Übergabestatus auch nach einem Browser-Neuladen erhalten bleiben.
+Connector-, Turn- und Routingfehler werden ohne zusätzlichen Diagnoseagenten direkt im Ablaufprotokoll angezeigt. Ein Watchdog-Abbruch erscheint außerdem als kompakter Hinweis mit Agent und Laufzeit. Der Orchestrator erzeugt daraus weder einen neuen Codex-Task noch eine automatische CEO-Übergabe. Fachliche Fehlerpfade, explizite Statusverbindungen und gespeicherte Wiederaufnahmen bleiben davon unberührt.
 
 ## Zeitpläne
 
@@ -327,6 +316,8 @@ npm run dev -- --host 127.0.0.1
 ```
 
 `npm run bridge` startet einen lokalen Supervisor. Er prüft den Connector regelmäßig über `/api/health`, protokolliert Prozessfehler unter `server/logs/bridge-supervisor.log` und startet die Bridge nach einem Absturz oder mehreren fehlgeschlagenen Gesundheitsprüfungen automatisch neu. Für eine gezielte Diagnose ohne automatische Wiederherstellung steht `npm run bridge:direct` zur Verfügung.
+
+Bei `Webzugriff: Erlaubt` gibt der Connector ausschließlich die HTTP(S)-Ursprünge frei, die im konkreten Arbeitsauftrag ausdrücklich als URL genannt werden. Eine ältere Ablehnung desselben Ursprungs wird für diesen Agenten-Task dabei aufgehoben. Andere Domains und Agenten ohne Webfreigabe bleiben unverändert geschützt.
 
 ## Architektur
 

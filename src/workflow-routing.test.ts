@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { resolveConfiguredDeliveries } from './workflow-routing.ts'
+import {
+  resolveConfiguredDeliveries,
+  resolveUnconditionalForwarding,
+  wouldCreateUnsupportedUnconditionalForwardCycle,
+} from './workflow-routing.ts'
 
 const route = (id: string, sourceId: string, targetId: string) => ({
   id,
@@ -19,14 +23,14 @@ test('routes only the status selected by the validated protocol signal', () => {
       route('ceo-filter', 'ceo', 'forward-filter'),
       route('filter-frontend', 'forward-filter', 'frontend'),
       route('ceo-error', 'ceo', 'error-filter'),
-      route('error-worker', 'error-filter', 'worker'),
+      route('error-diagnostics', 'error-filter', 'diagnostics'),
     ],
     statusFilters: [
       { id: 'forward-filter', statusId: 'forward' },
       { id: 'error-filter', statusId: 'error' },
     ],
     promptNodes: [],
-    targetIds: new Set(['frontend', 'worker']),
+    targetIds: new Set(['frontend', 'diagnostics']),
     stopIds: new Set(),
   })
   assert.deepEqual(deliveries.map((delivery) => delivery.targetId), ['frontend'])
@@ -58,4 +62,74 @@ test('resolves configured stop paths', () => {
     stopIds: new Set(['project-stop']),
   })
   assert.deepEqual(deliveries.map((delivery) => delivery.stopId), ['project-stop'])
+})
+
+test('fixed forwarding resolves exactly one connected target without a text status', () => {
+  const resolved = resolveUnconditionalForwarding({
+    sourceId: 'developer',
+    statusId: 'system-forward',
+    routes: [
+      route('developer-filter', 'developer', 'forward-filter'),
+      route('filter-reviewer', 'forward-filter', 'reviewer'),
+    ],
+    statusFilters: [{ id: 'forward-filter', statusId: 'system-forward' }],
+    targetIds: new Set(['reviewer']),
+  })
+  assert.equal(resolved.enabled, true)
+  assert.equal(resolved.delivery?.targetId, 'reviewer')
+  assert.equal(resolved.issue, '')
+})
+
+test('fixed forwarding rejects multiple target agents', () => {
+  const resolved = resolveUnconditionalForwarding({
+    sourceId: 'developer',
+    statusId: 'system-forward',
+    routes: [
+      route('developer-filter', 'developer', 'forward-filter'),
+      route('filter-reviewer', 'forward-filter', 'reviewer'),
+      route('filter-qa', 'forward-filter', 'qa'),
+    ],
+    statusFilters: [{ id: 'forward-filter', statusId: 'system-forward' }],
+    targetIds: new Set(['reviewer', 'qa']),
+  })
+  assert.equal(resolved.enabled, true)
+  assert.equal(resolved.delivery, null)
+  assert.match(resolved.issue, /genau einem Zielagenten/u)
+})
+
+test('fixed forwarding allows a deliberate two-agent cycle', () => {
+  assert.equal(wouldCreateUnsupportedUnconditionalForwardCycle({
+    sourceAgentId: 'reviewer',
+    targetAgentId: 'researcher',
+    statusId: 'system-forward',
+    routes: [
+      route('researcher-filter', 'researcher', 'researcher-forward'),
+      route('researcher-reviewer', 'researcher-forward', 'reviewer'),
+      route('reviewer-filter', 'reviewer', 'reviewer-forward'),
+    ],
+    statusFilters: [
+      { id: 'researcher-forward', ownerAgentId: 'researcher', statusId: 'system-forward' },
+      { id: 'reviewer-forward', ownerAgentId: 'reviewer', statusId: 'system-forward' },
+    ],
+  }), false)
+})
+
+test('fixed forwarding rejects a cycle with three agents', () => {
+  assert.equal(wouldCreateUnsupportedUnconditionalForwardCycle({
+    sourceAgentId: 'reviewer',
+    targetAgentId: 'ceo',
+    statusId: 'system-forward',
+    routes: [
+      route('ceo-filter', 'ceo', 'ceo-forward'),
+      route('ceo-developer', 'ceo-forward', 'developer'),
+      route('developer-filter', 'developer', 'developer-forward'),
+      route('developer-reviewer', 'developer-forward', 'reviewer'),
+      route('reviewer-filter', 'reviewer', 'reviewer-forward'),
+    ],
+    statusFilters: [
+      { id: 'ceo-forward', ownerAgentId: 'ceo', statusId: 'system-forward' },
+      { id: 'developer-forward', ownerAgentId: 'developer', statusId: 'system-forward' },
+      { id: 'reviewer-forward', ownerAgentId: 'reviewer', statusId: 'system-forward' },
+    ],
+  }), true)
 })

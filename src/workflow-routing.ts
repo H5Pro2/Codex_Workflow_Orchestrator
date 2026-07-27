@@ -24,6 +24,90 @@ export type ResolvedWorkflowDelivery = {
   stopId?: string
 }
 
+export function resolveUnconditionalForwarding({
+  sourceId,
+  statusId,
+  routes,
+  statusFilters,
+  targetIds,
+}: {
+  sourceId: string
+  statusId: string
+  routes: readonly WorkflowRouteLike[]
+  statusFilters: readonly WorkflowStatusFilterLike[]
+  targetIds: ReadonlySet<string>
+}) {
+  const filterIds = new Set(
+    statusFilters.filter((filter) => filter.statusId === statusId).map((filter) => filter.id),
+  )
+  const connectedFilterIds = new Set(
+    routes
+      .filter((route) => route.sourceId === sourceId && filterIds.has(route.targetId))
+      .map((route) => route.targetId),
+  )
+  if (connectedFilterIds.size === 0) {
+    return { enabled: false, delivery: null, issue: '' }
+  }
+  const deliveries = routes
+    .filter((route) => connectedFilterIds.has(route.sourceId) && targetIds.has(route.targetId))
+    .map((route) => ({ targetId: route.targetId, stopId: undefined, route }))
+  if (connectedFilterIds.size !== 1 || deliveries.length !== 1) {
+    return {
+      enabled: true,
+      delivery: null,
+      issue: 'Der feste Status „Weiterleiten“ muss mit genau einem Zielagenten verbunden sein.',
+    }
+  }
+  return { enabled: true, delivery: deliveries[0], issue: '' }
+}
+
+export function wouldCreateUnsupportedUnconditionalForwardCycle({
+  sourceAgentId,
+  targetAgentId,
+  statusId,
+  routes,
+  statusFilters,
+}: {
+  sourceAgentId: string
+  targetAgentId: string
+  statusId: string
+  routes: readonly WorkflowRouteLike[]
+  statusFilters: readonly (WorkflowStatusFilterLike & { ownerAgentId?: string })[]
+}) {
+  const forwardFilters = statusFilters.filter((filter) => filter.statusId === statusId)
+  const adjacency = new Map<string, Set<string>>()
+  forwardFilters.forEach((filter) => {
+    const ownerId = filter.ownerAgentId
+    if (!ownerId) return
+    const connectedFromOwner = routes.some((route) =>
+      route.sourceId === ownerId && route.targetId === filter.id,
+    )
+    if (!connectedFromOwner) return
+    routes.filter((route) => route.sourceId === filter.id).forEach((route) => {
+      adjacency.set(ownerId, new Set([...(adjacency.get(ownerId) ?? []), route.targetId]))
+    })
+  })
+  adjacency.set(
+    sourceAgentId,
+    new Set([...(adjacency.get(sourceAgentId) ?? []), targetAgentId]),
+  )
+  const pending = [{ agentId: targetAgentId, distance: 0 }]
+  const visited = new Set<string>()
+  while (pending.length > 0) {
+    const current = pending.pop()
+    if (!current || visited.has(current.agentId)) continue
+    if (current.agentId === sourceAgentId) {
+      return current.distance !== 1
+    }
+    visited.add(current.agentId)
+    pending.push(...[...(adjacency.get(current.agentId) ?? [])].map((agentId) => ({
+      agentId,
+      distance: current.distance + 1,
+    })))
+  }
+  return false
+}
+
 export function routeConditionMatches(condition: string, result: string) {
   const normalized = condition.trim().toLocaleLowerCase('de-DE')
   return (

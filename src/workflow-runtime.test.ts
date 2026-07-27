@@ -4,8 +4,10 @@ import {
   appendWorkflowRunEntry,
   ensureWorkflowRun,
   isOrphanedPendingCheckpoint,
+  isRecoverableContinuationCandidate,
   normalizeWorkflowRuntime,
   removeProjectCheckpointsSupersededAt,
+  resetProjectWorkflowRuntime,
   removeWorkflowCheckpoint,
   resumableWorkflowCheckpoint,
   saveWorkflowCheckpoint,
@@ -110,4 +112,49 @@ test('recognizes a pending handoff orphaned by an application restart', () => {
     { id: 'lead', status: 'fertig', pendingTurnId: '' },
     { id: 'video', status: 'laeuft', pendingTurnId: 'turn-2' },
   ]), false)
+})
+
+test('does not recover historical agents after a clean workflow stop', () => {
+  assert.equal(isRecoverableContinuationCandidate({
+    status: 'weitergegeben',
+    lastResult: 'Altes Ergebnis',
+    lastCompletedTurnId: 'turn-old',
+  }), false)
+  assert.equal(isRecoverableContinuationCandidate({
+    status: 'fertig',
+    lastResult: 'Noch nicht weitergegebenes Ergebnis',
+    lastCompletedTurnId: 'turn-current',
+  }), true)
+})
+
+test('resets only the selected project run and keeps its history', () => {
+  const runtime = normalizeWorkflowRuntime({
+    runs: [
+      {
+        id: 'selected-run',
+        projectPath: 'C:\\Project',
+        status: 'active',
+        updatedAt: '2026-01-01T00:00:00Z',
+        entries: [],
+      },
+      {
+        id: 'other-run',
+        projectPath: 'C:\\Other',
+        status: 'active',
+        updatedAt: '2026-01-01T00:00:00Z',
+        entries: [],
+      },
+    ],
+    checkpoints: [
+      { id: 'selected-checkpoint', projectPath: 'C:\\Project' },
+      { id: 'other-checkpoint', projectPath: 'C:\\Other' },
+    ],
+  })
+
+  const reset = resetProjectWorkflowRuntime(runtime, 'c:/project', '2026-01-01T01:00:00Z')
+
+  assert.equal(reset.runs[0].status, 'completed')
+  assert.equal(reset.runs[0].entries.at(-1)?.detail, 'Arbeitslauf durch den Benutzer zurückgesetzt.')
+  assert.equal(reset.runs[1].status, 'active')
+  assert.deepEqual(reset.checkpoints.map((checkpoint) => checkpoint.id), ['other-checkpoint'])
 })

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  UNCONDITIONAL_FORWARD_STATUS_ID,
   parseWorkflowSignal,
   workflowSignalIssue,
   workflowStatusInstruction,
@@ -60,4 +61,14 @@ test('status instructions define technical topology as authoritative', () => {
   assert.match(instruction, /Mehrere Statusangaben/)
   assert.match(instruction, /Interner Workflow-Fehler/)
   assert.match(instruction, /kein Projektfehler/)
+})
+
+test('fixed forwarding tells the agent to answer without a status marker', () => {
+  const instruction = workflowStatusInstruction([{
+    id: UNCONDITIONAL_FORWARD_STATUS_ID,
+    name: 'Weiterleiten',
+  }])
+  assert.match(instruction, /jede abgeschlossene Antwort automatisch/u)
+  assert.match(instruction, /Setze keinen Workflow-Status/u)
+  assert.doesNotMatch(instruction, /\[Workflow-Status: STATUSNAME\]/u)
 })

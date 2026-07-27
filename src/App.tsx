@@ -7,7 +7,6 @@ import {
   type Edge,
   type Node,
   type ReactFlowInstance,
-  useEdgesState,
   useNodesState,
   useUpdateNodeInternals,
 } from '@xyflow/react'
@@ -35,7 +34,10 @@ import {
   turnNeedsWatchdogIntervention,
   type TurnActivityObservation,
 } from './workflow-watchdog.ts'
-import { deliveryDeduplicationSignature } from './delivery-deduplication.ts'
+import {
+  deliveryDeduplicationSignature,
+  shouldDeliverWorkflowTask,
+} from './delivery-deduplication.ts'
 import { explicitAgentStatusIds } from './agent-status-assignment.ts'
 import { summarizeDeliveryAttempts } from './delivery-outcome.ts'
 import {
@@ -90,11 +92,18 @@ import {
   type ProjectGoal,
 } from './project-goal.ts'
 import {
+  UNCONDITIONAL_FORWARD_STATUS_ID,
+  UNCONDITIONAL_FORWARD_STATUS_NAME,
+  unconditionalForwardStatus,
   parseWorkflowSignal,
   workflowSignalIssue,
   workflowStatusInstruction,
 } from './workflow-protocol.ts'
-import { resolveConfiguredDeliveries } from './workflow-routing.ts'
+import {
+  resolveConfiguredDeliveries,
+  resolveUnconditionalForwarding,
+  wouldCreateUnsupportedUnconditionalForwardCycle,
+} from './workflow-routing.ts'
 import { decideWorkflowContinuation } from './workflow-decision.ts'
 import {
   shouldRequestWorkflowStatusRepair,
@@ -106,8 +115,10 @@ import {
   beginWorkflowRun,
   ensureWorkflowRun,
   isOrphanedPendingCheckpoint,
+  isRecoverableContinuationCandidate,
   normalizeWorkflowRuntime,
   removeProjectCheckpointsSupersededAt,
+  resetProjectWorkflowRuntime,
   removeWorkflowCheckpoint,
   resumableWorkflowCheckpoint,
   saveWorkflowCheckpoint,
@@ -126,6 +137,14 @@ import {
   resolvePendingTurnStartedAt,
   shouldPollPendingTurn,
 } from './pending-turn.ts'
+import { workflowConstraintViolation } from './workflow-constraints.ts'
+import { auditWorkflowTopology } from './workflow-topology-audit.ts'
+import { manualInstructionSupersedesCheckpoints } from './manual-checkpoint-policy.ts'
+import { currentHandoffContextInstruction } from './handoff-context.ts'
+import {
+  workflowDeliveryKey,
+  wouldRepeatWorkflowCycle,
+} from './workflow-loop-guard.ts'
 
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
@@ -166,9 +185,17 @@ type ProgramSettings = {
   accentColor: string
   backgroundColor: string
   foregroundColor: string
+  buttonColor: string
+  buttonTextColor: string
   uiFont: string
   codeFont: string
   contrast: number
+  showWorkflowStatusLines: boolean
+}
+
+type WorkspaceFileChange = {
+  path: string
+  kind: 'added' | 'modified' | 'deleted' | 'renamed'
 }
 
 type PromptDocument = {
@@ -230,6 +257,7 @@ type EventLog = {
   at: string
   title: string
   detail: string
+  projectPath?: string
 }
 
 type StallNotice = {
@@ -272,6 +300,7 @@ type ChatMessage = {
   text: string
   phase: string
   turnStatus: string
+  workspaceChanges?: WorkspaceFileChange[]
 }
 
 type CodexModel = {
@@ -285,23 +314,6 @@ type UsageSummary = {
   resetsAt: number | null
   credits: string | null
   unlimited: boolean
-}
-
-type MaintenanceState = {
-  threadId: string
-  turnId: string
-  status: 'idle' | 'diagnosing' | 'ready' | 'failed'
-  origin?: 'automatic' | 'manual'
-  incident: string
-  report: string
-  projectPath?: string
-  sourceAgentId?: string
-  reportDeliveryStatus?: 'not-applicable' | 'pending' | 'delivered' | 'failed'
-  reportForwardedAt?: string
-  reportForwardedToAgentId?: string
-  reportDeliveryError?: string
-  error: string
-  updatedAt: string
 }
 
 type WorkflowRoute = {
@@ -416,7 +428,6 @@ function chatMessageIdentity(message: ChatMessage, agentName: string, language: 
 const STORAGE_KEY = 'codex-workflow-orchestrator'
 const LANGUAGE_STORAGE_KEY = 'codex-workflow-orchestrator-language'
 const PROGRAM_SETTINGS_STORAGE_KEY = 'codex-workflow-orchestrator-program-settings'
-const MAINTENANCE_READ_STORAGE_KEY = 'codex-workflow-orchestrator-maintenance-read'
 const TEAM_PLAN_FORMAT_CLAIM_PREFIX = 'codex-orchestrator-team-plan-format-v1:'
 const PROMPT_NODES_ENABLED = false
 
@@ -453,9 +464,12 @@ const defaultProgramSettings: ProgramSettings = {
   accentColor: '#72d6c9',
   backgroundColor: '#0b0b0c',
   foregroundColor: '#f2f2f3',
+  buttonColor: '#19191b',
+  buttonTextColor: '#f2f2f3',
   uiFont: 'Segoe UI Variable Text',
   codeFont: 'Cascadia Code',
   contrast: 60,
+  showWorkflowStatusLines: false,
 }
 
 function loadProgramSettings(): ProgramSettings {
@@ -495,6 +509,11 @@ function loadProgramSettings(): ProgramSettings {
 
 function isHexColor(value: string) {
   return /^#[0-9a-f]{6}$/i.test(value)
+}
+
+function hasCustomizedProgramSettings(settings: ProgramSettings) {
+  return (Object.keys(defaultProgramSettings) as Array<keyof ProgramSettings>)
+    .some((key) => settings[key] !== defaultProgramSettings[key])
 }
 
 function mixHexColors(background: string, foreground: string, foregroundWeight: number) {
@@ -1151,6 +1170,8 @@ function buildHandoffMessage(
       ? withInternalInstructions('', managementRulebook('automation', target.managementInstructionRules))
       : '',
     '',
+    currentHandoffContextInstruction(),
+    '',
     'Ergebnis / Auftrag:',
     source.lastResult || 'Kein Ergebnistext hinterlegt.',
     '',
@@ -1188,9 +1209,15 @@ function taskSignature(result: string) {
 }
 
 function workflowStatusesForAgent(agent: Agent, statuses: WorkflowStatusDefinition[]) {
-  const projectStatuses = statuses.filter((status) => samePath(status.projectPath, agent.projectPath))
+  const projectStatuses = statuses.filter((status) =>
+    status.id !== UNCONDITIONAL_FORWARD_STATUS_ID &&
+    samePath(status.projectPath, agent.projectPath),
+  )
   const assignedStatuses = projectStatuses.filter((status) => agent.workflowStatusIds.includes(status.id))
-  return [...assignedStatuses, internalWorkflowErrorStatus(agent.projectPath)]
+  const fixedForwarding = agent.workflowStatusIds.includes(UNCONDITIONAL_FORWARD_STATUS_ID)
+    ? [unconditionalForwardStatus(agent.projectPath)]
+    : []
+  return [...fixedForwarding, ...assignedStatuses, internalWorkflowErrorStatus(agent.projectPath)]
 }
 
 function buildMonitoringMessage(
@@ -1410,7 +1437,6 @@ function WorkflowDashboard({
     [autoRun, routes, selectedRouteId],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
   const updateNodeInternals = useUpdateNodeInternals()
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null)
   const [agentDragOver, setAgentDragOver] = useState(false)
@@ -1436,10 +1462,6 @@ function WorkflowDashboard({
     })
     previousDashboardIdRef.current = dashboardId
   }, [dashboardId, initialNodes, setNodes])
-
-  useEffect(() => {
-    setEdges(initialEdges)
-  }, [initialEdges, setEdges])
 
   useEffect(() => {
     if (layoutRevision > 0 && flowInstance) {
@@ -1509,9 +1531,8 @@ function WorkflowDashboard({
         edgeTypes={workflowEdgeTypes}
         onInit={setFlowInstance}
         nodes={nodes}
-        edges={edges}
+        edges={initialEdges}
         onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
         onConnect={onConnectAgents}
         onEdgeDoubleClick={(_, edge) => onSelectRoute(edge.id)}
         onNodeDoubleClick={(_, node) => {
@@ -1555,6 +1576,12 @@ function WorkflowDashboard({
 function App() {
   const [storedState] = useState(loadStoredState)
   const [programSettings, setProgramSettings] = useState(loadProgramSettings)
+  const initialProgramSettingsRef = useRef(programSettings)
+  const [programSettingsHydrated, setProgramSettingsHydrated] = useState(false)
+  const programSettingsUpdatedAtRef = useRef('')
+  const programSettingsDirtyRef = useRef(false)
+  const skipNextProgramSettingsSaveRef = useRef(true)
+  const programSettingsRemoteUpdateRef = useRef(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
   const [settingsSearch, setSettingsSearch] = useState('')
@@ -1568,15 +1595,7 @@ function App() {
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
   const [approvalResolvingId, setApprovalResolvingId] = useState('')
   const [approvalError, setApprovalError] = useState('')
-  const [maintenanceOpen, setMaintenanceOpen] = useState(false)
-  const [maintenanceIncident, setMaintenanceIncident] = useState('')
   const [stallNotice, setStallNotice] = useState<StallNotice | null>(null)
-  const [maintenanceState, setMaintenanceState] = useState<MaintenanceState>({
-    threadId: '', turnId: '', status: 'idle', incident: '', report: '', error: '', updatedAt: '',
-  })
-  const [maintenanceReadAt, setMaintenanceReadAt] = useState(
-    () => window.localStorage.getItem(MAINTENANCE_READ_STORAGE_KEY) ?? '',
-  )
   const [provisioningRecovery, setProvisioningRecovery] = useState<ProvisioningRecovery | null>(null)
   const [language, setLanguage] = useState<UiLanguage>(() => {
     const storedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
@@ -1601,6 +1620,7 @@ function App() {
   const [dismissedTeamPlanSignature, setDismissedTeamPlanSignature] = useState('')
   const [teamReadyNotice, setTeamReadyNotice] = useState<{ project: string; agents: number; statuses: number; connections: number; stops: number } | null>(null)
   const [autoRun, setAutoRun] = useState(storedState.autoRun)
+  const [workflowResetting, setWorkflowResetting] = useState(false)
   const [projectFilter, setProjectFilter] = useState(storedState.selectedProjectId)
   const [hiddenThreadIds, setHiddenThreadIds] = useState<string[]>(storedState.hiddenThreadIds)
   const [routes, setRoutes] = useState<WorkflowRoute[]>(storedState.routes)
@@ -1676,6 +1696,12 @@ function App() {
     const accent = isHexColor(programSettings.accentColor)
       ? programSettings.accentColor
       : defaultProgramSettings.accentColor
+    const button = isHexColor(programSettings.buttonColor)
+      ? programSettings.buttonColor
+      : defaultProgramSettings.buttonColor
+    const buttonText = isHexColor(programSettings.buttonTextColor)
+      ? programSettings.buttonTextColor
+      : defaultProgramSettings.buttonTextColor
     const contrast = programSettings.contrast / 100
     const isLightTheme = effectiveTheme === 'light'
     return {
@@ -1697,6 +1723,9 @@ function App() {
       ),
       '--accent': accent,
       '--accent-strong': isLightTheme ? mixHexColors(accent, foreground, 0.62) : accent,
+      '--button-surface': button,
+      '--button-surface-hover': mixHexColors(button, buttonText, 0.12),
+      '--button-text': buttonText,
       '--shadow-color': isLightTheme ? 'rgb(15 23 42 / 16%)' : 'rgb(0 0 0 / 45%)',
       '--ui-font': `"${programSettings.uiFont}", "Segoe UI", sans-serif`,
       '--code-font': `"${programSettings.codeFont}", ui-monospace, monospace`,
@@ -1710,7 +1739,93 @@ function App() {
 
   useEffect(() => {
     window.localStorage.setItem(PROGRAM_SETTINGS_STORAGE_KEY, JSON.stringify(programSettings))
-  }, [programSettings])
+    if (!programSettingsHydrated) return
+    if (skipNextProgramSettingsSaveRef.current) {
+      skipNextProgramSettingsSaveRef.current = false
+      programSettingsRemoteUpdateRef.current = false
+      return
+    }
+    if (programSettingsRemoteUpdateRef.current) {
+      programSettingsRemoteUpdateRef.current = false
+      return
+    }
+    programSettingsDirtyRef.current = true
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch('/api/program-settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ settings: programSettings }),
+        })
+        if (!response.ok) return
+        const data = await response.json()
+        programSettingsUpdatedAtRef.current = typeof data.updatedAt === 'string' ? data.updatedAt : ''
+        programSettingsDirtyRef.current = false
+      } catch {
+        // The local copy remains available while the connector is offline.
+      }
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [programSettings, programSettingsHydrated])
+
+  useEffect(() => {
+    let active = true
+    const loadGlobalSettings = async () => {
+      try {
+        const response = await fetch('/api/program-settings')
+        if (!response.ok) return
+        const data = await response.json()
+        if (!active) return
+        if (data.settings) {
+          programSettingsRemoteUpdateRef.current = true
+          setProgramSettings((current) => ({ ...current, ...data.settings }))
+          programSettingsUpdatedAtRef.current = typeof data.updatedAt === 'string' ? data.updatedAt : ''
+        } else if (hasCustomizedProgramSettings(initialProgramSettingsRef.current)) {
+          const createResponse = await fetch('/api/program-settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: initialProgramSettingsRef.current }),
+          })
+          if (createResponse.ok) {
+            const created = await createResponse.json()
+            programSettingsUpdatedAtRef.current = typeof created.updatedAt === 'string' ? created.updatedAt : ''
+          }
+        }
+      } catch {
+        // Browser-local settings remain usable until the connector is available.
+      } finally {
+        if (active) setProgramSettingsHydrated(true)
+      }
+    }
+    void loadGlobalSettings()
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!programSettingsHydrated) return
+    let active = true
+    const syncGlobalSettings = async () => {
+      if (programSettingsDirtyRef.current) return
+      try {
+        const response = await fetch('/api/program-settings')
+        if (!response.ok) return
+        const data = await response.json()
+        if (!active || !data.settings || data.updatedAt === programSettingsUpdatedAtRef.current) return
+        programSettingsUpdatedAtRef.current = typeof data.updatedAt === 'string' ? data.updatedAt : ''
+        programSettingsRemoteUpdateRef.current = true
+        setProgramSettings((current) => ({ ...current, ...data.settings }))
+      } catch {
+        // Connector health is shown separately.
+      }
+    }
+    const timer = window.setInterval(() => void syncGlobalSettings(), 3000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [programSettingsHydrated])
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -1723,26 +1838,6 @@ function App() {
     document.documentElement.style.colorScheme = effectiveTheme
     document.body.style.background = programSettings.backgroundColor
   }, [effectiveTheme, programSettings.backgroundColor])
-
-  useEffect(() => {
-    let active = true
-    const loadMaintenanceState = async () => {
-      try {
-        const response = await fetch('/api/system-maintenance')
-        if (!response.ok) return
-        const state = await response.json()
-        if (active) setMaintenanceState(state)
-      } catch {
-        // Connector health is presented separately.
-      }
-    }
-    void loadMaintenanceState()
-    const timer = window.setInterval(() => void loadMaintenanceState(), 2500)
-    return () => {
-      active = false
-      window.clearInterval(timer)
-    }
-  }, [])
 
   useEffect(() => {
     if (programSettings.theme !== 'system') {
@@ -1825,7 +1920,7 @@ function App() {
       if (!(target instanceof Element)) {
         return
       }
-      document.querySelectorAll<HTMLElement>('details.threadManager[open], details.dashboardTools[open], details.dashboardStatusMenu[open], details.promptStatusMenu[open]').forEach((menu) => {
+      document.querySelectorAll<HTMLElement>('details.threadManager[open], details.dashboardAgentMenu[open], details.dashboardTools[open], details.dashboardStatusMenu[open], details.promptStatusMenu[open]').forEach((menu) => {
         if (!menu.contains(target)) {
           menu.removeAttribute('open')
         }
@@ -2395,9 +2490,13 @@ function App() {
   }, [chatMessages, chatPinnedToBottom])
 
   const activeDashboardOwnerId = selectedAgent?.id ?? ''
-  const projectWorkflowStatuses = workflowStatuses.filter((status) =>
-    samePath(status.projectPath, selectedProject?.path ?? ''),
-  )
+  const projectWorkflowStatuses = [
+    unconditionalForwardStatus(selectedProject?.path ?? ''),
+    ...workflowStatuses.filter((status) =>
+      status.id !== UNCONDITIONAL_FORWARD_STATUS_ID &&
+      samePath(status.projectPath, selectedProject?.path ?? ''),
+    ),
+  ]
   const projectKnowledgeSources = knowledgeSourcesForProject(
     knowledgeSources,
     selectedProject?.path ?? '',
@@ -2443,6 +2542,20 @@ function App() {
       initial.ownerAgentId === activeDashboardOwnerId &&
       samePath(initial.projectPath, selectedProject?.path ?? ''),
   )
+  const existingProjectInitial = workflowInitials.find((initial) =>
+    samePath(initial.projectPath, selectedProject?.path ?? ''),
+  )
+  const initialToolUnavailableReason = selectedAgent?.assignment !== 'management'
+    ? tx(
+        'Nur für Agenten mit der Zuweisung Verwaltung verfügbar.',
+        'Available only to agents assigned to management.',
+      )
+    : existingProjectInitial
+      ? tx(
+          'Für dieses Projekt ist bereits ein Initial-Baustein vorhanden.',
+          'This project already has an initial node.',
+        )
+      : ''
   const activeBoardAgentIds =
     workflowBoardAgentIds[activeDashboardOwnerId] ?? (activeDashboardOwnerId ? [activeDashboardOwnerId] : [])
   const dashboardAgents = projectAgents.filter(
@@ -2717,41 +2830,10 @@ function App() {
 
   const addEvent = useCallback((title: string, detail: string) => {
     setEvents((current) => [
-      { id: crypto.randomUUID(), at: nowLabel(), title, detail },
+      { id: crypto.randomUUID(), at: nowLabel(), title, detail, projectPath: selectedProjectPath },
       ...current.slice(0, 39),
     ])
-  }, [])
-
-  const requestSystemDiagnosis = useCallback((
-    incident: string,
-    context: string[],
-    source: Pick<Agent, 'id' | 'projectPath'>,
-  ) => {
-    void fetch('/api/system-maintenance/diagnose', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        incident,
-        context: context.join('\n'),
-        automatic: true,
-        projectPath: source.projectPath,
-        sourceAgentId: source.id,
-      }),
-    }).catch(() => undefined)
-  }, [])
-
-  const stopAutomaticMaintenance = useCallback(() => {
-    void fetch('/api/system-maintenance/interrupt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ automaticOnly: true }),
-    })
-      .then(async (response) => {
-        if (!response.ok) return
-        setMaintenanceState(await response.json())
-      })
-      .catch(() => undefined)
-  }, [])
+  }, [selectedProjectPath])
 
   const updateAgent = useCallback((id: string, patch: Partial<Agent>) => {
     // Block incoming shared-state snapshots until this local change is persisted.
@@ -2783,9 +2865,34 @@ function App() {
   useEffect(() => {
     if (!autoRun) {
       resetInactiveAgentStatuses()
-      stopAutomaticMaintenance()
     }
-  }, [autoRun, resetInactiveAgentStatuses, stopAutomaticMaintenance])
+  }, [autoRun, resetInactiveAgentStatuses])
+
+  useEffect(() => {
+    if (!sharedStateReady) return
+    const missingDashboardAssignments = workflowStatusFilters.some((filter) => {
+      const owner = agents.find((agent) => agent.id === filter.ownerAgentId)
+      return owner && !owner.workflowStatusIds.includes(filter.statusId)
+    })
+    if (!missingDashboardAssignments) return
+
+    sharedStateDirty.current = true
+    const now = new Date().toISOString()
+    setAgents((current) => current.map((agent) => {
+      const dashboardStatusIds = workflowStatusFilters
+        .filter((filter) => filter.ownerAgentId === agent.id)
+        .map((filter) => filter.statusId)
+      if (dashboardStatusIds.every((statusId) => agent.workflowStatusIds.includes(statusId))) {
+        return agent
+      }
+      return {
+        ...agent,
+        workflowStatusIds: Array.from(new Set([...agent.workflowStatusIds, ...dashboardStatusIds])),
+        workflowStatusUpdatedAt: now,
+        updatedAt: now,
+      }
+    }))
+  }, [agents, sharedStateReady, workflowStatusFilters])
 
   useEffect(() => {
     const managementAgents = new Map(
@@ -2924,10 +3031,45 @@ function App() {
       ? Array.from(new Set([...agent.workflowStatusIds, statusId]))
       : agent.workflowStatusIds.filter((id) => id !== statusId)
 
+    sharedStateDirty.current = true
     updateAgent(agent.id, {
       workflowStatusIds: nextIds,
       workflowStatusUpdatedAt: new Date().toISOString(),
     })
+
+    if (enabled) {
+      if (!workflowStatusFilters.some((filter) =>
+        filter.ownerAgentId === agent.id && filter.statusId === statusId,
+      )) {
+        const status = projectWorkflowStatuses.find((item) => item.id === statusId)
+        if (status) {
+          setWorkflowStatusFilters((current) => [...current, {
+            id: crypto.randomUUID(),
+            ownerAgentId: agent.id,
+            projectPath: agent.projectPath,
+            name: `Status: ${status.name}`,
+            statusId,
+          }])
+        }
+      }
+      return
+    }
+
+    const removedFilterIds = new Set(
+      workflowStatusFilters
+        .filter((filter) => filter.ownerAgentId === agent.id && filter.statusId === statusId)
+        .map((filter) => filter.id),
+    )
+    if (removedFilterIds.size === 0) return
+    setWorkflowStatusFilters((current) => current.filter((filter) => !removedFilterIds.has(filter.id)))
+    setRoutes((current) => current.filter((route) =>
+      !removedFilterIds.has(route.sourceId) && !removedFilterIds.has(route.targetId),
+    ))
+    setWorkflowPositions((current) => Object.fromEntries(
+      Object.entries(current).filter(([key]) =>
+        !removedFilterIds.has(key.slice(key.indexOf(':') + 1)),
+      ),
+    ))
   }
 
   const updatePromptDocument = (agent: Agent, documentId: string, content: string) => {
@@ -3897,7 +4039,7 @@ function App() {
         manager,
         agents: [...projectAgentMap.values()],
         projectPath: selectedProject.path,
-        statuses: nextWorkflowStatuses,
+        statuses: [unconditionalForwardStatus(selectedProject.path), ...nextWorkflowStatuses],
         initials: workflowInitials,
         filters: workflowStatusFilters,
         stops: workflowStops,
@@ -4370,6 +4512,7 @@ function App() {
         runStartedAt: new Date().toISOString(),
         pendingTurnId: turnId,
         runPurpose: 'chat',
+        lastInstruction: text,
       })
       addEvent(
         'Chat-Nachricht gesendet',
@@ -4527,6 +4670,28 @@ function App() {
 
   const capturePendingContinuation = useCallback((agent: Agent) => {
     if (!agent.autoForward) return false
+    if (workflowRuntimeRef.current.checkpoints.some((checkpoint) =>
+      samePath(checkpoint.projectPath, agent.projectPath) && checkpoint.sourceAgentId === agent.id,
+    )) return false
+    const unconditionalForwarding = resolveUnconditionalForwarding({
+      sourceId: agent.id,
+      statusId: UNCONDITIONAL_FORWARD_STATUS_ID,
+      routes,
+      statusFilters: workflowStatusFilters,
+      targetIds: new Set(agents.map((item) => item.id)),
+    })
+    if (unconditionalForwarding.enabled) {
+      const target = agents.find((item) => item.id === unconditionalForwarding.delivery?.targetId)
+      if (!target || unconditionalForwarding.issue) return false
+      persistWorkflowCheckpoint({
+        source: agent,
+        targets: [target],
+        statusIds: [UNCONDITIONAL_FORWARD_STATUS_ID],
+        statusNames: [UNCONDITIONAL_FORWARD_STATUS_NAME],
+        state: 'pending',
+      })
+      return true
+    }
     const projectStatuses = workflowStatusesForAgent(agent, workflowStatuses)
     const signal = parseWorkflowSignal(agent.lastResult, projectStatuses)
     if (signal.kind !== 'valid') return false
@@ -4570,7 +4735,10 @@ function App() {
       )
     ) return
     const candidate = [...agents]
-      .filter((agent) => agent.lastResult && agent.lastCompletedTurnId)
+      .filter((agent) =>
+        samePath(agent.projectPath, selectedProjectPath) &&
+        isRecoverableContinuationCandidate(agent),
+      )
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .find((agent) => capturePendingContinuation(agent))
     if (candidate) {
@@ -4581,7 +4749,10 @@ function App() {
     }
   }, [addEvent, agents, autoRun, capturePendingContinuation, selectedProjectPath, sharedStateReady])
 
-  const handoff = useCallback(async (agent: Agent) => {
+  const handoff = useCallback(async (
+    agent: Agent,
+    { replayCheckpoint = false }: { replayCheckpoint?: boolean } = {},
+  ) => {
     if (!autoRunRef.current) {
       addEvent('Weitergabe blockiert', `${agent.name}: Die Automatik ist ausgeschaltet.`)
       return
@@ -4593,13 +4764,34 @@ function App() {
       (route) => route.sourceId === agent.id,
     )
     const projectStatuses = workflowStatusesForAgent(agent, workflowStatuses)
-    const workflowSignal = parseWorkflowSignal(agent.lastResult, projectStatuses)
-    const reportsInternalWorkflowError = shouldEscalateInternalWorkflowError({
+    const unconditionalForwarding = resolveUnconditionalForwarding({
+      sourceId: agent.id,
+      statusId: UNCONDITIONAL_FORWARD_STATUS_ID,
+      routes,
+      statusFilters: workflowStatusFilters,
+      targetIds: new Set(agents.map((item) => item.id)),
+    })
+    const workflowSignal = unconditionalForwarding.enabled
+      ? {
+          kind: 'valid' as const,
+          statusIds: [UNCONDITIONAL_FORWARD_STATUS_ID],
+          names: [UNCONDITIONAL_FORWARD_STATUS_NAME],
+          unknownNames: [],
+          source: 'none' as const,
+        }
+      : parseWorkflowSignal(agent.lastResult, projectStatuses)
+    const constraintViolation = workflowConstraintViolation([
+      agent.assignment,
+      agent.lastResult,
+    ].filter(Boolean).join('\n'))
+    const reportsInternalWorkflowError = Boolean(
+      constraintViolation || unconditionalForwarding.issue,
+    ) || (!unconditionalForwarding.enabled && shouldEscalateInternalWorkflowError({
       assignment: agent.assignment,
       signalKind: workflowSignal.kind,
       runPurpose: agent.runPurpose,
       statusIds: workflowSignal.statusIds,
-    })
+    }))
     const resultStatusIds = reportsInternalWorkflowError
       ? [INTERNAL_WORKFLOW_ERROR_STATUS_ID]
       : workflowSignal.statusIds
@@ -4617,16 +4809,21 @@ function App() {
       agent.lastCompletedTurnId,
       reportsTechnicalFailure,
     )
-    const configuredDeliveries = (reportsInternalWorkflowError ? [] : resolveConfiguredDeliveries({
-      sourceId: agent.id,
-      result: agent.lastResult,
-      resultStatusIds,
-      routes,
-      statusFilters: workflowStatusFilters,
-      promptNodes: workflowPrompts,
-      targetIds: new Set(agents.map((item) => item.id)),
-      stopIds: new Set(workflowStops.map((item) => item.id)),
-    })).flatMap<WorkflowDelivery>(({ targetId, stopId, route }) => {
+    const resolvedConfiguredDeliveries = reportsInternalWorkflowError
+      ? []
+      : unconditionalForwarding.enabled && unconditionalForwarding.delivery
+        ? [unconditionalForwarding.delivery]
+        : resolveConfiguredDeliveries({
+            sourceId: agent.id,
+            result: agent.lastResult,
+            resultStatusIds,
+            routes,
+            statusFilters: workflowStatusFilters,
+            promptNodes: workflowPrompts,
+            targetIds: new Set(agents.map((item) => item.id)),
+            stopIds: new Set(workflowStops.map((item) => item.id)),
+          })
+    const configuredDeliveries = resolvedConfiguredDeliveries.flatMap<WorkflowDelivery>(({ targetId, stopId, route }) => {
       const resolvedRoute = route as WorkflowRoute
       const target = agents.find((item) => item.id === targetId)
       if (target) return [{ target, route: resolvedRoute }]
@@ -4647,7 +4844,9 @@ function App() {
             sourceId: agent.id,
             targetId: internalErrorManager.id,
             condition: INTERNAL_WORKFLOW_ERROR_STATUS_NAME,
-            prompt: internalWorkflowErrorHandoffInstruction(workflowSignalIssue(workflowSignal)),
+            prompt: internalWorkflowErrorHandoffInstruction(
+              constraintViolation || unconditionalForwarding.issue || workflowSignalIssue(workflowSignal),
+            ),
           },
         }
       : null
@@ -4801,25 +5000,16 @@ function App() {
       })
       addEvent(
         'Automatik gestoppt',
-        `${agent.name} hat keinen gültigen Fortsetzungsweg. Der Diagnosebericht wird dem zuständigen CEO übergeben; der Workflow wartet auf die Benutzerfreigabe einer dauerhaften Änderung.`,
-      )
-      requestSystemDiagnosis(
-        `Workflow von ${agent.name} hat keinen gültigen Fortsetzungsweg.`,
-        [
-          `Projekt: ${agent.projectPath}`,
-          `Agent-ID: ${agent.id}`,
-          `Thread-ID: ${agent.threadId || 'nicht verfügbar'}`,
-          `Turn-ID: ${agent.lastCompletedTurnId || 'nicht verfügbar'}`,
-          `Workflow-Protokoll: ${availableStatuses}`,
-          `Signalquelle: ${workflowSignal.source}`,
-          `Ausgehende Verbindungen: ${activeRoutes.length}`,
-        ],
-        agent,
+        `${agent.name} hat keinen gültigen Fortsetzungsweg. Prüfe Statuszuweisung und Dashboard-Verbindung; der Workflow wartet auf eine Benutzerentscheidung.`,
       )
       return
     }
     const newDeliveries = deliveries.filter(({ route, target, stop }) => {
-      if (!currentTaskSignature || route.lastForwardedTask !== currentTaskSignature) {
+      if (shouldDeliverWorkflowTask({
+        currentSignature: currentTaskSignature,
+        lastForwardedSignature: route.lastForwardedTask,
+        replayCheckpoint,
+      })) {
         return true
       }
       addEvent(
@@ -4838,6 +5028,51 @@ function App() {
     const agentDeliveries = newDeliveries.filter(
       (delivery): delivery is WorkflowDelivery & { target: Agent } => Boolean(delivery.target),
     )
+
+    if (agentDeliveries.length === 1 && stopDeliveries.length === 0) {
+      const delivery = agentDeliveries[0]
+      const nextDeliveryKey = workflowDeliveryKey({
+        sourceId: agent.id,
+        targetId: delivery.target.id,
+        statusIds: resultStatusIds,
+        taskSignature: currentTaskSignature,
+      })
+      const recentDeliveryKeys = (
+        activeWorkflowRun(workflowRuntimeRef.current, agent.projectPath)?.entries ?? []
+      )
+        .filter((entry) => entry.kind === 'handoff-delivered' && entry.targetAgentIds.length === 1)
+        .slice(-12)
+        .map((entry) => workflowDeliveryKey({
+          sourceId: entry.agentId,
+          targetId: entry.targetAgentIds[0],
+          statusIds: entry.statusIds,
+          taskSignature: entry.taskSignature,
+        }))
+      if (wouldRepeatWorkflowCycle(recentDeliveryKeys, nextDeliveryKey)) {
+        const reason = `Wiederholte Workflow-Schleife erkannt: ${agent.name} und ${delivery.target.name} haben denselben Statuskreis mehrfach ohne neuen Anschluss durchlaufen.`
+        persistWorkflowCheckpoint({
+          source: agent,
+          targets: [],
+          statusIds: resultStatusIds,
+          statusNames: resultStatusNames,
+          state: 'blocked',
+          reason,
+        })
+        sharedStateDirty.current = true
+        autoRunRef.current = false
+        setAutoRun(false)
+        setTransmittingAgentIds([])
+        updateDeliveryQueue(() => ({}))
+        activeDeliveryTargetIds.current.clear()
+        updateAgent(agent.id, {
+          status: 'rueckfrage',
+          pendingTurnId: '',
+          runStartedAt: '',
+        })
+        addEvent('Workflow-Schleife gestoppt', reason)
+        return
+      }
+    }
 
     if (agentDeliveries.length > 0) {
       persistWorkflowCheckpoint({
@@ -4943,15 +5178,6 @@ function App() {
           runStartedAt: '',
         })
         addEvent('Weitergabe nicht gesendet', `${target.name} ist mit keinem Codex-Chat verknüpft.`)
-        requestSystemDiagnosis(
-          `Workflow-Ziel ${target.name} besitzt keinen verknüpften Codex-Chat.`,
-          [
-            `Projekt: ${target.projectPath}`,
-            `Agent-ID: ${target.id}`,
-            `Quelle: ${agent.name}`,
-          ],
-          target,
-        )
         return { targetName: target.name, delivered: false }
       }
 
@@ -5002,17 +5228,6 @@ function App() {
           'Weitergabe nicht gesendet',
           `${target.name}: ${error instanceof Error ? error.message : 'Connector nicht erreichbar.'}`,
         )
-        requestSystemDiagnosis(
-          `Weitergabe an ${target.name} fehlgeschlagen.`,
-          [
-            `Projekt: ${target.projectPath}`,
-            `Agent-ID: ${target.id}`,
-            `Thread-ID: ${target.threadId || 'nicht verfügbar'}`,
-            `Quelle: ${agent.name}`,
-            `Fehler: ${error instanceof Error ? error.message : 'Der lokale Connector ist nicht erreichbar.'}`,
-          ],
-          target,
-        )
         return { targetName: target.name, delivered: false }
       }
     }))
@@ -5043,6 +5258,7 @@ function App() {
             targetAgentNames: deliveryOutcome.deliveredTargets,
             statusIds: resultStatusIds,
             statusNames: resultStatusNames,
+            taskSignature: currentTaskSignature,
             detail: `${agent.name} -> ${deliveryOutcome.deliveredTargets.join(', ')}`,
           }),
         )
@@ -5059,7 +5275,7 @@ function App() {
         `${agent.name}: Kein Ziel-Chat hat die Übergabe angenommen.`,
       )
     }
-  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, persistWorkflowCheckpoint, projectGoals, requestSystemDiagnosis, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, persistWorkflowCheckpoint, projectGoals, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   useEffect(() => {
     if (!autoRun || !automationLeader || !sharedStateReady || !selectedProjectPath) return
@@ -5093,7 +5309,7 @@ function App() {
       ...source,
       lastResult: checkpoint.result,
       lastCompletedTurnId: checkpoint.sourceTurnId,
-    })
+    }, { replayCheckpoint: true })
   }, [addEvent, agents, autoRun, automationLeader, checkpointRecoveryRevision, handoff, selectedProjectPath, sharedStateReady])
 
   const connectAgents = useCallback((connection: Connection) => {
@@ -5117,6 +5333,41 @@ function App() {
         return
       }
     }
+    const sourceForwardFilter = workflowStatusFilters.find((filter) =>
+      filter.id === connection.source && filter.statusId === UNCONDITIONAL_FORWARD_STATUS_ID,
+    )
+    const targetForwardFilter = workflowStatusFilters.find((filter) =>
+      filter.id === connection.target && filter.statusId === UNCONDITIONAL_FORWARD_STATUS_ID,
+    )
+    if (targetForwardFilter && connection.source !== targetForwardFilter.ownerAgentId) {
+      addEvent(
+        'Workflow-Verbindung abgelehnt',
+        'Der feste Status „Weiterleiten“ darf nur mit dem Ausgang seines eigenen Agenten verbunden werden.',
+      )
+      return
+    }
+    if (sourceForwardFilter) {
+      const targetIsAgent = agents.some((agent) => agent.id === connection.target)
+      const alreadyHasTarget = routes.some((route) =>
+        route.ownerAgentId === sourceForwardFilter.ownerAgentId && route.sourceId === sourceForwardFilter.id,
+      )
+      const createsUnsupportedCycle = targetIsAgent && wouldCreateUnsupportedUnconditionalForwardCycle({
+        sourceAgentId: sourceForwardFilter.ownerAgentId,
+        targetAgentId: connection.target,
+        statusId: UNCONDITIONAL_FORWARD_STATUS_ID,
+        routes,
+        statusFilters: workflowStatusFilters,
+      })
+      if (!targetIsAgent || alreadyHasTarget || createsUnsupportedCycle) {
+        addEvent(
+          'Workflow-Verbindung abgelehnt',
+          createsUnsupportedCycle
+            ? 'Der feste Status „Weiterleiten“ erlaubt nur einen direkten Zwei-Agenten-Kreis. Selbstschleifen und größere Kreise sind gesperrt.'
+            : 'Der feste Status „Weiterleiten“ muss mit genau einem Zielagenten verbunden sein.',
+        )
+        return
+      }
+    }
     if (routes.some((route) =>
       route.ownerAgentId === activeDashboardOwnerId &&
       route.sourceId === connection.source &&
@@ -5134,6 +5385,7 @@ function App() {
       condition: 'Immer',
       prompt: sourceInitial ? '' : 'Übernimm das Ergebnis, prüfe es gemäß deiner Rolle und arbeite selbstständig weiter.',
     }
+    sharedStateDirty.current = true
     setRoutes((current) => [...current, route])
     const nodeName = (nodeId: string) =>
       agents.find((agent) => agent.id === nodeId)?.name ??
@@ -5322,6 +5574,7 @@ function App() {
   }
 
   const openWorkflowStatusEditor = (status: WorkflowStatusDefinition) => {
+    if (status.id === UNCONDITIONAL_FORWARD_STATUS_ID) return
     setEditingWorkflowStatusId(status.id)
     setEditingWorkflowStatusName(status.name)
     setEditingWorkflowStatusDescription(status.description)
@@ -5377,7 +5630,11 @@ function App() {
   }
 
   const deleteWorkflowStatus = (statusId: string) => {
-    const status = workflowStatuses.find((item) => item.id === statusId)
+    if (statusId === UNCONDITIONAL_FORWARD_STATUS_ID) {
+      addEvent('Workflow-Status nicht gelöscht', `${UNCONDITIONAL_FORWARD_STATUS_NAME} ist ein fester Systemstatus.`)
+      return
+    }
+    const status = projectWorkflowStatuses.find((item) => item.id === statusId)
     setWorkflowStatuses((current) => current.filter((item) => item.id !== statusId))
     const filterIds = workflowStatusFilters.filter((filter) => filter.statusId === statusId).map((filter) => filter.id)
     setWorkflowStatusFilters((current) => current.filter((filter) => filter.statusId !== statusId))
@@ -5396,7 +5653,11 @@ function App() {
   }
 
   const addWorkflowStatusFilter = () => {
-    const status = projectWorkflowStatuses[0]
+    const status = projectWorkflowStatuses.find((candidate) =>
+      !workflowStatusFilters.some((filter) =>
+        filter.ownerAgentId === activeDashboardOwnerId && filter.statusId === candidate.id,
+      ),
+    )
     if (!status || !activeDashboardOwnerId || !selectedProject) {
       addEvent('Status-Filter nicht erstellt', 'Lege zuerst einen Workflow-Status an.')
       return
@@ -5408,16 +5669,36 @@ function App() {
       name: `Status: ${status.name}`,
       statusId: status.id,
     }
+    sharedStateDirty.current = true
     setWorkflowStatusFilters((current) => [...current, filter])
-    setSelectedStatusFilterId(filter.id)
+    setAgents((current) => current.map((agent) =>
+      agent.id === activeDashboardOwnerId
+        ? {
+            ...agent,
+            workflowStatusIds: Array.from(new Set([...agent.workflowStatusIds, status.id])),
+            workflowStatusUpdatedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }
+        : agent,
+    ))
     addEvent('Status-Filter erstellt', status.name)
   }
 
   const selectWorkflowStatusFilterStatus = (filterId: string, statusId: string) => {
-    const status = workflowStatuses.find((item) => item.id === statusId)
-    if (!status) {
+    const status = projectWorkflowStatuses.find((item) => item.id === statusId)
+    const currentFilter = workflowStatusFilters.find((item) => item.id === filterId)
+    if (!status || !currentFilter) {
       return
     }
+    if (workflowStatusFilters.some((filter) =>
+      filter.id !== filterId &&
+      filter.ownerAgentId === currentFilter.ownerAgentId &&
+      filter.statusId === statusId,
+    )) {
+      addEvent('Status-Filter nicht geändert', `Der Status „${status.name}“ ist in diesem Dashboard bereits vorhanden.`)
+      return
+    }
+    sharedStateDirty.current = true
     setWorkflowStatusFilters((current) =>
       current.map((filter) =>
         filter.id === filterId
@@ -5425,9 +5706,28 @@ function App() {
           : filter,
       ),
     )
+    setAgents((current) => current.map((agent) => {
+      if (agent.id !== currentFilter.ownerAgentId) return agent
+      const oldStatusStillUsed = workflowStatusFilters.some((filter) =>
+        filter.id !== filterId &&
+        filter.ownerAgentId === currentFilter.ownerAgentId &&
+        filter.statusId === currentFilter.statusId,
+      )
+      const retainedIds = oldStatusStillUsed
+        ? agent.workflowStatusIds
+        : agent.workflowStatusIds.filter((id) => id !== currentFilter.statusId)
+      return {
+        ...agent,
+        workflowStatusIds: Array.from(new Set([...retainedIds, statusId])),
+        workflowStatusUpdatedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    }))
   }
 
   const deleteWorkflowStatusFilter = (filterId: string) => {
+    const removedFilter = workflowStatusFilters.find((filter) => filter.id === filterId)
+    sharedStateDirty.current = true
     setWorkflowStatusFilters((current) => current.filter((filter) => filter.id !== filterId))
     setRoutes((current) => current.filter((route) => route.sourceId !== filterId && route.targetId !== filterId))
     setWorkflowPositions((current) => {
@@ -5435,6 +5735,25 @@ function App() {
       delete next[`${activeDashboardOwnerId}:${filterId}`]
       return next
     })
+    if (removedFilter) {
+      const statusStillUsed = workflowStatusFilters.some((filter) =>
+        filter.id !== filterId &&
+        filter.ownerAgentId === removedFilter.ownerAgentId &&
+        filter.statusId === removedFilter.statusId,
+      )
+      if (!statusStillUsed) {
+        setAgents((current) => current.map((agent) =>
+          agent.id === removedFilter.ownerAgentId
+            ? {
+                ...agent,
+                workflowStatusIds: agent.workflowStatusIds.filter((id) => id !== removedFilter.statusId),
+                workflowStatusUpdatedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }
+            : agent,
+        ))
+      }
+    }
     setSelectedStatusFilterId('')
   }
 
@@ -5444,7 +5763,6 @@ function App() {
       return
     }
     if (workflowInitials.some((initial) =>
-      initial.ownerAgentId === activeDashboardOwnerId &&
       samePath(initial.projectPath, selectedProject?.path ?? ''),
     )) {
       addEvent('Initial nicht angelegt', 'Für dieses Projekt existiert bereits ein neutraler Start beim CEO.')
@@ -5457,6 +5775,7 @@ function App() {
       name: 'Start',
       instruction: '',
     }
+    sharedStateDirty.current = true
     setWorkflowInitials((current) => [...current, initial])
   }
 
@@ -5489,8 +5808,8 @@ function App() {
       projectPath: selectedProject.path,
       name: 'Stop',
     }
+    sharedStateDirty.current = true
     setWorkflowStops((current) => [...current, stop])
-    setSelectedStopId(stop.id)
     addEvent('Stopp-Baustein erstellt', `${selectedAgent?.name ?? 'Workflow'} beendet an diesem Punkt.`)
   }
 
@@ -5531,6 +5850,7 @@ function App() {
       nextRunAt: new Date(Date.now() + 30 * 60_000).toISOString(),
       lastRunAt: '',
     }
+    sharedStateDirty.current = true
     setWorkflowTimers((current) => [...current, timer])
     addEvent('Zeitplan erstellt', 'Doppelklick auf den Baustein öffnet die Konfiguration.')
   }
@@ -5574,6 +5894,7 @@ function App() {
       addEvent('Agent nicht entfernt', 'Der Dashboard-Eigentümer muss in seinem eigenen Workflow sichtbar bleiben.')
       return
     }
+    sharedStateDirty.current = true
     setWorkflowBoardAgentIds((current) => ({
       ...current,
       [activeDashboardOwnerId]: (current[activeDashboardOwnerId] ?? [activeDashboardOwnerId])
@@ -5603,6 +5924,7 @@ function App() {
     if (!projectAgents.some((agent) => agent.id === agentId)) {
       return
     }
+    sharedStateDirty.current = true
     setWorkflowBoardAgentIds((current) => ({
       ...current,
       [activeDashboardOwnerId]: [
@@ -5613,7 +5935,6 @@ function App() {
       ...current,
       [`${activeDashboardOwnerId}:${agentId}`]: position,
     }))
-    setSelectedWorkflowAgentId(agentId)
   }
 
   const addAgentToDashboard = (agentId: string) => {
@@ -5871,18 +6192,6 @@ function App() {
                       turnId: activeTurnId,
                       durationSeconds,
                     })
-                    requestSystemDiagnosis(
-                      `Codex-Lauf von ${agent.name} zeigte zu lange keinen Fortschritt und wurde unterbrochen.`,
-                      [
-                        `Projekt: ${agent.projectPath}`,
-                        `Agent-ID: ${agent.id}`,
-                        `Thread-ID: ${agent.threadId}`,
-                        `Turn-ID: ${activeTurnId}`,
-                        `Laufzeit: ${durationSeconds} Sekunden`,
-                        `Agentenstatus: ${agent.status}`,
-                      ],
-                      agent,
-                    )
                   }
                 }
                 if (data.status === 'inProgress') {
@@ -5956,22 +6265,6 @@ function App() {
                     ? `${agent.name}: Aufgabe wird nach ${consecutiveFailedRuns} Fehlläufen zur Aufteilung gemeldet.`
                     : `${agent.name}: ${failureDetail}`,
                 )
-                if (!failureDetail.startsWith('Systemüberwachung:')) {
-                  requestSystemDiagnosis(
-                    overloadEscalation
-                      ? `Agent ${agent.name} ist wiederholt fehlgeschlagen.`
-                      : `Codex-Ausführung von ${agent.name} wurde nicht abgeschlossen.`,
-                    [
-                      `Projekt: ${agent.projectPath}`,
-                      `Agent-ID: ${agent.id}`,
-                      `Thread-ID: ${agent.threadId}`,
-                      `Turn-ID: ${data.turnId ?? agent.pendingTurnId}`,
-                      `Fehlversuche in Folge: ${consecutiveFailedRuns}`,
-                      `Fehler: ${failureDetail}`,
-                    ],
-                    agent,
-                  )
-                }
                 if (autoRun && failedAgent.assignment === 'management') {
                   updateDeliveryQueue((current) => removeDeliveryTarget(current, failedAgent.id))
                   sharedStateDirty.current = true
@@ -6129,17 +6422,6 @@ function App() {
                 'Ergebnisabfrage fehlgeschlagen',
                 `${agent.name}: ${message}`,
               )
-              requestSystemDiagnosis(
-                `Codex-Ergebnis von ${agent.name} konnte nicht abgefragt werden.`,
-                [
-                  `Projekt: ${agent.projectPath}`,
-                  `Agent-ID: ${agent.id}`,
-                  `Thread-ID: ${agent.threadId}`,
-                  `Turn-ID: ${agent.pendingTurnId || 'nicht verfügbar'}`,
-                  `Fehler: ${message}`,
-                ],
-                agent,
-              )
             } finally {
               pollingTurnIds.current.delete(agent.pendingTurnId)
             }
@@ -6150,7 +6432,7 @@ function App() {
     void poll()
     const timer = window.setInterval(() => void poll(), 2500)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, autoRun, capturePendingContinuation, handoff, renameCodexThread, requestSystemDiagnosis, resetInactiveAgentStatuses, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowStatuses])
+  }, [addEvent, agents, autoRun, capturePendingContinuation, handoff, renameCodexThread, resetInactiveAgentStatuses, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowStatuses])
 
   useEffect(() => {
     if (!autoRun || !automationLeader) return
@@ -6426,6 +6708,82 @@ function App() {
     )
   }, [addEvent, agents, applyThreadReplacement, knowledgeSources, projectGoals, routes, selectedProject?.path, updateAgent, workflowInitials, workflowStatuses])
 
+  const resetSelectedWorkflowRun = async () => {
+    const activeProjectPath = selectedProject?.path ?? ''
+    if (!activeProjectPath || workflowResetting) return
+    const confirmed = window.confirm(tx(
+      'Arbeitslauf wirklich zurücksetzen? Offene Agenten-Aufträge und vorgemerkte Fortsetzungen werden verworfen. Team, Dashboard, Statusmeldungen, Projektziel und Datenbank bleiben erhalten.',
+      'Reset this workflow run? Open agent tasks and saved continuations will be discarded. The team, dashboard, statuses, project goal, and database remain unchanged.',
+    ))
+    if (!confirmed) return
+
+    setWorkflowResetting(true)
+    sharedStateDirty.current = true
+    autoRunRef.current = false
+    setAutoRun(false)
+    releaseAutomationLease()
+
+    const projectAgents = agentsRef.current.filter((agent) =>
+      samePath(agent.projectPath, activeProjectPath),
+    )
+    const projectAgentIds = new Set(projectAgents.map((agent) => agent.id))
+
+    try {
+      await Promise.allSettled(projectAgents
+        .filter((agent) => agent.threadId && agent.pendingTurnId)
+        .map((agent) => fetch(
+          `/api/threads/${encodeURIComponent(agent.threadId)}/interrupt`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ turnId: agent.pendingTurnId }),
+          },
+        )))
+
+      setAgents((current) => current.map((agent) =>
+        projectAgentIds.has(agent.id)
+          ? {
+              ...agent,
+              status: 'wartet',
+              pendingTurnId: '',
+              runStartedAt: '',
+              runPurpose: '',
+              lastInboundAgentId: '',
+              consecutiveFailedRuns: 0,
+              updatedAt: new Date().toISOString(),
+            }
+          : agent,
+      ))
+      setTransmittingAgentIds((current) => current.filter((id) => !projectAgentIds.has(id)))
+      updateDeliveryQueue((current) => {
+        let next = current
+        projectAgentIds.forEach((agentId) => {
+          next = removeDeliveryAgent(next, agentId)
+        })
+        return next
+      })
+      projectAgentIds.forEach((agentId) => {
+        activeDeliveryTargetIds.current.delete(agentId)
+        turnActivityObservations.current.delete(agentId)
+      })
+      setRoutes((current) => current.map((route) =>
+        samePath(route.projectPath, activeProjectPath)
+          ? { ...route, lastForwardedTask: undefined }
+          : route,
+      ))
+      updateWorkflowRuntime((current) =>
+        resetProjectWorkflowRuntime(current, activeProjectPath),
+      )
+      setStallNotice(null)
+      addEvent(
+        'Arbeitslauf zurückgesetzt',
+        `${selectedProject?.label ?? activeProjectPath}: Offene Aufträge und Fortsetzungen wurden verworfen.`,
+      )
+    } finally {
+      setWorkflowResetting(false)
+    }
+  }
+
   const toggleAutomation = () => {
     if (autoRun) {
       sharedStateDirty.current = true
@@ -6434,22 +6792,58 @@ function App() {
       setTransmittingAgentIds([])
       updateDeliveryQueue(() => ({}))
       resetInactiveAgentStatuses()
-      stopAutomaticMaintenance()
       releaseAutomationLease()
       addEvent('Automatik gestoppt', 'Weitere fertige Ergebnisse werden nicht automatisch weitergegeben.')
+      return
+    }
+    const activeProjectPath = selectedProject?.path ?? ''
+    const activeProjectAgents = agents.filter((agent) => samePath(agent.projectPath, activeProjectPath))
+    const activeAgentIds = new Set(
+      activeProjectAgents
+        .filter((agent) =>
+          agent.assignment === 'management' ||
+          Boolean(workflowBoardAgentIds[agent.id]) ||
+          routes.some((route) => route.ownerAgentId === agent.id),
+        )
+        .map((agent) => agent.id),
+    )
+    const topologyIssues = auditWorkflowTopology({
+      agents: activeProjectAgents,
+      activeAgentIds,
+      statuses: [
+        unconditionalForwardStatus(activeProjectPath),
+        ...workflowStatuses.filter((status) =>
+          status.id !== UNCONDITIONAL_FORWARD_STATUS_ID &&
+          samePath(status.projectPath, activeProjectPath),
+        ),
+      ],
+      filters: workflowStatusFilters.filter((filter) => samePath(filter.projectPath, activeProjectPath)),
+      routes: routes.filter((route) => samePath(route.projectPath, activeProjectPath)),
+      terminals: [
+        ...workflowStops,
+        ...workflowInitials,
+        ...workflowPrompts,
+        ...workflowTimers,
+      ].filter((node) => samePath(node.projectPath, activeProjectPath)),
+    })
+    if (topologyIssues.length > 0) {
+      addEvent(
+        'Workflow-Konfiguration unvollständig',
+        topologyIssues.map((issue) => issue.detail).join(' '),
+      )
       return
     }
     if (!claimAutomationLease()) {
       addEvent('Automatik bereits aktiv', 'Ein anderes geöffnetes Fenster steuert diesen Workflow bereits.')
       return
     }
-    const activeProjectPath = selectedProject?.path ?? ''
     const latestManualManager = agents
       .filter((agent) =>
         agent.assignment === 'management' &&
         samePath(agent.projectPath, activeProjectPath) &&
         agent.runPurpose === 'chat' &&
-        Boolean(agent.lastCompletedTurnId),
+        Boolean(agent.lastCompletedTurnId) &&
+        manualInstructionSupersedesCheckpoints(agent.lastInstruction),
       )
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
     const resumeRuntime = latestManualManager
@@ -6533,7 +6927,7 @@ function App() {
         ...source,
         lastResult: pendingCheckpoint.result,
         lastCompletedTurnId: pendingCheckpoint.sourceTurnId,
-      })
+      }, { replayCheckpoint: true })
       return
     }
 
@@ -6555,26 +6949,6 @@ function App() {
     void startInitialWorkflows()
   }
 
-  const requestMaintenanceDiagnosis = async (incident: string, context = '') => {
-    try {
-      const response = await fetch('/api/system-maintenance/diagnose', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ incident, context }),
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || tx('Diagnose konnte nicht gestartet werden.', 'Diagnosis could not be started.'))
-      setMaintenanceState(data)
-      addEvent('Systemdiagnose gestartet', incident)
-    } catch (error) {
-      setMaintenanceState((current) => ({
-        ...current,
-        status: 'failed',
-        error: error instanceof Error ? error.message : tx('Diagnose konnte nicht gestartet werden.', 'Diagnosis could not be started.'),
-      }))
-    }
-  }
-
   const applyThemePreset = (theme: ThemeMode) => {
     const resolved = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme
     setProgramSettings((current) => ({
@@ -6582,23 +6956,13 @@ function App() {
       theme,
       backgroundColor: resolved === 'light' ? '#f7f7f8' : '#0b0b0c',
       foregroundColor: resolved === 'light' ? '#18181b' : '#f2f2f3',
+      buttonColor: resolved === 'light' ? '#e4e4e7' : '#19191b',
+      buttonTextColor: resolved === 'light' ? '#18181b' : '#f2f2f3',
     }))
   }
 
-  const hasUnreadMaintenanceReport = ['ready', 'failed'].includes(maintenanceState.status)
-    && Boolean(maintenanceState.updatedAt)
-    && maintenanceState.updatedAt !== maintenanceReadAt
-
-  const openMaintenance = () => {
-    if (hasUnreadMaintenanceReport) {
-      window.localStorage.setItem(MAINTENANCE_READ_STORAGE_KEY, maintenanceState.updatedAt)
-      setMaintenanceReadAt(maintenanceState.updatedAt)
-    }
-    setMaintenanceOpen(true)
-  }
-
   const updateProgramColor = (
-    key: 'accentColor' | 'backgroundColor' | 'foregroundColor',
+    key: 'accentColor' | 'backgroundColor' | 'foregroundColor' | 'buttonColor' | 'buttonTextColor',
     value: string,
   ) => {
     if (isHexColor(value)) {
@@ -6680,6 +7044,28 @@ function App() {
                       {connectorOnline ? tx('Verbunden', 'Connected') : tx('Offline', 'Offline')}
                     </span>
                   </div>
+                  <div className="settingsRow">
+                    <div>
+                      <strong>{tx('Workflow-Steuerzeilen', 'Workflow control lines')}</strong>
+                      <small>{tx(
+                        'Zeigt Statusbefehle in Chatnachrichten an. Die Workflow-Auswertung bleibt immer aktiv.',
+                        'Shows status commands in chat messages. Workflow evaluation always remains active.',
+                      )}</small>
+                    </div>
+                    <label className="checkbox settingsCheckbox">
+                      <input
+                        checked={programSettings.showWorkflowStatusLines}
+                        onChange={(event) => setProgramSettings((current) => ({
+                          ...current,
+                          showWorkflowStatusLines: event.target.checked,
+                        }))}
+                        type="checkbox"
+                      />
+                      {programSettings.showWorkflowStatusLines
+                        ? tx('Anzeigen', 'Show')
+                        : tx('Ausblenden', 'Hide')}
+                    </label>
+                  </div>
                 </section>
               </div>
             )}
@@ -6702,7 +7088,7 @@ function App() {
                   </label>
                   <small>
                     {programSettings.displayName.trim()
-                      ? tx('Lokal festgelegter Name.', 'Locally defined name.')
+                      ? tx('Global gespeicherter Name.', 'Globally stored name.')
                       : tx('Automatischer Vorschlag aus dem verbundenen Codex-Konto.', 'Automatic suggestion from the connected Codex account.')}
                   </small>
                 </section>
@@ -6741,7 +7127,15 @@ function App() {
                     <h2>{effectiveTheme === 'dark' ? tx('Dunkles Design', 'Dark design') : tx('Helles Design', 'Light design')}</h2>
                     <button
                       className="compact"
-                      onClick={() => setProgramSettings((current) => ({ ...defaultProgramSettings, displayName: current.displayName }))}
+                      onClick={() => setProgramSettings((current) => ({
+                        ...defaultProgramSettings,
+                        displayName: current.displayName,
+                        theme: current.theme,
+                        backgroundColor: effectiveTheme === 'light' ? '#f7f7f8' : '#0b0b0c',
+                        foregroundColor: effectiveTheme === 'light' ? '#18181b' : '#f2f2f3',
+                        buttonColor: effectiveTheme === 'light' ? '#e4e4e7' : '#19191b',
+                        buttonTextColor: effectiveTheme === 'light' ? '#18181b' : '#f2f2f3',
+                      }))}
                       type="button"
                     >
                       {tx('Zurücksetzen', 'Reset')}
@@ -6751,6 +7145,8 @@ function App() {
                     ['accentColor', tx('Akzent', 'Accent')],
                     ['backgroundColor', tx('Hintergrund', 'Background')],
                     ['foregroundColor', tx('Vordergrund', 'Foreground')],
+                    ['buttonColor', tx('Schaltflächen', 'Buttons')],
+                    ['buttonTextColor', tx('Schaltflächentext', 'Button text')],
                   ] as const).map(([key, label]) => (
                     <label className="colorSetting" key={key}>
                       <span>{label}</span>
@@ -6921,24 +7317,12 @@ function App() {
             </p>
             <p className="modalHint">
               {tx(
-                'Der Kommunikations-Worker erstellt bereits eine Diagnose.',
-                'The communication technician is already preparing a diagnosis.',
+                'Der Abbruch wurde im Ablaufprotokoll vermerkt. Prüfe den betroffenen Agenten vor einem Neustart.',
+                'The interruption was recorded in the activity log. Check the affected agent before restarting.',
               )}
             </p>
             <div className="modalActions">
               <button onClick={() => setStallNotice(null)}>{tx('Schließen', 'Close')}</button>
-              <button
-                className="primary"
-                onClick={() => {
-                  setMaintenanceIncident(
-                    `Festhängender Lauf: ${stallNotice.agentName}\nTurn-ID: ${stallNotice.turnId}`,
-                  )
-                  setMaintenanceOpen(true)
-                  setStallNotice(null)
-                }}
-              >
-                {tx('Handwerker öffnen', 'Open technician')}
-              </button>
             </div>
           </section>
         </div>
@@ -7239,28 +7623,6 @@ function App() {
               </span>
             )}
           </div>
-          <div className={`maintenanceControl ${maintenanceState.status}${hasUnreadMaintenanceReport ? ' unread' : ''}`}>
-            <button
-              aria-label={`${tx('Systemwartung öffnen', 'Open system maintenance')}: ${maintenanceState.status === 'diagnosing' ? tx('Diagnose', 'Diagnosis')
-                : maintenanceState.status === 'ready' ? tx('Bericht', 'Report')
-                : maintenanceState.status === 'failed' ? tx('Fehler', 'Error')
-                : tx('Bereit', 'Ready')}`}
-              className="maintenanceLauncher"
-              onClick={openMaintenance}
-              title={`${tx('Kommunikations-Worker', 'Communication worker')} · ${maintenanceState.status === 'diagnosing' ? tx('Diagnose', 'Diagnosis')
-                : maintenanceState.status === 'ready' ? tx('Bericht', 'Report')
-                : maintenanceState.status === 'failed' ? tx('Fehler', 'Error')
-                : tx('Bereit', 'Ready')}`}
-              type="button"
-            >
-              {maintenanceState.status === 'diagnosing'
-                ? <span className="activitySpinner" aria-hidden="true" />
-                : 'W'}
-              {hasUnreadMaintenanceReport && (
-                <span className="maintenanceUnreadBadge" aria-label={tx('Neuer Wartungsbericht', 'New maintenance report')}>1</span>
-              )}
-            </button>
-          </div>
           <div className="languageSwitch" aria-label={tx('Sprache', 'Language')}>
             <button
               className={language === 'en' ? 'active' : ''}
@@ -7282,78 +7644,6 @@ function App() {
           </div>
         </div>
       </section>
-
-      {maintenanceOpen && (
-        <div className="modalBackdrop" role="presentation" onMouseDown={() => setMaintenanceOpen(false)}>
-          <section
-            aria-labelledby="maintenance-title"
-            aria-modal="true"
-            className="promptModal maintenanceModal"
-            onMouseDown={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <div className="modalHeader">
-              <div>
-                <p className="eyebrow">Systemwartung</p>
-                <h2 id="maintenance-title">{tx('Kommunikations-Worker', 'Communication worker')}</h2>
-              </div>
-              <button aria-label={tx('Fenster schließen', 'Close window')} onClick={() => setMaintenanceOpen(false)}>×</button>
-            </div>
-
-            <p className="maintenanceScope">
-              {tx(
-                'Diagnostiziert ausschließlich Connector, Codex-Turns, Warteschlangen, Übergaben und Workflow-Kommunikation. Er verändert und repariert nichts. Projektbezogene Berichte gehen an den zuständigen CEO.',
-                'Diagnoses only the connector, Codex turns, queues, handoffs, and workflow communication. It changes and repairs nothing. Project reports are sent to the responsible CEO.',
-              )}
-            </p>
-
-            <div className={`maintenanceStatus ${maintenanceState.status}`}>
-              {maintenanceState.status === 'diagnosing' && <span className="activitySpinner" aria-hidden="true" />}
-              <div>
-                <strong>{tx('Zustand', 'State')}</strong>
-                <span>{maintenanceState.status === 'idle' ? tx('Bereit', 'Ready')
-                  : maintenanceState.status === 'diagnosing' ? tx('Diagnose läuft', 'Diagnosis running')
-                  : maintenanceState.status === 'ready' ? tx('Bericht liegt vor', 'Report available')
-                  : tx('Aufmerksamkeit erforderlich', 'Attention required')}</span>
-              </div>
-            </div>
-
-            <label className="maintenanceIncident">
-              <span>{tx('Vorfall oder Prüfanlass', 'Incident or reason for inspection')}</span>
-              <textarea
-                disabled={maintenanceState.status === 'diagnosing'}
-                onChange={(event) => setMaintenanceIncident(event.target.value)}
-                placeholder={tx('Beschreibe das Kommunikations- oder Verarbeitungsproblem.', 'Describe the communication or processing problem.')}
-                value={maintenanceIncident}
-              />
-            </label>
-
-            {maintenanceState.error && <p className="modalError" role="alert">{maintenanceState.error}</p>}
-            {maintenanceState.reportDeliveryError && <p className="modalError" role="alert">{maintenanceState.reportDeliveryError}</p>}
-            {maintenanceState.report && (
-              <section className="maintenanceReport">
-                <strong>{tx('Wartungsbericht', 'Maintenance report')}</strong>
-                <pre>{maintenanceState.report}</pre>
-                {maintenanceState.reportDeliveryStatus === 'delivered' && (
-                  <small>{tx('Der Bericht wurde an den zuständigen CEO übergeben.', 'The report was sent to the responsible CEO.')}</small>
-                )}
-                {maintenanceState.reportDeliveryStatus === 'pending' && (
-                  <small>{tx('Die Übergabe wartet auf einen eindeutig zuständigen, freien CEO.', 'Delivery is waiting for one clearly responsible, available CEO.')}</small>
-                )}
-              </section>
-            )}
-
-            <div className="modalActions maintenanceActions">
-              <button
-                disabled={!maintenanceIncident.trim() || maintenanceState.status === 'diagnosing'}
-                onClick={() => void requestMaintenanceDiagnosis(maintenanceIncident)}
-              >
-                {tx('Diagnose starten', 'Start diagnosis')}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
 
       <section className={`layout ${eventLogCollapsed ? 'eventLogCollapsed' : ''}`}>
         <aside className="agentRail">
@@ -8072,7 +8362,34 @@ function App() {
                             <strong>{identity.name}</strong>
                             <small>{identity.label}</small>
                           </div>
-                          <p>{visibleOrchestratorMessage(message.text)}</p>
+                          <p>{visibleOrchestratorMessage(
+                            message.text,
+                            programSettings.showWorkflowStatusLines,
+                          )}</p>
+                          {message.role === 'assistant' && Boolean(message.workspaceChanges?.length) && (
+                            <section
+                              aria-label={tx('Geänderte Dateien', 'Changed files')}
+                              className="chatFileChanges"
+                            >
+                              <strong>{tx('Geänderte Dateien', 'Changed files')}</strong>
+                              <ul>
+                                {message.workspaceChanges?.map((change) => (
+                                  <li key={`${change.kind}:${change.path}`}>
+                                    <span className={`fileChangeKind ${change.kind}`}>
+                                      {change.kind === 'added'
+                                        ? 'A'
+                                        : change.kind === 'deleted'
+                                          ? 'D'
+                                          : change.kind === 'renamed'
+                                            ? 'R'
+                                            : 'M'}
+                                    </span>
+                                    <code>{change.path}</code>
+                                  </li>
+                                ))}
+                              </ul>
+                            </section>
+                          )}
                         </article>
                       )
                     })}
@@ -8166,7 +8483,18 @@ function App() {
           <div className="eventLogContent">
             <p className="eyebrow">{tx('Rollenfluss', 'Role flow')}</p>
             <CollapsibleText text={graphEdges} limit={700} monospace language={language} />
-            <p className="eyebrow">{tx('Arbeitslauf', 'Workflow run')}</p>
+            <div className="workflowRunHeader">
+              <p className="eyebrow">{tx('Arbeitslauf', 'Workflow run')}</p>
+              <button
+                className="workflowRunReset"
+                disabled={!selectedProjectPath || workflowResetting}
+                onClick={() => void resetSelectedWorkflowRun()}
+                title={tx('Offene Arbeit verwerfen und den Laufzustand zurücksetzen', 'Discard open work and reset the workflow state')}
+                type="button"
+              >
+                {workflowResetting ? tx('Setzt zurück …', 'Resetting…') : tx('Zurücksetzen', 'Reset')}
+              </button>
+            </div>
             {selectedWorkflowCheckpoint && (
               <article className={`workflowCheckpoint ${selectedWorkflowCheckpoint.state}`}>
                 <strong>
@@ -8197,8 +8525,8 @@ function App() {
               </article>
             ))}
             <p className="eyebrow">{tx('Ablaufprotokoll', 'Activity log')}</p>
-            {events.length === 0 && <p className="empty">{tx('Noch keine Orchestrator-Aktion.', 'No orchestrator activity yet.')}</p>}
-            {events.map((event) => (
+            {events.filter((event) => event.projectPath && samePath(event.projectPath, selectedProjectPath)).length === 0 && <p className="empty">{tx('Noch keine Orchestrator-Aktion.', 'No orchestrator activity yet.')}</p>}
+            {events.filter((event) => event.projectPath && samePath(event.projectPath, selectedProjectPath)).map((event) => (
               <article key={event.id}>
                 <time>{event.at}</time>
                 <strong>{eventTitleText(event.title, language)}</strong>
@@ -8472,11 +8800,16 @@ function App() {
                 <p className="empty">{tx('Für dieses Projekt wurden noch keine Status angelegt.', 'No statuses have been created for this project.')}</p>
               ) : (
                 <div className="workflowStatusList">
-                  {projectWorkflowStatuses.map((status) => (
-                    <div className="workflowStatusItem" key={status.id}>
+                  {projectWorkflowStatuses.map((status) => {
+                    const isFixedSystemStatus = status.id === UNCONDITIONAL_FORWARD_STATUS_ID
+                    return (
+                    <div className={`workflowStatusItem${isFixedSystemStatus ? ' fixedSystemStatus' : ''}`} key={status.id}>
                       <strong>{status.name}</strong>
                       <span>{status.description || tx('Keine Beschreibung', 'No description')}</span>
-                      <div className="workflowStatusActions">
+                      {isFixedSystemStatus ? (
+                        <small className="fixedStatusLabel">{tx('Fester Systemstatus', 'Fixed system status')}</small>
+                      ) : (
+                        <div className="workflowStatusActions">
                         <button
                           aria-label={`${tx('Status bearbeiten', 'Edit status')}: ${status.name}`}
                           className="editStatus"
@@ -8495,9 +8828,11 @@ function App() {
                         >
                           ×
                         </button>
-                      </div>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </section>
@@ -8657,6 +8992,7 @@ function App() {
                                 } else {
                                   removeAgentFromDashboard(agent.id)
                                 }
+                                event.currentTarget.closest('details')?.removeAttribute('open')
                               }}
                               type="checkbox"
                             />
@@ -8742,16 +9078,19 @@ function App() {
                   </summary>
                   <div className="dashboardToolMenu">
                     <button
+                      aria-disabled={Boolean(initialToolUnavailableReason)}
+                      disabled={Boolean(initialToolUnavailableReason)}
                       onClick={(event) => {
                         addWorkflowInitial()
                         event.currentTarget.closest('details')?.removeAttribute('open')
                       }}
+                      title={initialToolUnavailableReason || tx('Initial-Baustein hinzufügen', 'Add initial node')}
                       type="button"
                     >
                       <span className="toolSymbol">+</span>
                       <span>
                         <strong>Initial</strong>
-                        <small>{tx('Neutrales Startsignal an den CEO', 'Neutral start signal to the CEO')}</small>
+                        <small>{initialToolUnavailableReason || tx('Neutrales Startsignal an den CEO', 'Neutral start signal to the CEO')}</small>
                       </span>
                     </button>
                     <button

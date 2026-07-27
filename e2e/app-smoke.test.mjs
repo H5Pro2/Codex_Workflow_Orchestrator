@@ -65,19 +65,56 @@ function fixtureState() {
         threadId: 'thread-analyst',
         assignment: 'specialist',
       },
+      {
+        id: 'qa',
+        name: 'QA Tester',
+        role: 'du bist QA Tester',
+        projectId: 'project-1',
+        projectPath: 'C:\\fixture-project',
+        threadTitle: 'QA Tester',
+        threadId: 'thread-qa',
+        assignment: 'specialist',
+      },
     ],
     events: [],
     hiddenThreadIds: [],
-    routes: [],
+    routes: [{
+      id: 'route-ceo-status',
+      ownerAgentId: 'ceo',
+      projectPath: 'C:\\fixture-project',
+      sourceId: 'ceo',
+      targetId: 'filter-research',
+      condition: 'Immer',
+      prompt: 'Arbeite weiter.',
+    }, {
+      id: 'route-status-analyst',
+      ownerAgentId: 'ceo',
+      projectPath: 'C:\\fixture-project',
+      sourceId: 'filter-research',
+      targetId: 'analyst',
+      condition: 'Immer',
+      prompt: 'Arbeite weiter.',
+    }],
     workflowPrompts: [],
     workflowInitials: [],
-    workflowStatuses: [],
+    workflowStatuses: [{
+      id: 'status-research',
+      projectPath: 'C:\\fixture-project',
+      name: 'Forschungsauftrag koordinieren',
+      description: 'An die Forschungsleitung übergeben.',
+    }],
     knowledgeSources: [],
-    workflowStatusFilters: [],
+    workflowStatusFilters: [{
+      id: 'filter-research',
+      ownerAgentId: 'ceo',
+      projectPath: 'C:\\fixture-project',
+      name: 'Status: Forschungsauftrag koordinieren',
+      statusId: 'status-research',
+    }],
     workflowStops: [],
     workflowTimers: [],
     workflowPositions: {},
-    workflowBoardAgentIds: {},
+    workflowBoardAgentIds: { ceo: ['ceo', 'analyst'] },
     deliveryQueue: {},
     selectedProjectId: 'project-1',
     autoRun: false,
@@ -103,6 +140,8 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
   let sharedState = fixtureState()
   let projectSources = []
   let projectGoal = ''
+  let programSettings = null
+  let programSettingsUpdatedAt = ''
   let version = '2026-07-25T12:00:00.000Z'
   const browser = await chromium.launch({ executablePath, headless: true })
   t.after(() => browser.close())
@@ -151,6 +190,28 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
       await route.fulfill({ json: { suggestedName: '' } })
       return
     }
+    if (pathname === '/api/threads/thread-ceo/conversation') {
+      await route.fulfill({ json: { messages: [{
+        id: 'message-result',
+        turnId: 'turn-result',
+        role: 'assistant',
+        text: 'Die Umsetzung ist fertig.\n\n[Workflow-Status: Forschungsauftrag koordinieren]',
+        phase: 'final_answer',
+        turnStatus: 'completed',
+        workspaceChanges: [{ path: 'src/auswertung.ts', kind: 'modified' }],
+      }] } })
+      return
+    }
+    if (pathname === '/api/program-settings' && request.method() === 'GET') {
+      await route.fulfill({ json: { settings: programSettings, updatedAt: programSettingsUpdatedAt } })
+      return
+    }
+    if (pathname === '/api/program-settings' && request.method() === 'PUT') {
+      programSettings = request.postDataJSON().settings
+      programSettingsUpdatedAt = new Date().toISOString()
+      await route.fulfill({ json: { settings: programSettings, updatedAt: programSettingsUpdatedAt } })
+      return
+    }
     if (pathname === '/api/knowledge-sources' && request.method() === 'GET') {
       await route.fulfill({ json: { sources: projectSources } })
       return
@@ -174,6 +235,35 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
   })
 
   await page.goto(`http://127.0.0.1:${port}/`)
+  await page.getByText('Die Umsetzung ist fertig.', { exact: true }).waitFor()
+  assert.doesNotMatch(await page.locator('.chatMessage.assistant > p').textContent(), /Workflow-Status/u)
+  await page.getByText('src/auswertung.ts', { exact: true }).waitFor()
+  await page.getByTitle('Programmeinstellungen öffnen').click()
+  const workflowControlSetting = page.locator('.settingsRow', { hasText: 'Workflow-Steuerzeilen' })
+  await workflowControlSetting.getByRole('checkbox').check()
+  await page.waitForTimeout(400)
+  assert.equal(programSettings.showWorkflowStatusLines, true)
+  await page.getByRole('button', { name: 'Profil' }).click()
+  await page.getByLabel('Anzeigename').fill('Globale Testperson')
+  await page.getByRole('button', { name: 'Aussehen' }).click()
+  await page.getByLabel('Schaltflächen', { exact: true }).fill('#224466')
+  await page.getByLabel('Schaltflächentext').fill('#ffeecc')
+  await page.waitForTimeout(700)
+  assert.equal(programSettings.displayName, 'Globale Testperson')
+  assert.equal(programSettings.buttonColor, '#224466')
+  assert.equal(programSettings.buttonTextColor, '#ffeecc')
+  await page.reload()
+  await page.getByText('Globale Testperson', { exact: true }).waitFor()
+  assert.match(await page.locator('.chatMessage.assistant > p').textContent(), /Workflow-Status: Forschungsauftrag koordinieren/u)
+  const projectGoalButtonColor = await page.getByRole('button', { name: 'Projektziel' }).evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  )
+  assert.equal(projectGoalButtonColor, 'rgb(34, 68, 102)')
+  await page.getByRole('button', { name: 'Statusbefehle' }).click()
+  const fixedForwardStatus = page.locator('.workflowStatusItem', { hasText: 'Weiterleiten' })
+  await fixedForwardStatus.getByText('Fester Systemstatus', { exact: true }).waitFor()
+  assert.equal(await fixedForwardStatus.getByRole('button').count(), 0)
+  await page.getByRole('button', { name: 'Status-Fenster schließen' }).click()
   await page.getByRole('button', { name: 'Setup öffnen' }).click()
   const knowledgeAccess = page.locator('section[aria-label="Projektwissen verwenden"]')
   const knowledgeAccessToggle = knowledgeAccess.getByRole('checkbox')
@@ -249,13 +339,66 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
   assert.equal(await systemStatus.getByRole('checkbox').isChecked(), true)
   assert.equal(await systemStatus.getByRole('checkbox').isDisabled(), true)
   await page.locator('.agentRail .agentButton', { hasText: 'CEO' }).click()
+  await page.getByRole('button', { name: 'Setup öffnen' }).click()
+  const ceoStatusMenu = page.locator('.agentStatusMenu')
+  await ceoStatusMenu.locator('summary').click()
+  assert.equal(
+    await ceoStatusMenu.locator('.promptStatusOption', { hasText: 'Forschungsauftrag koordinieren' }).getByRole('checkbox').isChecked(),
+    true,
+  )
   await page.getByRole('button', { name: 'Workflow-Dashboard öffnen' }).click({ timeout: 5_000 })
   const workflowDashboard = page.getByRole('dialog', { name: 'Workflow-Dashboard von CEO' })
   await workflowDashboard.waitFor({ timeout: 5_000 })
   await workflowDashboard.getByRole('button', { name: 'Agentenauswahl öffnen' }).click({ timeout: 5_000 })
-  const analystOption = workflowDashboard.getByText('Projektanalyst mit langer Bezeichnung').locator('..').locator('..')
-  await analystOption.getByRole('checkbox').check({ timeout: 5_000 })
-  await workflowDashboard.locator('.react-flow__node', { hasText: 'Projektanalyst mit langer Bezeichnung' }).waitFor({ timeout: 5_000 })
+  const qaOption = workflowDashboard.getByText('QA Tester').locator('..').locator('..')
+  await qaOption.getByRole('checkbox').check({ timeout: 5_000 })
+  await workflowDashboard.locator('.react-flow__node', { hasText: 'QA Tester' }).waitFor({ timeout: 5_000 })
+  assert.equal(await workflowDashboard.locator('details.dashboardAgentMenu').getAttribute('open'), null)
+  assert.equal(await page.getByRole('dialog', { name: 'Agenten-Baustein bearbeiten' }).count(), 0)
+
+  await workflowDashboard.getByRole('button', { name: 'Agentenauswahl öffnen' }).click()
+  await workflowDashboard.locator('.workflowCanvas').click({ position: { x: 18, y: 18 } })
+  assert.equal(await workflowDashboard.locator('details.dashboardAgentMenu').getAttribute('open'), null)
+
+  await workflowDashboard.locator('details.dashboardStatusMenu > summary').click()
+  assert.equal(
+    await workflowDashboard.locator('.dashboardStatusOptions .promptStatusOption', { hasText: 'Forschungsauftrag koordinieren' }).getByRole('checkbox').isChecked(),
+    true,
+  )
+  await workflowDashboard.locator('details.dashboardStatusMenu > summary').click()
+
+  await workflowDashboard.locator('.react-flow__edge-path').first().waitFor({ state: 'attached', timeout: 5_000 })
+
+  const visibleEdgeCount = async () => workflowDashboard.locator('.react-flow__edge-path').evaluateAll(
+    (paths) => paths.filter((path) => {
+      const style = window.getComputedStyle(path)
+      return Boolean(path.getAttribute('d')) && Number(style.opacity) > 0 && style.display !== 'none'
+    }).length,
+  )
+  const waitForVisibleEdge = async () => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if ((await visibleEdgeCount()) > 0) return true
+      await page.waitForTimeout(100)
+    }
+    return false
+  }
+  assert.equal(await waitForVisibleEdge(), true)
+
+  await workflowDashboard.locator('details.dashboardTools > summary').click()
+  const initialSymbolBox = await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Initial' }).locator('.toolSymbol').boundingBox()
+  const statusSymbolBox = await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Status' }).locator('.toolSymbol').boundingBox()
+  assert.deepEqual(
+    { width: initialSymbolBox?.width, height: initialSymbolBox?.height },
+    { width: statusSymbolBox?.width, height: statusSymbolBox?.height },
+  )
+  await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Status' }).click()
+  assert.equal(await page.getByRole('dialog', { name: 'Status-Filter bearbeiten' }).count(), 0)
+  assert.equal(await waitForVisibleEdge(), true)
+
   await page.waitForTimeout(700)
-  assert.deepEqual(sharedState.workflowBoardAgentIds.ceo, ['ceo', 'analyst'])
+  assert.deepEqual(sharedState.workflowBoardAgentIds.ceo, ['ceo', 'analyst', 'qa'])
+
+  await workflowDashboard.locator('details.dashboardTools > summary').click()
+  await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Initial' }).click()
+  assert.equal(await page.getByRole('dialog', { name: 'Initial-Baustein bearbeiten' }).count(), 0)
 })

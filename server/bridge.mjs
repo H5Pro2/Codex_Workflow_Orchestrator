@@ -7,33 +7,27 @@ import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import { createProvisioningJournal } from './provisioning-journal.mjs'
+import { allowExplicitBrowserOrigins } from './browser-origin-permissions.mjs'
 import { createSharedStateStore } from './shared-state.mjs'
 import { applyThreadProjectAssignments, savedProjectsFromState } from './codex-project-state.mjs'
 import { readKnowledgeSources, writeKnowledgeSources } from './knowledge-sources.mjs'
 import { assertUserProjectGoalWriteSource, readProjectGoal, writeProjectGoal } from './project-goal.mjs'
 import { writeVerifiedPromptFile } from './prompt-files.mjs'
+import { createProgramSettingsStore } from './program-settings.mjs'
+import { captureGitWorkspace, compareGitWorkspaces } from './git-workspace-changes.mjs'
 import {
   projectThreadExecutionParams,
   projectTurnExecutionParams,
   projectWorkspacePath,
 } from './codex-sandbox.mjs'
-import {
-  MAINTENANCE_THREAD_NAME,
-  createMaintenanceStateStore,
-  findMaintenanceReportManager,
-  maintenanceDiagnosticPrompt,
-  maintenanceReportPrompt,
-  stoppedMaintenanceState,
-} from './maintenance-agent.mjs'
 
 const PORT = Number(process.env.CODEX_BRIDGE_PORT || 4317)
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url))
 const STATE_FILE = join(SERVER_DIR, 'orchestrator-state.json')
 const PROVISIONING_JOURNAL_FILE = join(SERVER_DIR, 'provisioning-journal.json')
-const MAINTENANCE_STATE_FILE = join(SERVER_DIR, 'maintenance-state.json')
-const ROOT_DIR = resolve(SERVER_DIR, '..')
 const CODEX_HOME = process.env.CODEX_HOME || join(homedir(), '.codex')
 const CODEX_GLOBAL_STATE_FILE = join(CODEX_HOME, '.codex-global-state.json')
+const PROGRAM_SETTINGS_FILE = join(CODEX_HOME, 'codex-workflow-orchestrator-settings.json')
 const LOCAL_CODEX_ENTRY = join(
   SERVER_DIR,
   '..',
@@ -46,6 +40,8 @@ const LOCAL_CODEX_ENTRY = join(
 const pending = new Map()
 const pendingApprovals = new Map()
 const inactiveTurnSince = new Map()
+const workspaceSnapshotsByTurn = new Map()
+const workspaceChangesByTurn = new Map()
 let nextRequestId = 1
 let nextApprovalId = 1
 let initialized = false
@@ -60,7 +56,7 @@ let latestProvisioningRecovery = {
 }
 const sharedStateStore = createSharedStateStore(STATE_FILE)
 const provisioningJournal = createProvisioningJournal(PROVISIONING_JOURNAL_FILE)
-const maintenanceStateStore = createMaintenanceStateStore(MAINTENANCE_STATE_FILE)
+const programSettingsStore = createProgramSettingsStore(PROGRAM_SETTINGS_FILE)
 
 const codex = spawn(
   process.execPath,
@@ -241,7 +237,7 @@ const provisioningRecoveryReady = ready.then(async () => {
   console.error('Team-Wiederherstellung fehlgeschlagen:', error)
 })
 
-async function listAllThreads({ includeMaintenance = false } = {}) {
+async function listAllThreads() {
   await ready
   const threads = []
   let cursor = null
@@ -256,139 +252,7 @@ async function listAllThreads({ includeMaintenance = false } = {}) {
     threads.push(...result.data.map(normalizeThread))
     cursor = result.nextCursor
   } while (cursor)
-  return includeMaintenance
-    ? threads
-    : threads.filter((thread) => thread.name !== MAINTENANCE_THREAD_NAME)
-}
-
-async function ensureMaintenanceThread() {
-  const state = await maintenanceStateStore.read()
-  if (state.threadId) {
-    try {
-      await request('thread/read', { threadId: state.threadId, includeTurns: false })
-      return state.threadId
-    } catch {
-      // A removed maintenance task is recreated transparently.
-    }
-  }
-
-  const result = await request('thread/start', {
-    cwd: ROOT_DIR,
-    experimentalRawEvents: false,
-    persistExtendedHistory: true,
-  })
-  await request('thread/name/set', { threadId: result.thread.id, name: MAINTENANCE_THREAD_NAME })
-  await maintenanceStateStore.write({ ...state, threadId: result.thread.id })
-  return result.thread.id
-}
-
-async function trackMaintenanceReportTurn(manager, sourceAgentId, message, turnId) {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const snapshot = await sharedStateStore.read()
-    if (!snapshot.state || !Array.isArray(snapshot.state.agents)) {
-      throw new Error('Der gemeinsame Agentenzustand ist nicht verfügbar.')
-    }
-    const managerExists = snapshot.state.agents.some((agent) => agent.id === manager.id)
-    if (!managerExists) throw new Error('Der zuständige CEO ist nicht mehr vorhanden.')
-
-    const now = new Date().toISOString()
-    const nextState = {
-      ...snapshot.state,
-      agents: snapshot.state.agents.map((agent) => agent.id === manager.id
-        ? {
-            ...agent,
-            status: 'laeuft',
-            pendingTurnId: turnId,
-            runStartedAt: now,
-            lastResult: message,
-            lastInboundAgentId: sourceAgentId,
-            updatedAt: now,
-          }
-        : agent),
-    }
-    const updated = await sharedStateStore.update(nextState, {
-      expectedUpdatedAt: snapshot.updatedAt,
-    })
-    if (updated.ok) return
-  }
-  throw new Error('Der CEO-Turn wurde gestartet, konnte aber nicht im gemeinsamen Zustand vermerkt werden.')
-}
-
-async function forwardMaintenanceReport(state) {
-  if (state.status !== 'ready' || !state.report.trim() || state.reportForwardedAt) return state
-
-  const sharedState = (await sharedStateStore.read()).state
-  const manager = findMaintenanceReportManager(state, sharedState?.agents ?? [])
-  if (!manager) return state
-
-  const message = maintenanceReportPrompt(state)
-  const started = await startTurn(manager.threadId, message, manager.model || '', manager.projectPath || '')
-  const turnId = started.turn?.id ?? ''
-  if (!turnId) throw new Error('Der Connector hat keine Turn-ID für den CEO-Bericht geliefert.')
-
-  const forwarded = await maintenanceStateStore.write({
-    ...state,
-    reportDeliveryStatus: 'delivered',
-    reportForwardedAt: new Date().toISOString(),
-    reportForwardedToAgentId: manager.id,
-    reportForwardedTurnId: turnId,
-    reportDeliveryError: '',
-  })
-  try {
-    await trackMaintenanceReportTurn(manager, state.sourceAgentId, message, turnId)
-    return forwarded
-  } catch (error) {
-    return maintenanceStateStore.write({
-      ...forwarded,
-      reportDeliveryStatus: 'failed',
-      reportDeliveryError: error instanceof Error ? error.message : 'Die CEO-Übergabe konnte nicht gespeichert werden.',
-    })
-  }
-}
-
-async function refreshMaintenanceStateInternal() {
-  let state = await maintenanceStateStore.read()
-  if (state.threadId && state.turnId && state.status === 'diagnosing') {
-    try {
-      const result = await request('thread/read', { threadId: state.threadId, includeTurns: true })
-      const turn = (result.thread?.turns ?? []).find((item) => item.id === state.turnId)
-      if (!turn || turn.status === 'inProgress') return state
-      const report = (turn.items ?? [])
-        .filter((item) => item.type === 'agentMessage' && typeof item.text === 'string')
-        .map((item) => item.text)
-        .filter(Boolean)
-        .at(-1) ?? ''
-      state = await maintenanceStateStore.write({
-        ...state,
-        status: turn.status === 'completed' ? 'ready' : 'failed',
-        report,
-        reportDeliveryStatus: turn.status === 'completed' && state.sourceAgentId ? 'pending' : 'not-applicable',
-        error: turn.status === 'completed' ? '' : turn.error?.message ?? 'Wartungs-Task nicht abgeschlossen.',
-      })
-    } catch (error) {
-      return maintenanceStateStore.write({
-        ...state,
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Wartungsstatus konnte nicht gelesen werden.',
-      })
-    }
-  }
-  try {
-    return await forwardMaintenanceReport(state)
-  } catch (error) {
-    return maintenanceStateStore.write({
-      ...state,
-      reportDeliveryStatus: 'failed',
-      reportDeliveryError: error instanceof Error ? error.message : 'Der Diagnosebericht konnte nicht an den CEO übergeben werden.',
-    })
-  }
-}
-
-let maintenanceRefreshQueue = Promise.resolve()
-function refreshMaintenanceState() {
-  const operation = maintenanceRefreshQueue.then(() => refreshMaintenanceStateInternal())
-  maintenanceRefreshQueue = operation.then(() => undefined, () => undefined)
-  return operation
+  return threads
 }
 
 async function listSavedProjects() {
@@ -505,6 +369,9 @@ async function finalizeCreatedThreadName(threadId, turnId, name) {
 async function startTurn(threadId, text, model = '', cwd = '', webAccess = 'off') {
   const previousTurnIds = await readThreadTurnIds(threadId)
   if (cwd) await mkdir(projectWorkspacePath(cwd), { recursive: true })
+  if (webAccess === 'allowed') {
+    await allowExplicitBrowserOrigins(CODEX_HOME, threadId, text)
+  }
   const turnParams = {
     threadId,
     input: [{ type: 'text', text, text_elements: [] }],
@@ -526,7 +393,7 @@ async function startTurn(threadId, text, model = '', cwd = '', webAccess = 'off'
     }
   }
 
-  const thread = (await listAllThreads({ includeMaintenance: true })).find((item) => item.id === threadId)
+  const thread = (await listAllThreads()).find((item) => item.id === threadId)
   if (!thread) {
     throw new Error(`Codex-Task nicht gefunden: ${threadId}`)
   }
@@ -747,6 +614,17 @@ const server = createServer(async (incoming, response) => {
       return
     }
 
+    if (incoming.method === 'GET' && url.pathname === '/api/program-settings') {
+      sendJson(response, 200, await programSettingsStore.read())
+      return
+    }
+
+    if (incoming.method === 'PUT' && url.pathname === '/api/program-settings') {
+      const body = await readJson(incoming)
+      sendJson(response, 200, await programSettingsStore.write(body.settings))
+      return
+    }
+
     if (incoming.method === 'GET' && url.pathname === '/api/approvals') {
       sendJson(response, 200, {
         approvals: [...pendingApprovals.values()].map(publicApprovalRequest),
@@ -766,70 +644,6 @@ const server = createServer(async (incoming, response) => {
       pendingApprovals.delete(approvalId)
       resolveApprovalRequest(approval, body.approved === true)
       sendJson(response, 200, { ok: true })
-      return
-    }
-
-    if (incoming.method === 'GET' && url.pathname === '/api/system-maintenance') {
-      await ready
-      sendJson(response, 200, await refreshMaintenanceState())
-      return
-    }
-
-    if (incoming.method === 'POST' && url.pathname === '/api/system-maintenance/diagnose') {
-      const body = await readJson(incoming)
-      const current = await refreshMaintenanceState()
-      if (current.status === 'diagnosing') {
-        sendJson(response, 409, { error: 'Der Kommunikations-Worker erstellt bereits eine Diagnose.', state: current })
-        return
-      }
-      const threadId = await ensureMaintenanceThread()
-      const started = await startTurn(
-        threadId,
-        maintenanceDiagnosticPrompt(
-          typeof body.incident === 'string' ? body.incident : '',
-          typeof body.context === 'string' ? body.context : '',
-        ),
-      )
-      const state = await maintenanceStateStore.write({
-        ...current,
-        threadId,
-        turnId: started.turn?.id ?? '',
-        status: 'diagnosing',
-        origin: body.automatic === true ? 'automatic' : 'manual',
-        incident: typeof body.incident === 'string' ? body.incident.trim() : '',
-        report: '',
-        projectPath: typeof body.projectPath === 'string' ? body.projectPath.trim() : '',
-        sourceAgentId: typeof body.sourceAgentId === 'string' ? body.sourceAgentId.trim() : '',
-        reportDeliveryStatus: body.projectPath && body.sourceAgentId ? 'pending' : 'not-applicable',
-        reportForwardedAt: '',
-        reportForwardedToAgentId: '',
-        reportForwardedTurnId: '',
-        reportDeliveryError: '',
-        error: '',
-      })
-      sendJson(response, 202, state)
-      return
-    }
-
-    if (incoming.method === 'POST' && url.pathname === '/api/system-maintenance/interrupt') {
-      const body = await readJson(incoming)
-      const current = await refreshMaintenanceState()
-      if (current.status !== 'diagnosing') {
-        sendJson(response, 200, current)
-        return
-      }
-      if (body.automaticOnly === true && current.origin !== 'automatic') {
-        sendJson(response, 200, current)
-        return
-      }
-      if (current.threadId && current.turnId) {
-        await request('turn/interrupt', {
-          threadId: current.threadId,
-          turnId: current.turnId,
-        }).catch(() => undefined)
-      }
-      const state = await maintenanceStateStore.write(stoppedMaintenanceState(current))
-      sendJson(response, 200, state)
       return
     }
 
@@ -1125,6 +939,9 @@ const server = createServer(async (incoming, response) => {
     if (incoming.method === 'POST' && messageMatch) {
       const body = await readJson(incoming)
       await ready
+      const workspaceBefore = typeof body.cwd === 'string' && body.cwd
+        ? await captureGitWorkspace(projectWorkspacePath(body.cwd))
+        : null
       const result = await startTurn(
         decodeURIComponent(messageMatch[1]),
         body.text,
@@ -1132,6 +949,12 @@ const server = createServer(async (incoming, response) => {
         typeof body.cwd === 'string' ? body.cwd : '',
         typeof body.webAccess === 'string' ? body.webAccess : 'off',
       )
+      if (result.turn?.id && workspaceBefore) {
+        workspaceSnapshotsByTurn.set(result.turn.id, {
+          before: workspaceBefore,
+          cwd: projectWorkspacePath(body.cwd),
+        })
+      }
       sendJson(response, 202, {
         turn: result.turn,
         replacementThread: result.replacementThread ?? null,
@@ -1190,6 +1013,16 @@ const server = createServer(async (incoming, response) => {
         includeTurns: true,
       })
       const turns = result.thread?.turns ?? []
+      for (const turn of turns) {
+        const snapshot = workspaceSnapshotsByTurn.get(turn.id)
+        if (turn.status !== 'completed' || !snapshot || workspaceChangesByTurn.has(turn.id)) continue
+        const workspaceAfter = await captureGitWorkspace(snapshot.cwd)
+        workspaceChangesByTurn.set(
+          turn.id,
+          compareGitWorkspaces(snapshot.before, workspaceAfter),
+        )
+        workspaceSnapshotsByTurn.delete(turn.id)
+      }
       const messages = turns.flatMap((turn) =>
         (turn.items ?? []).flatMap((item) => {
           if (item.type === 'userMessage') {
@@ -1216,6 +1049,9 @@ const server = createServer(async (incoming, response) => {
               text: item.text,
               phase: item.phase ?? 'message',
               turnStatus: turn.status,
+              workspaceChanges: item.phase === 'final_answer'
+                ? workspaceChangesByTurn.get(turn.id) ?? []
+                : [],
             }]
           }
           return []

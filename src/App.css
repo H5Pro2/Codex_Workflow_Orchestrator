@@ -13,6 +13,9 @@
   --muted: #a1a1aa;
   --accent: #72d6c9;
   --accent-strong: #72d6c9;
+  --button-surface: #19191b;
+  --button-surface-hover: #303034;
+  --button-text: #f2f2f3;
   --shadow-color: rgb(0 0 0 / 45%);
   --main-panel-height: clamp(800px, calc(100vh - 108px), 1120px);
   min-height: 100vh;
@@ -195,80 +198,6 @@
 
 .connectorState.offline strong {
   color: #fda4af;
-}
-
-.maintenanceControl {
-  align-items: center;
-  display: inline-flex;
-  margin-left: 2px;
-}
-
-.maintenanceLauncher {
-  align-items: center;
-  background: var(--surface-raised);
-  border-color: var(--line-strong);
-  border-radius: 6px;
-  color: var(--text-muted);
-  display: inline-flex;
-  font-size: 13px;
-  font-weight: 700;
-  height: 40px;
-  justify-content: center;
-  min-width: 40px;
-  padding: 0;
-  position: relative;
-  width: 40px;
-}
-
-.maintenanceLauncher:hover {
-  background: color-mix(in srgb, var(--text) 7%, var(--surface-raised));
-  border-color: var(--line-strong);
-  color: var(--text);
-}
-
-.maintenanceControl.unread.ready .maintenanceLauncher {
-  background: color-mix(in srgb, #e58b45 12%, var(--surface-raised));
-  border-color: color-mix(in srgb, #e58b45 70%, var(--line-strong));
-  color: #eaa064;
-}
-
-.maintenanceControl.unread.ready .maintenanceLauncher:hover {
-  background: color-mix(in srgb, #e58b45 20%, var(--surface-raised));
-  border-color: #e58b45;
-}
-
-.maintenanceControl.diagnosing .maintenanceLauncher {
-  border-color: var(--line-strong);
-  color: var(--text-muted);
-}
-
-.maintenanceControl.unread.failed .maintenanceLauncher {
-  background: color-mix(in srgb, #ef9696 12%, var(--surface-raised));
-  border-color: #ef9696;
-  color: #ef9696;
-}
-
-.maintenanceUnreadBadge {
-  align-items: center;
-  background: #e58b45;
-  border: 2px solid var(--surface);
-  border-radius: 999px;
-  color: #171719;
-  display: inline-flex;
-  font-size: 10px;
-  font-weight: 800;
-  height: 18px;
-  justify-content: center;
-  line-height: 1;
-  min-width: 18px;
-  padding: 0 4px;
-  position: absolute;
-  right: -7px;
-  top: -7px;
-}
-
-.maintenanceControl.failed .maintenanceUnreadBadge {
-  background: #ef9696;
 }
 
 .languageSwitch {
@@ -1063,6 +992,69 @@ h2 {
   white-space: pre-wrap;
 }
 
+.chatFileChanges {
+  border-top: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line) 72%);
+  display: grid;
+  gap: 8px;
+  margin-top: 11px;
+  padding-top: 9px;
+}
+
+.chatFileChanges > strong {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.chatFileChanges ul {
+  display: grid;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chatFileChanges li {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 20px minmax(0, 1fr);
+}
+
+.chatFileChanges code {
+  color: var(--text);
+  font: 11px/1.35 var(--code-font);
+  overflow-wrap: anywhere;
+}
+
+.fileChangeKind {
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  color: var(--muted);
+  display: inline-flex;
+  font: 700 10px/1 var(--code-font);
+  height: 18px;
+  justify-content: center;
+  width: 18px;
+}
+
+.fileChangeKind.added {
+  border-color: #3f754f;
+  color: #9ee8b3;
+}
+
+.fileChangeKind.deleted {
+  border-color: #713040;
+  color: #fda4af;
+}
+
+.fileChangeKind.renamed {
+  border-color: #735f31;
+  color: #f5d76e;
+}
+
 .chatError {
   color: #fda4af;
   margin: 18px;
@@ -1598,6 +1590,17 @@ label {
   font-size: 12px;
 }
 
+.workflowStatusItem.fixedSystemStatus {
+  border-left: 3px solid var(--accent);
+}
+
+.fixedStatusLabel {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  justify-self: end;
+}
+
 .workflowStatusItem span {
   color: #aeb4bd;
   font-size: 12px;
@@ -1854,6 +1857,19 @@ label {
   background: var(--surface-hover);
 }
 
+.dashboardToolMenu button:disabled {
+  cursor: not-allowed;
+}
+
+.dashboardToolMenu button:disabled:hover {
+  background: transparent;
+}
+
+.dashboardToolMenu button:disabled .toolSymbol,
+.dashboardToolMenu button:disabled small {
+  color: var(--muted);
+}
+
 .dashboardToolMenu button > span:last-child {
   display: grid;
   gap: 2px;
@@ -1876,8 +1892,10 @@ label {
   color: var(--accent);
   display: inline-flex;
   font-size: 17px;
+  flex: 0 0 28px;
   height: 28px;
   justify-content: center;
+  min-width: 28px;
   width: 28px;
 }
 
@@ -2757,6 +2775,11 @@ label {
   box-shadow: 0 0 0 4px rgb(34 197 94 / 12%);
 }
 
+.settingsCheckbox {
+  align-self: auto;
+  flex: 0 0 auto;
+}
+
 .profileSettingsCard {
   align-items: center;
   display: grid;
@@ -3024,10 +3047,6 @@ label {
   margin-bottom: 1px;
 }
 
-.maintenanceModal {
-  max-width: 760px;
-}
-
 .stallNoticeModal {
   max-width: 520px;
 }
@@ -3035,74 +3054,6 @@ label {
 .stallNoticeText {
   line-height: 1.5;
   margin: 0;
-}
-
-.maintenanceScope {
-  border-left: 2px solid var(--accent);
-  color: var(--muted);
-  line-height: 1.5;
-  margin: 0;
-  padding: 5px 0 5px 11px;
-}
-
-.maintenanceStatus {
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  display: flex;
-  gap: 10px;
-  min-height: 48px;
-  padding: 9px 11px;
-}
-
-.maintenanceStatus > div {
-  display: grid;
-  gap: 2px;
-}
-
-.maintenanceStatus span {
-  color: var(--muted);
-}
-
-.maintenanceStatus.ready {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
-}
-
-.maintenanceStatus.failed {
-  border-color: #bd5b5b;
-}
-
-.maintenanceIncident {
-  display: grid;
-  gap: 7px;
-}
-
-.maintenanceIncident textarea {
-  min-height: 90px;
-  resize: vertical;
-}
-
-.maintenanceReport {
-  display: grid;
-  gap: 8px;
-  min-height: 0;
-}
-
-.maintenanceReport pre {
-  background: var(--surface-inset);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--text);
-  font: 12px/1.55 var(--code-font);
-  margin: 0;
-  max-height: 280px;
-  overflow: auto;
-  padding: 12px;
-  white-space: pre-wrap;
-}
-
-.maintenanceActions {
-  gap: 8px;
 }
 
 .agentDeleteModal {
@@ -3314,17 +3265,17 @@ textarea {
 }
 
 button {
-  background: var(--surface-raised);
+  background: var(--button-surface);
   border: 1px solid var(--line-strong);
   border-radius: 6px;
-  color: var(--text);
+  color: var(--button-text);
   cursor: pointer;
   font-weight: 700;
   padding: 11px 14px;
 }
 
 button:hover {
-  background: var(--surface-hover);
+  background: var(--button-surface-hover);
   border-color: color-mix(in srgb, var(--line-strong) 70%, var(--text) 30%);
 }
 
@@ -3555,6 +3506,32 @@ button:hover {
   color: var(--muted);
   line-height: 1.45;
   margin: 6px 0 0;
+}
+
+.workflowRunHeader {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.workflowRunHeader .eyebrow {
+  margin: 0;
+}
+
+.workflowRunReset {
+  background: transparent;
+  border-color: var(--line-strong);
+  color: var(--muted);
+  font-size: 11px;
+  min-height: 28px;
+  padding: 4px 8px;
+}
+
+.workflowRunReset:hover:not(:disabled) {
+  border-color: #bd5b5b;
+  color: #ef9696;
 }
 
 button:focus-visible,
