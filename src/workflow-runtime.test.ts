@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   appendWorkflowRunEntry,
+  advanceWorkflowRunCycle,
+  activeWorkflowRun,
+  beginWorkflowRun,
   ensureWorkflowRun,
   isOrphanedPendingCheckpoint,
   isRecoverableContinuationCandidate,
@@ -12,6 +15,7 @@ import {
   resumableWorkflowCheckpoint,
   saveWorkflowCheckpoint,
   workflowRunEntry,
+  workflowRunCycleProgress,
 } from './workflow-runtime.ts'
 
 test('creates one active run and keeps ordered entries', () => {
@@ -25,6 +29,46 @@ test('creates one active run and keeps ordered entries', () => {
   assert.equal(second.runs.length, 1)
   assert.equal(second.runs[0].id, 'run-1')
   assert.equal(second.runs[0].entries[0].detail, 'Ergebnis')
+})
+
+test('advances complete workflow cycles up to the configured target', () => {
+  const first = beginWorkflowRun(
+    normalizeWorkflowRuntime(null),
+    'C:\\Project',
+    '2026-01-01T00:00:00Z',
+    'run-1',
+    { cycle: 1, targetCycles: 3 },
+  )
+  const secondCycle = advanceWorkflowRunCycle(
+    first.runtime,
+    'C:\\Project',
+    workflowRunEntry('completed', { detail: 'Lauf 1 beendet' }, '2026-01-01T00:01:00Z'),
+    workflowRunEntry('started', { detail: 'Lauf 2 gestartet' }, '2026-01-01T00:01:01Z'),
+  )
+
+  assert.deepEqual(workflowRunCycleProgress(secondCycle, 'c:/project'), {
+    cycle: 2,
+    targetCycles: 3,
+    shouldContinue: true,
+  })
+  assert.equal(secondCycle.runs[0].status, 'active')
+  assert.equal(secondCycle.runs[1].status, 'completed')
+
+  const thirdCycle = advanceWorkflowRunCycle(
+    secondCycle,
+    'C:\\Project',
+    workflowRunEntry('completed', { detail: 'Lauf 2 beendet' }, '2026-01-01T00:02:00Z'),
+    workflowRunEntry('started', { detail: 'Lauf 3 gestartet' }, '2026-01-01T00:02:01Z'),
+  )
+  const completed = advanceWorkflowRunCycle(
+    thirdCycle,
+    'C:\\Project',
+    workflowRunEntry('completed', { detail: 'Lauf 3 beendet' }, '2026-01-01T00:03:00Z'),
+    workflowRunEntry('started', { detail: 'Nicht gestartet' }, '2026-01-01T00:03:01Z'),
+  )
+
+  assert.equal(activeWorkflowRun(completed, 'C:\\Project'), null)
+  assert.equal(completed.runs.filter((run) => run.status === 'completed').length, 3)
 })
 
 test('a newer manual management decision supersedes old project checkpoints', () => {
@@ -86,6 +130,28 @@ test('selects and removes a pending project checkpoint', () => {
   assert.equal(resumableWorkflowCheckpoint(removeWorkflowCheckpoint(saved, 'checkpoint-1'), 'C:\\Project'), null)
 })
 
+test('selects a pending result checkpoint even before a target is known', () => {
+  const base = ensureWorkflowRun(normalizeWorkflowRuntime({}), 'C:\\Project', '2026-01-01T00:00:00Z', 'run-1')
+  const saved = saveWorkflowCheckpoint(base.runtime, {
+    id: 'result-1',
+    runId: 'run-1',
+    projectPath: 'C:\\Project',
+    sourceAgentId: 'researcher',
+    sourceAgentName: 'Forscher',
+    sourceTurnId: 'turn-1',
+    targetAgentIds: [],
+    targetAgentNames: [],
+    statusIds: [],
+    statusNames: [],
+    result: 'Ergebnis ohne auswertbare Statuszeile',
+    state: 'pending',
+    reason: '',
+    createdAt: '2026-01-01T00:01:00Z',
+    updatedAt: '2026-01-01T00:01:00Z',
+  })
+  assert.equal(resumableWorkflowCheckpoint(saved, 'c:/project')?.id, 'result-1')
+})
+
 test('recognizes a pending handoff orphaned by an application restart', () => {
   const checkpoint = {
     id: 'checkpoint-1',
@@ -125,6 +191,38 @@ test('does not recover historical agents after a clean workflow stop', () => {
     lastResult: 'Noch nicht weitergegebenes Ergebnis',
     lastCompletedTurnId: 'turn-current',
   }), true)
+})
+
+test('compacts persisted workflow history without removing recent run structure', () => {
+  const runtime = normalizeWorkflowRuntime({
+    runs: Array.from({ length: 15 }, (_, runIndex) => ({
+      id: `run-${runIndex}`,
+      projectPath: 'C:\\Project',
+      startedAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      status: runIndex === 0 ? 'active' : 'completed',
+      entries: Array.from({ length: 100 }, (_, entryIndex) => ({
+        id: `entry-${runIndex}-${entryIndex}`,
+        at: '2026-01-01T00:00:00Z',
+        kind: 'agent-completed',
+        agentId: 'agent',
+        agentName: 'Agent',
+        targetAgentIds: [],
+        targetAgentNames: [],
+        statusIds: [],
+        statusNames: [],
+        detail: 'x'.repeat(2_000),
+      })),
+    })),
+    checkpoints: [],
+  })
+
+  assert.equal(runtime.runs.length, 12)
+  assert.equal(runtime.runs[0].id, 'run-0')
+  assert.equal(runtime.runs[0].status, 'active')
+  assert.equal(runtime.runs[0].entries.length, 80)
+  assert.equal(runtime.runs[0].entries[0].id, 'entry-0-20')
+  assert.equal(runtime.runs[0].entries[0].detail.length, 1_500)
 })
 
 test('resets only the selected project run and keeps its history', () => {

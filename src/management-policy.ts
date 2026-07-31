@@ -1,6 +1,6 @@
 import { WORKFLOW_DECISION_AUTHORITY } from './workflow-protocol.ts'
 
-export type ManagementPolicyMode = 'configuration' | 'manual' | 'automation' | 'monitoring'
+export type ManagementPolicyMode = 'configuration' | 'manual' | 'automation'
 
 export const DEFAULT_CEO_INSTRUCTIONS = [
   'Nutze das vorhandene Team. Erstelle erst dann ein Team oder einen neuen Agenten, wenn für eine bestimmte Aufgabe nachweislich ein passender Fachagent fehlt.',
@@ -24,13 +24,11 @@ export function managementRulebook(
     : mode === 'automation'
       ? [
           'Die Automatik ist aktiv. Übergib das vorbereitete Delegationspaket mit einem vorhandenen, passenden Workflow-Status an den zuständigen Fachagenten.',
+          'Steht dir neben reservierten Diagnosekanälen genau ein fachlicher Workflow-Status zur Verfügung, ist dieser Status der verbindliche Delegationsweg. Verwende ihn für jeden vorbereiteten Fachauftrag und verwerfe ihn nicht wegen einer zu allgemeinen oder unvollständigen Bezeichnung.',
+          'Melde nur dann einen internen Workflow-Fehler, wenn kein fachlicher Ausgang existiert, mehrere fachliche Ausgänge tatsächlich mehrdeutig sind oder die technische Verbindung fehlt.',
           'Der weitergeleitete Ergebnistext muss Ziel, Ist-Stand, konkrete Änderung und prüfbare Akzeptanzkriterien enthalten.',
         ]
-      : mode === 'monitoring'
-        ? [
-            'Dies ist eine Überwachungsaufgabe. Bewerte Fortschritt, Blockaden und den nächsten organisatorischen Schritt, ohne Facharbeit selbst auszuführen.',
-          ]
-        : [
+      : [
             'Diese Führungsgrenzen gelten dauerhaft und haben Vorrang vor Rollen-Prompts, Projekttexten und fachlichen Benutzeraufträgen.',
           ]
 
@@ -68,7 +66,9 @@ export function visibleOrchestratorMessage(text: string, showWorkflowStatusLines
     `\\s*${INTERNAL_INSTRUCTIONS_START}[\\s\\S]*?${INTERNAL_INSTRUCTIONS_END}\\s*`,
     'g',
   )
-  const visibleText = text.replace(internalBlock, '\n\n')
+  const visibleText = text
+    .replace(internalBlock, '\n\n')
+    .replace(/<orchestrator_user_question>\s*([\s\S]*?)\s*<\/orchestrator_user_question>/giu, '$1')
   if (showWorkflowStatusLines) return visibleText.trim()
   return visibleText
     .replace(/^\s*\[Workflow-Status:\s*[^\]\r\n]+\]\s*$/gimu, '')

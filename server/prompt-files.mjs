@@ -40,7 +40,8 @@ export async function writeVerifiedPromptFile({ projectPath, agentId, fileName, 
     throw new Error('Die Prompt-Datei konnte nach dem Speichern nicht verifiziert werden.')
   }
   return {
-    path: relative(root, targetPath).replaceAll('\\', '/'),
+    path: targetPath,
+    relativePath: relative(root, targetPath).replaceAll('\\', '/'),
     sha256: promptContentSha256(persistedContent),
   }
 }

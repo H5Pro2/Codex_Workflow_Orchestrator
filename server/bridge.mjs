@@ -13,8 +13,10 @@ import { applyThreadProjectAssignments, savedProjectsFromState } from './codex-p
 import { readKnowledgeSources, writeKnowledgeSources } from './knowledge-sources.mjs'
 import { assertUserProjectGoalWriteSource, readProjectGoal, writeProjectGoal } from './project-goal.mjs'
 import { writeVerifiedPromptFile } from './prompt-files.mjs'
+import { assignThreadToLocalProject } from './codex-project-assignment.mjs'
 import { createProgramSettingsStore } from './program-settings.mjs'
 import { captureGitWorkspace, compareGitWorkspaces } from './git-workspace-changes.mjs'
+import { selectConversationWindow } from './conversation-window.mjs'
 import {
   projectThreadExecutionParams,
   projectTurnExecutionParams,
@@ -795,8 +797,8 @@ const server = createServer(async (incoming, response) => {
 
     if (incoming.method === 'POST' && url.pathname === '/api/threads') {
       const body = await readJson(incoming)
-      if (!body.cwd || !body.name) {
-        sendJson(response, 400, { error: 'Projektpfad und Name sind erforderlich.' })
+      if (!body.cwd || !body.projectId || !body.name) {
+        sendJson(response, 400, { error: 'Codex-Projekt, Projektpfad und Name sind erforderlich.' })
         return
       }
       await ready
@@ -806,6 +808,17 @@ const server = createServer(async (incoming, response) => {
         experimentalRawEvents: false,
         persistExtendedHistory: true,
       })
+      try {
+        await assignThreadToLocalProject({
+          stateFile: CODEX_GLOBAL_STATE_FILE,
+          threadId: result.thread.id,
+          projectId: body.projectId,
+          cwd: body.cwd,
+        })
+      } catch (error) {
+        await request('thread/archive', { threadId: result.thread.id }).catch(() => undefined)
+        throw error
+      }
       const transactionId = typeof body.provisioningTransactionId === 'string'
         ? body.provisioningTransactionId.trim()
         : ''
@@ -918,7 +931,8 @@ const server = createServer(async (incoming, response) => {
         }
       }
       sendJson(response, 200, {
-        path: relative(resolve(projectPath), targetPath).replaceAll('\\', '/'),
+        path: targetPath,
+        relativePath: relative(resolve(projectPath), targetPath).replaceAll('\\', '/'),
       })
       return
     }
@@ -1057,7 +1071,10 @@ const server = createServer(async (incoming, response) => {
           return []
         }),
       )
-      sendJson(response, 200, { messages })
+      sendJson(response, 200, {
+        messages: selectConversationWindow(messages, url.searchParams.get('limit')),
+        totalMessages: messages.length,
+      })
       return
     }
 

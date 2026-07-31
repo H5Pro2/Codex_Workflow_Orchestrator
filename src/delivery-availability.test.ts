@@ -21,4 +21,14 @@ test('blocks active targets and targets with a pending turn', () => {
     activeTargetIds: new Set(),
     agents: [{ id: 'quality', status: 'wartet', pendingTurnId: 'turn-1' }],
   }), true)
+  assert.equal(isDeliveryTargetBusy({
+    targetId: 'quality',
+    activeTargetIds: new Set(),
+    agents: [{
+      id: 'quality',
+      status: 'rueckfrage',
+      pendingTurnId: '',
+      pendingUserConfirmation: { confirmationText: 'BESTÄTIGT' },
+    }],
+  }), true)
 })

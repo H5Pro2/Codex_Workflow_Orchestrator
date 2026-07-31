@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   findCompletedConversationTurn,
+  findCompletedConversationTurnById,
   findConversationTurnActivity,
+  findConversationTurnActivityById,
   requireStartedTurnId,
   type ConversationMessage,
 } from './codex-turn.ts'
@@ -100,4 +102,45 @@ test('tracks activity on the persisted turn that contains the exact request', ()
   assert.equal(activity?.turnId, 'persisted-turn')
   assert.equal(activity?.hasAssistantActivity, true)
   assert.match(activity?.signature ?? '', /Ich prüfe die Dateien/)
+})
+
+test('tracks activity by the open turn id even when the previous result differs', () => {
+  const messages: ConversationMessage[] = [
+    {
+      id: 'request',
+      turnId: 'open-turn',
+      role: 'user',
+      text: 'Neue Forschungsaufgabe',
+      phase: 'request',
+      turnStatus: 'inProgress',
+    },
+    {
+      id: 'progress',
+      turnId: 'open-turn',
+      role: 'assistant',
+      text: 'Der lange Forschungslauf arbeitet weiter.',
+      phase: 'commentary',
+      turnStatus: 'inProgress',
+    },
+  ]
+
+  const activity = findConversationTurnActivityById(messages, 'open-turn')
+  assert.equal(activity?.turnId, 'open-turn')
+  assert.equal(activity?.hasAssistantActivity, true)
+  assert.match(activity?.signature ?? '', /lange Forschungslauf/)
+})
+
+test('finds a completed result directly by the open turn id', () => {
+  const messages: ConversationMessage[] = [
+    {
+      id: 'result',
+      turnId: 'open-turn',
+      role: 'assistant',
+      text: 'Forschungslauf abgeschlossen.',
+      phase: 'final_answer',
+      turnStatus: 'completed',
+    },
+  ]
+
+  assert.deepEqual(findCompletedConversationTurnById(messages, 'open-turn'), messages[0])
 })

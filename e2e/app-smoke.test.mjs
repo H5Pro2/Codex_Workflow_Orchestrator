@@ -116,6 +116,7 @@ function fixtureState() {
     workflowPositions: {},
     workflowBoardAgentIds: { ceo: ['ceo', 'analyst'] },
     deliveryQueue: {},
+    workflowLoopCounts: { 'project-1': 3 },
     selectedProjectId: 'project-1',
     autoRun: false,
   }
@@ -147,7 +148,9 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
   t.after(() => browser.close())
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
   await context.addInitScript((state) => {
-    window.localStorage.setItem('codex-workflow-orchestrator', JSON.stringify(state))
+    if (window.localStorage.getItem('codex-workflow-orchestrator') === null) {
+      window.localStorage.setItem('codex-workflow-orchestrator', JSON.stringify(state))
+    }
   }, sharedState)
   const page = await context.newPage()
   await page.route('**/api/**', async (route) => {
@@ -235,8 +238,14 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
   })
 
   await page.goto(`http://127.0.0.1:${port}/`)
-  await page.getByText('Die Umsetzung ist fertig.', { exact: true }).waitFor()
-  assert.doesNotMatch(await page.locator('.chatMessage.assistant > p').textContent(), /Workflow-Status/u)
+  const loopCount = page.getByLabel('Anzahl der Workflow-Läufe')
+  assert.equal(await loopCount.inputValue(), '3')
+  await loopCount.fill('4')
+  await page.waitForTimeout(700)
+  assert.equal(sharedState.workflowLoopCounts['project-1'], 4)
+  await page.locator('.communicationBridge').waitFor()
+  assert.equal(await page.locator('.chatMessage').count(), 0)
+  await page.locator('.bridgeLastStatus').getByText('Forschungsauftrag koordinieren', { exact: true }).waitFor()
   await page.getByText('src/auswertung.ts', { exact: true }).waitFor()
   await page.getByTitle('Programmeinstellungen öffnen').click()
   const workflowControlSetting = page.locator('.settingsRow', { hasText: 'Workflow-Steuerzeilen' })
@@ -253,8 +262,13 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
   assert.equal(programSettings.buttonColor, '#224466')
   assert.equal(programSettings.buttonTextColor, '#ffeecc')
   await page.reload()
+  await page.waitForFunction(() => (
+    document.querySelector('.workflowLoopControl input')?.value === '4'
+  ))
+  assert.equal(await page.locator('.workflowLoopControl input').inputValue(), '4')
   await page.getByText('Globale Testperson', { exact: true }).waitFor()
-  assert.match(await page.locator('.chatMessage.assistant > p').textContent(), /Workflow-Status: Forschungsauftrag koordinieren/u)
+  assert.equal(await page.locator('.chatMessage').count(), 0)
+  assert.match(await page.locator('.bridgeLastStatus').textContent(), /Forschungsauftrag koordinieren/u)
   const projectGoalButtonColor = await page.getByRole('button', { name: 'Projektziel' }).evaluate(
     (element) => getComputedStyle(element).backgroundColor,
   )

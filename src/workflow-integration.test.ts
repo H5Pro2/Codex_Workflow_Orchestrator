@@ -40,7 +40,6 @@ test('runs a validated CEO delegation through a specialist to the configured sto
   assert.equal(decideWorkflowContinuation({
     signal: delegated.signal,
     deliveryCount: delegated.deliveries.length,
-    managementObservation: false,
     activeRouteCount: 1,
   }).action, 'continue')
   assert.deepEqual(delegated.deliveries.map((delivery) => delivery.targetId), ['frontend'])
@@ -54,7 +53,6 @@ test('stops safely on an incomplete CEO answer instead of guessing a target', ()
   const decision = decideWorkflowContinuation({
     signal: incomplete.signal,
     deliveryCount: incomplete.deliveries.length,
-    managementObservation: false,
     activeRouteCount: 1,
   })
   assert.equal(decision.action, 'stop')

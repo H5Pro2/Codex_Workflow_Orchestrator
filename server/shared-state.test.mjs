@@ -91,3 +91,22 @@ test('does not create a new version for semantically identical state', async () 
   assert.equal(unchanged.ok, true)
   assert.equal(unchanged.updatedAt, first.updatedAt)
 })
+
+test('keeps project loop counts after the shared-state store is restarted', async () => {
+  const { stateFile, store } = await createStore()
+  await store.update({
+    agents: [],
+    workflowLoopCounts: {
+      'project-one': 3,
+      'project-two': 5,
+    },
+  }, { force: true })
+
+  const restartedStore = createSharedStateStore(stateFile)
+  const reloaded = await restartedStore.read()
+
+  assert.deepEqual(reloaded.state.workflowLoopCounts, {
+    'project-one': 3,
+    'project-two': 5,
+  })
+})

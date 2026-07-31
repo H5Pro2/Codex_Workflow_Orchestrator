@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  isCompletedManagementObservation,
   resolveManagementRecoveryTargetId,
 } from './management-recovery.ts'
 
@@ -49,47 +48,4 @@ test('rejects stale or non-management recovery sources', () => {
     configuredDeliveryCount: 0,
     knownAgentIds: ['implementation'],
   }), '')
-})
-
-test('keeps automation running after an uneventful management observation', () => {
-  assert.equal(isCompletedManagementObservation({
-    isManagementAgent: true,
-    runPurpose: 'monitoring',
-    inboundSourceAgentId: '',
-    reportsTechnicalFailure: false,
-    configuredDeliveryCount: 0,
-    resultStatusCount: 0,
-  }), true)
-})
-
-test('does not treat actionable management results as observations', () => {
-  const base = {
-    isManagementAgent: true,
-    runPurpose: 'monitoring',
-    inboundSourceAgentId: '',
-    reportsTechnicalFailure: false,
-    configuredDeliveryCount: 0,
-    resultStatusCount: 0,
-  }
-
-  assert.equal(isCompletedManagementObservation({
-    ...base,
-    runPurpose: 'initial',
-  }), false)
-  assert.equal(isCompletedManagementObservation({
-    ...base,
-    inboundSourceAgentId: 'implementation',
-  }), false)
-  assert.equal(isCompletedManagementObservation({
-    ...base,
-    reportsTechnicalFailure: true,
-  }), false)
-  assert.equal(isCompletedManagementObservation({
-    ...base,
-    configuredDeliveryCount: 1,
-  }), false)
-  assert.equal(isCompletedManagementObservation({
-    ...base,
-    resultStatusCount: 1,
-  }), false)
 })

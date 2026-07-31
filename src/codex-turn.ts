@@ -58,6 +58,30 @@ export function findConversationTurnActivity(
   }
 }
 
+export function findConversationTurnActivityById(
+  messages: ConversationMessage[],
+  turnId: string,
+): ConversationTurnActivity | null {
+  if (!turnId.trim()) return null
+  const turnMessages = messages.filter((message) => message.turnId === turnId)
+  if (turnMessages.length === 0) return null
+  return {
+    turnId,
+    signature: JSON.stringify(
+      turnMessages.map((message) => [
+        message.id ?? '',
+        message.role,
+        message.phase,
+        message.turnStatus,
+        message.text,
+      ]),
+    ),
+    hasAssistantActivity: turnMessages.some(
+      (message) => message.role === 'assistant' && Boolean(message.text.trim()),
+    ),
+  }
+}
+
 export function findCompletedConversationTurn(
   messages: ConversationMessage[],
   submittedText: string,
@@ -83,6 +107,21 @@ export function findCompletedConversationTurn(
       message.phase === 'final_answer' &&
       message.turnStatus === 'completed' &&
       matchingTurnIds.has(message.turnId) &&
+      Boolean(message.text.trim()),
+  ) ?? null
+}
+
+export function findCompletedConversationTurnById(
+  messages: ConversationMessage[],
+  turnId: string,
+) {
+  if (!turnId.trim()) return null
+  return messages.findLast(
+    (message) =>
+      message.turnId === turnId &&
+      message.role === 'assistant' &&
+      message.phase === 'final_answer' &&
+      message.turnStatus === 'completed' &&
       Boolean(message.text.trim()),
   ) ?? null
 }

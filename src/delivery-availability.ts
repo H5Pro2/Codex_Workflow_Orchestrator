@@ -2,6 +2,7 @@ type DeliveryAgentState = {
   id: string
   status: string
   pendingTurnId: string
+  pendingUserConfirmation?: unknown
 }
 
 type DeliveryAvailabilityInput = {
@@ -17,5 +18,9 @@ export function isDeliveryTargetBusy({
 }: DeliveryAvailabilityInput) {
   if (activeTargetIds.has(targetId)) return true
   const currentTarget = agents.find((agent) => agent.id === targetId)
-  return Boolean(currentTarget?.pendingTurnId) || currentTarget?.status === 'laeuft'
+  return (
+    Boolean(currentTarget?.pendingTurnId) ||
+    Boolean(currentTarget?.pendingUserConfirmation) ||
+    currentTarget?.status === 'laeuft'
+  )
 }

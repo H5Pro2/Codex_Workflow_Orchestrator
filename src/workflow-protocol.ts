@@ -1,3 +1,6 @@
+import { fixedForwardingHandoffInstruction } from './fixed-forwarding-policy.ts'
+import { userInteractionInstruction } from './user-confirmation.ts'
+
 export type WorkflowStatusLike = {
   id: string
   name: string
@@ -159,12 +162,16 @@ export function workflowSignalIssue(signal: WorkflowSignal) {
 export function workflowStatusInstruction(statuses: readonly WorkflowStatusLike[]) {
   if (statuses.some((status) => status.id === UNCONDITIONAL_FORWARD_STATUS_ID)) {
     return [
+      fixedForwardingHandoffInstruction(),
+      '',
       'Workflow-Abschlussformat (verbindlich):',
       `Dein Dashboard verwendet den festen Systemstatus "${UNCONDITIONAL_FORWARD_STATUS_NAME}".`,
       'Antworte normal und verständlich mit deinem vollständigen Ergebnis.',
       'Setze keinen Workflow-Status und erfinde keinen Statusnamen.',
       'Der Orchestrator leitet jede abgeschlossene Antwort automatisch und unverändert an genau den verbundenen Zielagenten weiter.',
       'Die technische Verbindung entscheidet über das Ziel.',
+      '',
+      userInteractionInstruction(),
     ].join('\n')
   }
   return [
@@ -186,5 +193,7 @@ export function workflowStatusInstruction(statuses: readonly WorkflowStatusLike[
     'Begründe dann in deiner Antwort, welche Statusmeldungen du geprüft hast und warum keine eindeutige Auswahl möglich war. Das ist ein interner Konfigurationsfehler und kein Projektfehler.',
     'Verwende [Workflow-Status: Kein Status] nur, wenn eine interne Systemanweisung ausdrücklich eine nicht weiterzuleitende Antwort verlangt. Erfinde keine Statusnamen.',
     'Mehrere Statusangaben, unbekannte Statusnamen und Text nach der Statuszeile werden vom Orchestrator als ungültige Antwort behandelt.',
+    '',
+    userInteractionInstruction(),
   ].join('\n')
 }

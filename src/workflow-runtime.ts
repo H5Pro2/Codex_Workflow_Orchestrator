@@ -2,6 +2,7 @@ export type WorkflowRunEntryKind =
   | 'started'
   | 'resumed'
   | 'status-repair'
+  | 'supervisor'
   | 'agent-completed'
   | 'handoff-pending'
   | 'handoff-delivered'
@@ -28,6 +29,8 @@ export type WorkflowRun = {
   startedAt: string
   updatedAt: string
   status: 'active' | 'paused' | 'completed'
+  cycle: number
+  targetCycles: number
   entries: WorkflowRunEntry[]
 }
 
@@ -55,9 +58,15 @@ export type WorkflowRuntime = {
 }
 
 const EMPTY_RUNTIME: WorkflowRuntime = { runs: [], checkpoints: [] }
-const MAX_RUNS = 25
-const MAX_ENTRIES_PER_RUN = 250
+const MAX_RUNS = 12
+const MAX_ENTRIES_PER_RUN = 80
+const MAX_ENTRY_DETAIL_LENGTH = 1_500
 const MAX_CHECKPOINT_RESULT_LENGTH = 12_000
+
+function normalizeCycle(value: unknown) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? Math.max(1, Math.trunc(parsed)) : 1
+}
 
 function samePath(left: string, right: string) {
   return left.trim().replaceAll('\\', '/').replace(/\/$/, '').toLocaleLowerCase('de-DE') ===
@@ -68,7 +77,21 @@ export function normalizeWorkflowRuntime(value: unknown): WorkflowRuntime {
   if (!value || typeof value !== 'object') return EMPTY_RUNTIME
   const candidate = value as Partial<WorkflowRuntime>
   return {
-    runs: Array.isArray(candidate.runs) ? candidate.runs : [],
+    runs: Array.isArray(candidate.runs)
+      ? candidate.runs.slice(0, MAX_RUNS).map((run) => ({
+          ...run,
+          cycle: normalizeCycle(run.cycle),
+          targetCycles: Math.max(normalizeCycle(run.cycle), normalizeCycle(run.targetCycles)),
+          entries: Array.isArray(run.entries)
+            ? run.entries.slice(-MAX_ENTRIES_PER_RUN).map((entry) => ({
+                ...entry,
+                detail: typeof entry.detail === 'string'
+                  ? entry.detail.slice(0, MAX_ENTRY_DETAIL_LENGTH)
+                  : '',
+              }))
+            : [],
+        }))
+      : [],
     checkpoints: Array.isArray(candidate.checkpoints) ? candidate.checkpoints : [],
   }
 }
@@ -84,6 +107,7 @@ export function ensureWorkflowRun(
   projectPath: string,
   now: string,
   id = crypto.randomUUID(),
+  options: { cycle?: number; targetCycles?: number } = {},
 ) {
   const active = activeWorkflowRun(runtime, projectPath)
   if (active) return { runtime, run: active }
@@ -94,6 +118,8 @@ export function ensureWorkflowRun(
     startedAt: now,
     updatedAt: now,
     status: 'active',
+    cycle: normalizeCycle(options.cycle),
+    targetCycles: Math.max(normalizeCycle(options.cycle), normalizeCycle(options.targetCycles)),
     entries: [],
   }
   return {
@@ -107,6 +133,7 @@ export function beginWorkflowRun(
   projectPath: string,
   now: string,
   id = crypto.randomUUID(),
+  options: { cycle?: number; targetCycles?: number } = {},
 ) {
   const closedRuns = runtime.runs.map((run) =>
     samePath(run.projectPath, projectPath) && run.status !== 'completed'
@@ -119,6 +146,8 @@ export function beginWorkflowRun(
     startedAt: now,
     updatedAt: now,
     status: 'active',
+    cycle: normalizeCycle(options.cycle),
+    targetCycles: Math.max(normalizeCycle(options.cycle), normalizeCycle(options.targetCycles)),
     entries: [],
   }
   return {
@@ -130,6 +159,29 @@ export function beginWorkflowRun(
       ),
     },
   }
+}
+
+export function workflowRunCycleProgress(runtime: WorkflowRuntime, projectPath: string) {
+  const run = activeWorkflowRun(runtime, projectPath)
+  const cycle = normalizeCycle(run?.cycle)
+  const targetCycles = Math.max(cycle, normalizeCycle(run?.targetCycles))
+  return { cycle, targetCycles, shouldContinue: cycle < targetCycles }
+}
+
+export function advanceWorkflowRunCycle(
+  runtime: WorkflowRuntime,
+  projectPath: string,
+  completedEntry: WorkflowRunEntry,
+  startedEntry: WorkflowRunEntry,
+) {
+  const progress = workflowRunCycleProgress(runtime, projectPath)
+  const completed = appendWorkflowRunEntry(runtime, projectPath, completedEntry)
+  if (!progress.shouldContinue) return completed
+  const next = beginWorkflowRun(completed, projectPath, startedEntry.at, crypto.randomUUID(), {
+    cycle: progress.cycle + 1,
+    targetCycles: progress.targetCycles,
+  })
+  return appendWorkflowRunEntry(next.runtime, projectPath, startedEntry)
 }
 
 export function appendWorkflowRunEntry(
@@ -275,6 +327,6 @@ export function workflowRunEntry(
     statusIds: values.statusIds ?? [],
     statusNames: values.statusNames ?? [],
     taskSignature: values.taskSignature,
-    detail: values.detail ?? '',
+    detail: (values.detail ?? '').slice(0, MAX_ENTRY_DETAIL_LENGTH),
   }
 }

@@ -136,7 +136,7 @@ export function resolveConfiguredDeliveries({
   targetIds: ReadonlySet<string>
   stopIds: ReadonlySet<string>
 }) {
-  return routes
+  const deliveries = routes
     .filter((route) => route.sourceId === sourceId)
     .flatMap<ResolvedWorkflowDelivery>((route) => {
       if (targetIds.has(route.targetId)) return [{ targetId: route.targetId, route }]
@@ -173,4 +173,14 @@ export function resolveConfiguredDeliveries({
           return []
         })
     })
+
+  const seenTargets = new Set<string>()
+  return deliveries.filter((delivery) => {
+    const key = delivery.targetId
+      ? `target:${delivery.targetId}`
+      : `stop:${delivery.stopId ?? ''}`
+    if (seenTargets.has(key)) return false
+    seenTargets.add(key)
+    return true
+  })
 }

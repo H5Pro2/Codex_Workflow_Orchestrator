@@ -70,5 +70,7 @@ test('fixed forwarding tells the agent to answer without a status marker', () =>
   }])
   assert.match(instruction, /jede abgeschlossene Antwort automatisch/u)
   assert.match(instruction, /Setze keinen Workflow-Status/u)
+  assert.match(instruction, /autorisierter Workflow-Auftrag/u)
+  assert.match(instruction, /keine zweite Freigabe durch den Benutzer/u)
   assert.doesNotMatch(instruction, /\[Workflow-Status: STATUSNAME\]/u)
 })

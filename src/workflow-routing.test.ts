@@ -64,6 +64,28 @@ test('resolves configured stop paths', () => {
   assert.deepEqual(deliveries.map((delivery) => delivery.stopId), ['project-stop'])
 })
 
+test('deduplicates multiple matching routes to the same target', () => {
+  const deliveries = resolveConfiguredDeliveries({
+    sourceId: 'researcher',
+    result: 'Prüfung und Weitergabe',
+    resultStatusIds: ['review', 'forward'],
+    routes: [
+      route('researcher-review', 'researcher', 'review-filter'),
+      route('review-reviewer', 'review-filter', 'reviewer'),
+      route('researcher-forward', 'researcher', 'forward-filter'),
+      route('forward-reviewer', 'forward-filter', 'reviewer'),
+    ],
+    statusFilters: [
+      { id: 'review-filter', statusId: 'review' },
+      { id: 'forward-filter', statusId: 'forward' },
+    ],
+    promptNodes: [],
+    targetIds: new Set(['reviewer']),
+    stopIds: new Set(),
+  })
+  assert.deepEqual(deliveries.map((delivery) => delivery.targetId), ['reviewer'])
+})
+
 test('fixed forwarding resolves exactly one connected target without a text status', () => {
   const resolved = resolveUnconditionalForwarding({
     sourceId: 'developer',

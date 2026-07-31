@@ -30,6 +30,9 @@ test('manual CEO work prepares delegation and waits for Auto Start', () => {
 test('automated CEO work delegates through an existing status route', () => {
   const rulebook = managementRulebook('automation')
   assert.match(rulebook, /vorhandenen, passenden Workflow-Status/)
+  assert.match(rulebook, /genau ein fachlicher Workflow-Status/)
+  assert.match(rulebook, /verbindliche Delegationsweg/)
+  assert.match(rulebook, /verwerfe ihn nicht/)
   assert.match(rulebook, /prüfbare Akzeptanzkriterien/)
   DEFAULT_CEO_INSTRUCTIONS.forEach((instruction) => assert.ok(rulebook.includes(instruction)))
 })
@@ -56,4 +59,9 @@ test('workflow status lines can be hidden without deleting them from the raw mes
   const message = 'Ergebnis liegt vor.\n\n[Workflow-Status: Weiterleitung]'
   assert.equal(visibleOrchestratorMessage(message), 'Ergebnis liegt vor.')
   assert.equal(visibleOrchestratorMessage(message, true), message)
+})
+
+test('shows an agent question without its orchestration marker', () => {
+  const message = '<orchestrator_user_question>Kannst du jetzt deutlich klatschen?</orchestrator_user_question>'
+  assert.equal(visibleOrchestratorMessage(message), 'Kannst du jetzt deutlich klatschen?')
 })
