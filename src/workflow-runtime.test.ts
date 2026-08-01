@@ -7,6 +7,7 @@ import {
   beginWorkflowRun,
   ensureWorkflowRun,
   isOrphanedPendingCheckpoint,
+  shouldRecoverPendingCheckpoint,
   isRecoverableContinuationCandidate,
   normalizeWorkflowRuntime,
   removeProjectCheckpointsSupersededAt,
@@ -178,6 +179,43 @@ test('recognizes a pending handoff orphaned by an application restart', () => {
     { id: 'lead', status: 'fertig', pendingTurnId: '' },
     { id: 'video', status: 'laeuft', pendingTurnId: 'turn-2' },
   ]), false)
+})
+
+test('does not recover a fresh checkpoint while dispatch state is settling', () => {
+  const checkpoint = {
+    id: 'checkpoint-1',
+    runId: 'run-1',
+    projectPath: 'C:\\Project',
+    sourceAgentId: 'lead',
+    sourceAgentName: 'Leitung',
+    sourceTurnId: 'turn-1',
+    targetAgentIds: ['review'],
+    targetAgentNames: ['Prüfung'],
+    statusIds: ['forward'],
+    statusNames: ['Weiterleiten'],
+    result: 'Auftrag',
+    state: 'pending' as const,
+    reason: '',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:10Z',
+  }
+  const idleAgents = [
+    { id: 'lead', status: 'fertig', pendingTurnId: '' },
+    { id: 'review', status: 'wartet', pendingTurnId: '' },
+  ]
+
+  assert.equal(shouldRecoverPendingCheckpoint(
+    checkpoint,
+    idleAgents,
+    Date.parse('2026-01-01T00:00:20Z'),
+    15_000,
+  ), false)
+  assert.equal(shouldRecoverPendingCheckpoint(
+    checkpoint,
+    idleAgents,
+    Date.parse('2026-01-01T00:00:26Z'),
+    15_000,
+  ), true)
 })
 
 test('does not recover historical agents after a clean workflow stop', () => {

@@ -115,7 +115,7 @@ import {
   activeWorkflowRun,
   beginWorkflowRun,
   ensureWorkflowRun,
-  isOrphanedPendingCheckpoint,
+  shouldRecoverPendingCheckpoint,
   isRecoverableContinuationCandidate,
   normalizeWorkflowRuntime,
   removeProjectCheckpointsSupersededAt,
@@ -5462,11 +5462,6 @@ function App() {
       setTransmittingAgentIds([])
       updateDeliveryQueue(() => ({}))
       activeDeliveryTargetIds.current.clear()
-      updateAgent(agent.id, {
-        status: 'fertig',
-        pendingTurnId: '',
-        runStartedAt: '',
-      })
       const progress = workflowRunCycleProgress(workflowRuntimeRef.current, agent.projectPath)
       const completionDetail = `${agent.name}: Rückgabe zum Initial-Agenten beendet Lauf ${progress.cycle}/${progress.targetCycles}.`
       updateWorkflowRuntime((current) => {
@@ -5494,56 +5489,33 @@ function App() {
       })
 
       if (progress.shouldContinue) {
-        setRoutes((current) => current.map((route) =>
-          samePath(route.projectPath, agent.projectPath)
-            ? { ...route, lastForwardedTask: undefined }
-            : route,
-        ))
+        persistWorkflowCheckpoint({
+          source: agent,
+          targets: agentDeliveries.map((delivery) => delivery.target),
+          statusIds: resultStatusIds,
+          statusNames: resultStatusNames,
+          state: 'pending',
+        })
         resetInactiveAgentStatuses()
         addEvent(
           'Workflow-Lauf abgeschlossen',
-          `Lauf ${progress.cycle}/${progress.targetCycles} ist abgeschlossen. Lauf ${progress.cycle + 1}/${progress.targetCycles} wird gestartet.`,
+          `Lauf ${progress.cycle}/${progress.targetCycles} ist abgeschlossen. Die Rückgabe von ${agent.name} eröffnet Lauf ${progress.cycle + 1}/${progress.targetCycles}.`,
         )
-        window.setTimeout(() => {
-          void startInitialWorkflowsRef.current()
-            .then(({ sentCount, busyCount }) => {
-              if (sentCount > 0 || busyCount > 0) return
-              autoRunRef.current = false
-              setAutoRun(false)
-              releaseAutomationLease()
-              updateWorkflowRuntime((current) => appendWorkflowRunEntry(
-                current,
-                agent.projectPath,
-                workflowRunEntry('paused', {
-                  detail: `Lauf ${progress.cycle + 1}/${progress.targetCycles} konnte nicht gestartet werden.`,
-                }),
-              ))
-              addEvent(
-                'Workflow-Loop angehalten',
-                `Lauf ${progress.cycle + 1}/${progress.targetCycles} wurde nicht von einem Initial-Agenten angenommen.`,
-              )
-            })
-            .catch((error) => {
-              autoRunRef.current = false
-              setAutoRun(false)
-              releaseAutomationLease()
-              addEvent(
-                'Workflow-Loop angehalten',
-                error instanceof Error ? error.message : 'Der nächste Lauf konnte nicht gestartet werden.',
-              )
-            })
-        }, 0)
+      } else {
+        updateAgent(agent.id, {
+          status: 'fertig',
+          pendingTurnId: '',
+          runStartedAt: '',
+        })
+        autoRunRef.current = false
+        setAutoRun(false)
+        releaseAutomationLease()
+        addEvent(
+          'Automatik am Laufende beendet',
+          `${agent.name} hat Lauf ${progress.cycle}/${progress.targetCycles} abgeschlossen. Die Rückgabe zum Initial-Agenten wurde nicht erneut gesendet.`,
+        )
         return
       }
-
-      autoRunRef.current = false
-      setAutoRun(false)
-      releaseAutomationLease()
-      addEvent(
-        'Automatik am Laufende beendet',
-        `${agent.name} hat Lauf ${progress.cycle}/${progress.targetCycles} abgeschlossen. Die Rückgabe zum Initial-Agenten wurde nicht erneut gesendet.`,
-      )
-      return
     }
 
     const readyAgentDeliveries = agentDeliveries.filter(({ target }) => {
@@ -5709,12 +5681,8 @@ function App() {
       selectedProjectPath,
     )
     if (!checkpoint || recoveredCheckpointIds.current.has(checkpoint.id)) return
-    const checkpointIsOrphaned = isOrphanedPendingCheckpoint(checkpoint, agents)
     const checkpointAge = Date.now() - Date.parse(checkpoint.updatedAt)
-    if (
-      !checkpointIsOrphaned &&
-      (!Number.isFinite(checkpointAge) || checkpointAge < ORPHANED_HANDOFF_GRACE_MS)
-    ) {
+    if (!Number.isFinite(checkpointAge) || checkpointAge < ORPHANED_HANDOFF_GRACE_MS) {
       const remainingDelay = Number.isFinite(checkpointAge)
         ? Math.max(250, ORPHANED_HANDOFF_GRACE_MS - checkpointAge)
         : ORPHANED_HANDOFF_GRACE_MS
@@ -5724,7 +5692,12 @@ function App() {
       )
       return () => window.clearTimeout(timer)
     }
-    if (!checkpointIsOrphaned) return
+    if (!shouldRecoverPendingCheckpoint(
+      checkpoint,
+      agents,
+      Date.now(),
+      ORPHANED_HANDOFF_GRACE_MS,
+    )) return
     const source = agents.find((agent) => agent.id === checkpoint.sourceAgentId)
     if (!source) return
 

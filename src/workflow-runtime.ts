@@ -262,6 +262,17 @@ export function isOrphanedPendingCheckpoint(
   return !isBusy(source) && targets.every((target) => !isBusy(target!))
 }
 
+export function shouldRecoverPendingCheckpoint(
+  checkpoint: WorkflowCheckpoint,
+  agents: CheckpointAgentState[],
+  now: number,
+  graceMs: number,
+) {
+  const updatedAt = Date.parse(checkpoint.updatedAt)
+  if (!Number.isFinite(updatedAt) || now - updatedAt < graceMs) return false
+  return isOrphanedPendingCheckpoint(checkpoint, agents)
+}
+
 export function removeProjectCheckpointsSupersededAt(
   runtime: WorkflowRuntime,
   projectPath: string,
