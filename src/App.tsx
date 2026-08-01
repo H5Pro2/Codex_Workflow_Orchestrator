@@ -107,8 +107,10 @@ import {
 } from './workflow-routing.ts'
 import {
   MAX_FORWARD_INTERVAL,
+  normalizeForwardIntervalMode,
   normalizeForwardInterval,
   normalizeForwardIntervalCount,
+  type ForwardIntervalMode,
 } from './workflow-forward-interval.ts'
 import { decideWorkflowContinuation } from './workflow-decision.ts'
 import {
@@ -359,6 +361,7 @@ type WorkflowPrompt = {
   prompt: string
   interval: number
   intervalCount: number
+  intervalMode: ForwardIntervalMode
 }
 
 type WorkflowInitial = {
@@ -385,6 +388,7 @@ type WorkflowStatusFilter = {
   statusId: string
   interval?: number
   intervalCount?: number
+  intervalMode?: ForwardIntervalMode
 }
 
 type WorkflowStop = {
@@ -430,6 +434,7 @@ function normalizeWorkflowPrompt(value: Partial<WorkflowPrompt>): WorkflowPrompt
     prompt: value.prompt ?? '',
     interval,
     intervalCount: normalizeForwardIntervalCount(value.intervalCount, interval),
+    intervalMode: normalizeForwardIntervalMode(value.intervalMode),
   }
 }
 
@@ -447,6 +452,7 @@ function normalizeWorkflowStatusFilter(value: Partial<WorkflowStatusFilter>): Wo
     statusId: value.statusId ?? '',
     interval,
     intervalCount: normalizeForwardIntervalCount(value.intervalCount, interval),
+    intervalMode: normalizeForwardIntervalMode(value.intervalMode),
   }
 }
 
@@ -1422,6 +1428,7 @@ function WorkflowDashboard({
             kindLabel: language === 'de' ? 'Weiterleiten' : 'Forward',
             interval: prompt.interval,
             intervalCount: prompt.intervalCount,
+            intervalMode: prompt.intervalMode,
           },
           className: 'workflowNode prompt',
         })),
@@ -1455,6 +1462,7 @@ function WorkflowDashboard({
               kindLabel: language === 'de' ? 'Weiterleiten' : 'Forward',
               interval: filter.interval,
               intervalCount: filter.intervalCount,
+              intervalMode: filter.intervalMode,
             },
             className: 'workflowNode statusFilter',
           }
@@ -1504,8 +1512,8 @@ function WorkflowDashboard({
   const previousDashboardIdRef = useRef(dashboardId)
   const nodeSignature = initialNodes.map((node) => node.id).sort().join(':')
   const handleSignature = [
-    ...prompts.map((prompt) => `${prompt.id}:${prompt.interval}`),
-    ...statusFilters.map((filter) => `${filter.id}:${filter.interval ?? 0}`),
+    ...prompts.map((prompt) => `${prompt.id}:${prompt.interval}:${prompt.intervalMode}`),
+    ...statusFilters.map((filter) => `${filter.id}:${filter.interval ?? 0}:${filter.intervalMode ?? 'replace'}`),
   ].join(':')
 
   useEffect(() => {
@@ -5015,11 +5023,14 @@ function App() {
       targetIds: new Set(agents.map((item) => item.id)),
     })
     if (unconditionalForwarding.enabled) {
-      const target = agents.find((item) => item.id === unconditionalForwarding.delivery?.targetId)
-      if (!target || unconditionalForwarding.issue) return false
+      const targetIds = (unconditionalForwarding.deliveries ?? [])
+        .map((delivery) => delivery.targetId)
+        .filter(Boolean)
+      const targets = agents.filter((item) => targetIds.includes(item.id))
+      if (targets.length === 0 || unconditionalForwarding.issue) return false
       persistWorkflowCheckpoint({
         source: agent,
-        targets: [target],
+        targets,
         statusIds: [UNCONDITIONAL_FORWARD_STATUS_ID],
         statusNames: [UNCONDITIONAL_FORWARD_STATUS_NAME],
         state: 'pending',
@@ -5145,8 +5156,8 @@ function App() {
     )
     const resolvedConfiguredDeliveries: ResolvedWorkflowDelivery[] = reportsInternalWorkflowError
       ? []
-      : unconditionalForwarding.enabled && unconditionalForwarding.delivery
-        ? [unconditionalForwarding.delivery]
+      : unconditionalForwarding.enabled && unconditionalForwarding.deliveries?.length
+        ? unconditionalForwarding.deliveries
         : resolveConfiguredDeliveries({
             sourceId: agent.id,
             result: agent.lastResult,
@@ -5949,6 +5960,7 @@ function App() {
       prompt: 'Bearbeite die vorherige Antwort gemaess deiner Rolle und arbeite selbststaendig weiter.',
       interval: 0,
       intervalCount: 0,
+      intervalMode: 'replace',
     }
     setWorkflowPrompts((current) => [...current, prompt])
   }
@@ -5966,6 +5978,14 @@ function App() {
       prompt.id === promptId
         ? { ...prompt, interval, intervalCount: 0 }
         : prompt,
+    ))
+  }
+
+  const updateWorkflowPromptIntervalMode = (promptId: string, value: unknown) => {
+    const intervalMode = normalizeForwardIntervalMode(value)
+    sharedStateDirty.current = true
+    setWorkflowPrompts((current) => current.map((prompt) =>
+      prompt.id === promptId ? { ...prompt, intervalMode } : prompt,
     ))
   }
 
@@ -6220,6 +6240,7 @@ function App() {
       statusId: status.id,
       interval: 0,
       intervalCount: 0,
+      intervalMode: 'replace',
     }
     sharedStateDirty.current = true
     setWorkflowStatusFilters((current) => [...current, filter])
@@ -6293,6 +6314,14 @@ function App() {
       filter.id === filterId
         ? { ...filter, interval, intervalCount: 0 }
         : filter,
+    ))
+  }
+
+  const updateWorkflowStatusFilterIntervalMode = (filterId: string, value: unknown) => {
+    const intervalMode = normalizeForwardIntervalMode(value)
+    sharedStateDirty.current = true
+    setWorkflowStatusFilters((current) => current.map((filter) =>
+      filter.id === filterId ? { ...filter, intervalMode } : filter,
     ))
   }
 
@@ -9653,11 +9682,27 @@ function App() {
                 value={selectedPrompt.interval || ''}
               />
             </label>
+            {selectedPrompt.interval > 0 && (
+              <label>
+                {tx('Intervall-Verhalten', 'Interval behavior')}
+                <select
+                  value={selectedPrompt.intervalMode}
+                  onChange={(event) => updateWorkflowPromptIntervalMode(selectedPrompt.id, event.target.value)}
+                >
+                  <option value="replace">{tx('Nur Intervall-Ausgang', 'Interval output only')}</option>
+                  <option value="both">{tx('Normal + Intervall', 'Normal + interval')}</option>
+                </select>
+              </label>
+            )}
             <p className="modalHint forwardIntervalHint">
               {selectedPrompt.interval > 0
                 ? tx(
-                    `Stand ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. Beim ${selectedPrompt.interval}. Treffer wird der Intervall-Ausgang verwendet und der Stand auf 0 gesetzt.`,
-                    `Count ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. The interval output is used on hit ${selectedPrompt.interval}, then the count resets to 0.`,
+                    selectedPrompt.intervalMode === 'both'
+                      ? `Stand ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. Beim ${selectedPrompt.interval}. Treffer werden Normal und Intervall verwendet; der Stand wird auf 0 gesetzt.`
+                      : `Stand ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. Beim ${selectedPrompt.interval}. Treffer wird der Intervall-Ausgang verwendet und der Stand auf 0 gesetzt.`,
+                    selectedPrompt.intervalMode === 'both'
+                      ? `Count ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. On hit ${selectedPrompt.interval}, normal and interval outputs are used, then the count resets to 0.`
+                      : `Count ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. The interval output is used on hit ${selectedPrompt.interval}, then the count resets to 0.`,
                   )
                 : tx(
                     'Ohne Intervall besitzt der Baustein nur den normalen Ausgang.',
@@ -10650,11 +10695,29 @@ function App() {
                   value={selectedStatusFilter.interval || ''}
                 />
               </label>
+              {(selectedStatusFilter.interval ?? 0) > 0 && (
+                <label>
+                  {tx('Intervall-Verhalten', 'Interval behavior')}
+                  <select
+                    value={selectedStatusFilter.intervalMode ?? 'replace'}
+                    onChange={(event) =>
+                      updateWorkflowStatusFilterIntervalMode(selectedStatusFilter.id, event.target.value)
+                    }
+                  >
+                    <option value="replace">{tx('Nur Intervall-Ausgang', 'Interval output only')}</option>
+                    <option value="both">{tx('Normal + Intervall', 'Normal + interval')}</option>
+                  </select>
+                </label>
+              )}
               <p className="modalHint forwardIntervalHint">
                 {(selectedStatusFilter.interval ?? 0) > 0
                   ? tx(
-                      `Stand ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. Beim ${selectedStatusFilter.interval}. Treffer wird der Intervall-Ausgang verwendet und der Zähler auf 0 gesetzt.`,
-                      `Count ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. The interval output is used on hit ${selectedStatusFilter.interval}, then the count resets to 0.`,
+                      (selectedStatusFilter.intervalMode ?? 'replace') === 'both'
+                        ? `Stand ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. Beim ${selectedStatusFilter.interval}. Treffer werden Normal und Intervall verwendet; der Zähler wird auf 0 gesetzt.`
+                        : `Stand ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. Beim ${selectedStatusFilter.interval}. Treffer wird der Intervall-Ausgang verwendet und der Zähler auf 0 gesetzt.`,
+                      (selectedStatusFilter.intervalMode ?? 'replace') === 'both'
+                        ? `Count ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. On hit ${selectedStatusFilter.interval}, normal and interval outputs are used, then the count resets to 0.`
+                        : `Count ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. The interval output is used on hit ${selectedStatusFilter.interval}, then the count resets to 0.`,
                     )
                   : tx(
                       'Ohne Intervall besitzt der Baustein nur den normalen Ausgang.',

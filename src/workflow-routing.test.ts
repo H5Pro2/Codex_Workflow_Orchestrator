@@ -117,6 +117,40 @@ test('routes a status filter through its configured interval output', () => {
   })), [{ targetId: 'auditor', branch: 'interval', nextCount: 0 }])
 })
 
+test('routes a forwarding interval through both outputs when configured', () => {
+  const routes = [
+    route('agent-forward', 'agent', 'forward-node'),
+    { ...route('forward-normal', 'forward-node', 'reviewer'), sourceHandle: 'output' },
+    { ...route('forward-interval', 'forward-node', 'auditor'), sourceHandle: 'interval' },
+  ]
+  const deliveries = resolveConfiguredDeliveries({
+    sourceId: 'agent',
+    result: 'Ergebnis',
+    resultStatusIds: [],
+    routes,
+    statusFilters: [],
+    promptNodes: [{
+      id: 'forward-node',
+      condition: '',
+      prompt: 'Weiter',
+      interval: 5,
+      intervalCount: 4,
+      intervalMode: 'both',
+    }],
+    targetIds: new Set(['reviewer', 'auditor']),
+    stopIds: new Set(),
+  })
+
+  assert.deepEqual(deliveries.map((delivery) => ({
+    targetId: delivery.targetId,
+    branch: delivery.promptBranch,
+    nextCount: delivery.promptNextCount,
+  })), [
+    { targetId: 'reviewer', branch: 'interval', nextCount: 0 },
+    { targetId: 'auditor', branch: 'interval', nextCount: 0 },
+  ])
+})
+
 test('deduplicates multiple matching routes to the same target', () => {
   const deliveries = resolveConfiguredDeliveries({
     sourceId: 'researcher',
@@ -176,6 +210,36 @@ test('fixed forwarding selects its interval branch on the configured hit', () =>
   assert.equal(resolved.delivery?.targetId, 'auditor')
   assert.equal(resolved.delivery?.promptBranch, 'interval')
   assert.equal(resolved.delivery?.promptNextCount, 0)
+  assert.equal(resolved.issue, '')
+})
+
+test('fixed forwarding can deliver through normal and interval outputs on the configured hit', () => {
+  const resolved = resolveUnconditionalForwarding({
+    sourceId: 'developer',
+    statusId: 'system-forward',
+    routes: [
+      route('developer-filter', 'developer', 'forward-filter'),
+      { ...route('filter-reviewer', 'forward-filter', 'reviewer'), sourceHandle: 'output' },
+      { ...route('filter-auditor', 'forward-filter', 'auditor'), sourceHandle: 'interval' },
+    ],
+    statusFilters: [{
+      id: 'forward-filter',
+      statusId: 'system-forward',
+      interval: 5,
+      intervalCount: 4,
+      intervalMode: 'both',
+    }],
+    targetIds: new Set(['reviewer', 'auditor']),
+  })
+
+  assert.deepEqual(resolved.deliveries.map((delivery) => ({
+    targetId: delivery.targetId,
+    branch: delivery.promptBranch,
+    nextCount: delivery.promptNextCount,
+  })), [
+    { targetId: 'reviewer', branch: 'interval', nextCount: 0 },
+    { targetId: 'auditor', branch: 'interval', nextCount: 0 },
+  ])
   assert.equal(resolved.issue, '')
 })
 

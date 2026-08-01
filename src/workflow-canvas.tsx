@@ -21,6 +21,7 @@ export type WorkflowNodeData = {
   instructionIndicatorLabel?: string
   interval?: number
   intervalCount?: number
+  intervalMode?: 'replace' | 'both'
 }
 
 export function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {

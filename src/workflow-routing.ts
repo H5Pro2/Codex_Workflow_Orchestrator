@@ -1,4 +1,4 @@
-import { nextForwardIntervalHit } from './workflow-forward-interval.ts'
+import { forwardIntervalSourceHandles, nextForwardIntervalHit } from './workflow-forward-interval.ts'
 
 export type WorkflowRouteLike = {
   id: string
@@ -15,6 +15,7 @@ export type WorkflowStatusFilterLike = {
   statusId: string
   interval?: number
   intervalCount?: number
+  intervalMode?: string
 }
 
 export type WorkflowPromptLike = {
@@ -23,6 +24,7 @@ export type WorkflowPromptLike = {
   prompt: string
   interval?: number
   intervalCount?: number
+  intervalMode?: string
 }
 
 export type ResolvedWorkflowDelivery = {
@@ -56,15 +58,15 @@ export function resolveUnconditionalForwarding({
       .map((route) => route.targetId),
   )
   if (connectedFilterIds.size === 0) {
-    return { enabled: false, delivery: null, issue: '' }
+    return { enabled: false, delivery: null, deliveries: [], issue: '' }
   }
   const connectedFilter = statusFilters.find((filter) => connectedFilterIds.has(filter.id))
   const intervalHit = nextForwardIntervalHit(connectedFilter?.interval, connectedFilter?.intervalCount)
-  const expectedHandle = intervalHit.branch === 'interval' ? 'interval' : 'output'
+  const expectedHandles = new Set(forwardIntervalSourceHandles(intervalHit.branch, connectedFilter?.intervalMode))
   const deliveries = routes
     .filter((route) =>
       connectedFilterIds.has(route.sourceId) &&
-      (route.sourceHandle || 'output') === expectedHandle &&
+      expectedHandles.has((route.sourceHandle || 'output') as 'output' | 'interval') &&
       targetIds.has(route.targetId),
     )
     .map((route) => ({
@@ -75,14 +77,15 @@ export function resolveUnconditionalForwarding({
       promptBranch: intervalHit.branch,
       promptNextCount: intervalHit.nextCount,
     }))
-  if (connectedFilterIds.size !== 1 || deliveries.length !== 1) {
+  if (connectedFilterIds.size !== 1 || deliveries.length !== expectedHandles.size) {
     return {
       enabled: true,
       delivery: null,
+      deliveries: [],
       issue: 'Der feste Status „Weiterleiten“ muss mit genau einem Zielagenten verbunden sein.',
     }
   }
-  return { enabled: true, delivery: deliveries[0], issue: '' }
+  return { enabled: true, delivery: deliveries[0], deliveries, issue: '' }
 }
 
 export function wouldCreateUnsupportedUnconditionalForwardCycle({
@@ -170,11 +173,11 @@ export function resolveConfiguredDeliveries({
       if (statusFilter) {
         if (!resultStatusIds.includes(statusFilter.statusId)) return []
         const intervalHit = nextForwardIntervalHit(statusFilter.interval, statusFilter.intervalCount)
-        const expectedHandle = intervalHit.branch === 'interval' ? 'interval' : 'output'
+        const expectedHandles = new Set(forwardIntervalSourceHandles(intervalHit.branch, statusFilter.intervalMode))
         return routes
           .filter((outgoing) =>
             outgoing.sourceId === statusFilter.id &&
-            (outgoing.sourceHandle || 'output') === expectedHandle,
+            expectedHandles.has((outgoing.sourceHandle || 'output') as 'output' | 'interval'),
           )
           .flatMap<ResolvedWorkflowDelivery>((outgoing) => {
             const intervalMetadata = {
@@ -191,12 +194,12 @@ export function resolveConfiguredDeliveries({
       const promptNode = promptNodes.find((prompt) => prompt.id === route.targetId)
       if (!promptNode) return []
       const intervalHit = nextForwardIntervalHit(promptNode.interval, promptNode.intervalCount)
-      const expectedHandle = intervalHit.branch === 'interval' ? 'interval' : 'output'
+      const expectedHandles = new Set(forwardIntervalSourceHandles(intervalHit.branch, promptNode.intervalMode))
       return routes
         .filter(
           (outgoing) =>
             outgoing.sourceId === promptNode.id &&
-            (outgoing.sourceHandle || 'output') === expectedHandle &&
+            expectedHandles.has((outgoing.sourceHandle || 'output') as 'output' | 'interval') &&
             routeConditionMatches(outgoing.condition, result),
         )
         .flatMap<ResolvedWorkflowDelivery>((outgoing) => {

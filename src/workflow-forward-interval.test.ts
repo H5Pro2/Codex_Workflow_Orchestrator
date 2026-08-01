@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  forwardIntervalSourceHandles,
   nextForwardIntervalHit,
   normalizeForwardInterval,
   normalizeForwardIntervalCount,
+  normalizeForwardIntervalMode,
 } from './workflow-forward-interval.ts'
 
 test('uses the normal branch until the configured interval is reached', () => {
@@ -22,4 +24,12 @@ test('normalizes persisted interval values to stable bounds', () => {
   assert.equal(normalizeForwardInterval(1_500), 999)
   assert.equal(normalizeForwardInterval(-4), 0)
   assert.equal(normalizeForwardIntervalCount(12, 5), 4)
+})
+
+test('selects one or both source handles for interval hits', () => {
+  assert.deepEqual(forwardIntervalSourceHandles('normal', 'both'), ['output'])
+  assert.deepEqual(forwardIntervalSourceHandles('interval', 'replace'), ['interval'])
+  assert.deepEqual(forwardIntervalSourceHandles('interval', 'both'), ['output', 'interval'])
+  assert.equal(normalizeForwardIntervalMode('both'), 'both')
+  assert.equal(normalizeForwardIntervalMode('anything'), 'replace')
 })

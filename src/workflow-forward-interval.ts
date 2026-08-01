@@ -1,4 +1,5 @@
 export const MAX_FORWARD_INTERVAL = 999
+export type ForwardIntervalMode = 'replace' | 'both'
 
 export function normalizeForwardInterval(value: unknown) {
   const parsed = Number(value)
@@ -12,6 +13,18 @@ export function normalizeForwardIntervalCount(value: unknown, interval: unknown)
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return 0
   return Math.min(normalizedInterval - 1, Math.max(0, Math.trunc(parsed)))
+}
+
+export function normalizeForwardIntervalMode(value: unknown): ForwardIntervalMode {
+  return value === 'both' ? 'both' : 'replace'
+}
+
+export function forwardIntervalSourceHandles(
+  branch: 'normal' | 'interval',
+  mode: unknown,
+): ('output' | 'interval')[] {
+  if (branch === 'normal') return ['output']
+  return normalizeForwardIntervalMode(mode) === 'both' ? ['output', 'interval'] : ['interval']
 }
 
 export function nextForwardIntervalHit(interval: unknown, currentCount: unknown) {
