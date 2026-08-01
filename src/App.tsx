@@ -5957,7 +5957,7 @@ function App() {
       projectPath: selectedProject?.path ?? '',
       name: 'Weiterleiten',
       condition: 'Immer',
-      prompt: 'Bearbeite die vorherige Antwort gemaess deiner Rolle und arbeite selbststaendig weiter.',
+      prompt: 'Bearbeite die vorherige Antwort gemäß deiner Rolle und arbeite selbstständig weiter.',
       interval: 0,
       intervalCount: 0,
       intervalMode: 'replace',
@@ -9711,7 +9711,7 @@ function App() {
             </p>
             <div className="modalActions">
               <button className="deleteButton" onClick={() => deleteWorkflowPrompt(selectedPrompt.id)}>
-                {tx('Weiterleiten-Baustein loeschen', 'Delete forwarding node')}
+                {tx('Weiterleiten-Baustein löschen', 'Delete forwarding node')}
               </button>
               <button className="primary" onClick={() => setSelectedPromptId('')}>{tx('Übernehmen', 'Apply')}</button>
             </div>
