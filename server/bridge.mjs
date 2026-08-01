@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { createReadStream } from 'node:fs'
 import { mkdir, readFile, rename, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
+import { confirmInactiveTurn } from './turn-inactivity.mjs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1176,20 +1177,15 @@ const server = createServer(async (incoming, response) => {
           const message = error instanceof Error ? error.message : ''
           if (requestedTurnId && message.includes('Historie nicht gefunden')) {
             const threadIsIdle = ['idle', 'notLoaded', 'systemError'].includes(threadStatusType)
-            if (!threadIsIdle) {
-              inactiveTurnSince.delete(turnObservationKey)
-            }
-            const firstInactiveAt = threadIsIdle
-              ? inactiveTurnSince.get(turnObservationKey) ?? Date.now()
-              : Date.now()
-            if (threadIsIdle) {
-              inactiveTurnSince.set(turnObservationKey, firstInactiveAt)
-            }
-            const inactivityConfirmed = threadIsIdle && Date.now() - firstInactiveAt >= 20_000
+            const inactivityConfirmed = confirmInactiveTurn({
+              observations: inactiveTurnSince,
+              key: turnObservationKey,
+              inactive: threadIsIdle,
+            })
             turn = inactivityConfirmed
               ? {
                   turnId: requestedTurnId,
-                  status: 'interrupted',
+                  status: 'missing',
                   text: '',
                   durationMs: null,
                   error: {
@@ -1214,12 +1210,15 @@ const server = createServer(async (incoming, response) => {
         turn?.status === 'inProgress' &&
         ['idle', 'notLoaded', 'systemError'].includes(threadStatusType)
       ) {
-        const firstInactiveAt = inactiveTurnSince.get(turnObservationKey) ?? Date.now()
-        inactiveTurnSince.set(turnObservationKey, firstInactiveAt)
-        if (Date.now() - firstInactiveAt >= 20_000) {
+        const inactivityConfirmed = confirmInactiveTurn({
+          observations: inactiveTurnSince,
+          key: turnObservationKey,
+          inactive: true,
+        })
+        if (inactivityConfirmed) {
           turn = {
             ...turn,
-            status: 'interrupted',
+            status: 'missing',
             error: {
               message: 'Codex-Task ist inaktiv; der angeforderte Turn wurde nicht abgeschlossen.',
             },
