@@ -978,14 +978,43 @@ h2 {
 
 .communicationChatView {
   background: var(--surface-inset);
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: hidden;
   position: relative;
 }
 
+.chatScopeTabs {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 10px 14px;
+}
+
+.chatScopeTabs button {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  height: 30px;
+  padding: 0 12px;
+}
+
+.chatScopeTabs button.active,
+.chatScopeTabs button:hover {
+  background: var(--surface-raised);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
 .communicationChatStream {
-  height: 100%;
+  flex: 1;
   min-height: 0;
   padding: 16px;
 }

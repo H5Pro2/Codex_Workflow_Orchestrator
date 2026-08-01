@@ -258,6 +258,7 @@ type Agent = {
   status: AgentStatus
   talkTo: string[]
   autoForward: boolean
+  usesTeamChat: boolean
   usesProjectKnowledge: boolean
   webAccess: AgentWebAccess
   assignment: AgentAssignment
@@ -330,6 +331,9 @@ type ChatMessage = {
   text: string
   phase: string
   turnStatus: string
+  sourceAgentId?: string
+  sourceAgentName?: string
+  sourceThreadTitle?: string
   workspaceChanges?: WorkspaceFileChange[]
 }
 
@@ -465,9 +469,10 @@ function normalizeWorkflowStatusFilters(value: unknown): WorkflowStatusFilter[] 
 }
 
 function chatMessageIdentity(message: ChatMessage, agentName: string, language: UiLanguage) {
+  const sourceName = message.sourceAgentName || agentName
   if (message.role === 'assistant') {
     return {
-      name: agentName,
+      name: sourceName,
       label: message.phase !== 'final_answer'
         ? language === 'de' ? 'Zwischenstand' : 'Progress'
         : language === 'de' ? 'Antwort' : 'Answer',
@@ -497,7 +502,7 @@ function chatMessageIdentity(message: ChatMessage, agentName: string, language: 
     }
   }
 
-  return { name: 'Orchestrator', label: language === 'de' ? 'Eingang' : 'Input' }
+  return { name: message.sourceAgentName ? `Orchestrator -> ${message.sourceAgentName}` : 'Orchestrator', label: language === 'de' ? 'Eingang' : 'Input' }
 }
 
 const STORAGE_KEY = 'codex-workflow-orchestrator'
@@ -884,6 +889,7 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
         ? [legacyAgent.handoffTo]
         : [],
     autoForward: agent.autoForward ?? true,
+    usesTeamChat: agent.usesTeamChat ?? true,
     usesProjectKnowledge: agent.usesProjectKnowledge ?? true,
     webAccess: agent.webAccess === 'prompt' || agent.webAccess === 'allowed' ? agent.webAccess : 'off',
     assignment: agent.assignment === 'management' ? 'management' : 'agent',
@@ -1713,6 +1719,7 @@ export const ChatComposer = function ChatComposer({
 function chatMessageSnapshot(messages: readonly ChatMessage[]) {
   return messages.map((message) => [
     message.id,
+    message.sourceAgentId ?? '',
     message.turnStatus,
     message.text.length,
     message.text.slice(-80),
@@ -2034,6 +2041,7 @@ function App() {
   const [chatError, setChatError] = useState('')
   const [chatPinnedToBottom, setChatPinnedToBottom] = useState(true)
   const [communicationView, setCommunicationView] = useState<'overview' | 'chat'>('overview')
+  const [communicationChatScope, setCommunicationChatScope] = useState<'team' | 'agent'>('team')
   const [, setChatSending] = useState(false)
   const chatMessagesSnapshotRef = useRef('')
   const chatSendHandlerRef = useRef<(agentId: string, text: string) => Promise<boolean>>(
@@ -2711,15 +2719,33 @@ function App() {
     [editingWorkflowStatusId, workflowStatuses],
   )
 
+  const teamChatAgents = useMemo(
+    () => projectAgents.filter((agent) => agent.usesTeamChat && agent.threadId),
+    [projectAgents],
+  )
+  const teamChatAgentKey = useMemo(
+    () => teamChatAgents.map((agent) => `${agent.id}:${agent.threadId}:${agent.name}`).join('|'),
+    [teamChatAgents],
+  )
+  const selectedAgentChatKey = selectedAgent
+    ? `${selectedAgent.id}:${selectedAgent.threadId ?? ''}:${selectedAgent.name}`
+    : ''
+
   useEffect(() => {
     let active = true
     let loading = false
-    const threadId = selectedAgent?.threadId
+    const chatAgents = communicationChatScope === 'team'
+      ? teamChatAgents
+      : selectedAgent
+        ? [selectedAgent]
+        : []
     setChatPinnedToBottom(true)
     chatMessagesSnapshotRef.current = ''
-    if (!threadId) {
+    if (chatAgents.length === 0) {
       setChatMessages([])
-      setChatError(tx('Dieser Agent ist mit keinem Codex-Chat verknüpft.', 'This agent is not linked to a Codex chat.'))
+      setChatError(communicationChatScope === 'team'
+        ? tx('Kein Agent ist für den gemeinsamen Chat freigegeben.', 'No agent is enabled for the shared chat.')
+        : tx('Dieser Agent ist mit keinem Codex-Chat verknüpft.', 'This agent is not linked to a Codex chat.'))
       return
     }
 
@@ -2727,15 +2753,29 @@ function App() {
       if (loading) return
       loading = true
       try {
-        const response = await fetch(
-          `/api/threads/${encodeURIComponent(threadId)}/conversation?limit=50`,
-        )
-        const data = await response.json()
-        if (!response.ok) {
-          throw new Error(data.error || tx('Chat konnte nicht gelesen werden.', 'The chat could not be loaded.'))
-        }
+        const conversations = await Promise.all(chatAgents.map(async (agent) => {
+          const response = await fetch(
+            `/api/threads/${encodeURIComponent(agent.threadId)}/conversation?limit=50`,
+          )
+          const data = await response.json()
+          if (!response.ok) {
+            throw new Error(data.error || tx('Chat konnte nicht gelesen werden.', 'The chat could not be loaded.'))
+          }
+          return {
+            agent,
+            messages: Array.isArray(data.messages) ? data.messages as ChatMessage[] : [],
+          }
+        }))
         if (active) {
-          const nextMessages = Array.isArray(data.messages) ? data.messages : []
+          const nextMessages = conversations.flatMap(({ agent, messages }) =>
+            messages.map((message) => ({
+              ...message,
+              id: `${agent.id}:${message.id}`,
+              sourceAgentId: agent.id,
+              sourceAgentName: agent.name,
+              sourceThreadTitle: agent.threadTitle || agent.name,
+            })),
+          )
           const nextSnapshot = chatMessageSnapshot(nextMessages)
           if (nextSnapshot !== chatMessagesSnapshotRef.current) {
             chatMessagesSnapshotRef.current = nextSnapshot
@@ -2760,7 +2800,7 @@ function App() {
       active = false
       window.clearInterval(timer)
     }
-  }, [selectedAgent?.threadId, tx])
+  }, [communicationChatScope, selectedAgentChatKey, teamChatAgentKey, tx])
 
   useEffect(() => {
     const stream = chatStreamRef.current
@@ -3738,6 +3778,7 @@ function App() {
         status: thread.status === 'active' ? 'laeuft' : 'wartet',
         talkTo: [],
         autoForward: true,
+        usesTeamChat: true,
         usesProjectKnowledge: true,
         webAccess: 'off',
         assignment: 'agent',
@@ -8925,6 +8966,21 @@ function App() {
               </label>
             </section>
 
+            <section className="autoForwardControl" aria-label={tx('Gemeinsamen Chat nutzen', 'Use shared chat')}>
+              <div>
+                <p className="eyebrow">{tx('Kommunikation', 'Communication')}</p>
+                <strong>{tx('Gemeinsamen Chat nutzen', 'Use shared chat')}</strong>
+              </div>
+              <label className="checkbox">
+                <input
+                  checked={selectedAgent.usesTeamChat}
+                  type="checkbox"
+                  onChange={(event) => updateAgent(selectedAgent.id, { usesTeamChat: event.target.checked })}
+                />
+                {tx('Aktiv', 'Active')}
+              </label>
+            </section>
+
             <section className="autoForwardControl" aria-label={tx('Webzugriff', 'Web access')}>
               <div>
                 <p className="eyebrow">{tx('Netzwerk', 'Network')}</p>
@@ -8994,7 +9050,7 @@ function App() {
                         role="tab"
                         type="button"
                       >
-                        {tx('Uebersicht', 'Overview')}
+                        {tx('Übersicht', 'Overview')}
                       </button>
                       <button
                         aria-selected={communicationView === 'chat'}
@@ -9159,6 +9215,32 @@ function App() {
                 </div>
                 ) : (
                 <div className="communicationChatView">
+                  <div className="chatScopeTabs" role="tablist" aria-label={tx('Chatbereich', 'Chat scope')}>
+                    <button
+                      aria-selected={communicationChatScope === 'team'}
+                      className={communicationChatScope === 'team' ? 'active' : ''}
+                      onClick={() => {
+                        setChatPinnedToBottom(true)
+                        setCommunicationChatScope('team')
+                      }}
+                      role="tab"
+                      type="button"
+                    >
+                      {tx('Teamchat', 'Team chat')}
+                    </button>
+                    <button
+                      aria-selected={communicationChatScope === 'agent'}
+                      className={communicationChatScope === 'agent' ? 'active' : ''}
+                      onClick={() => {
+                        setChatPinnedToBottom(true)
+                        setCommunicationChatScope('agent')
+                      }}
+                      role="tab"
+                      type="button"
+                    >
+                      {tx('Agentenchat', 'Agent chat')}
+                    </button>
+                  </div>
                   {chatError && <p className="chatError">{chatError}</p>}
                   <div
                     className="chatStream communicationChatStream"
