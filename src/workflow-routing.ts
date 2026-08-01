@@ -16,6 +16,7 @@ export type WorkflowStatusFilterLike = {
   interval?: number
   intervalCount?: number
   intervalMode?: string
+  intervalPrompt?: string
 }
 
 export type WorkflowPromptLike = {
@@ -25,6 +26,7 @@ export type WorkflowPromptLike = {
   interval?: number
   intervalCount?: number
   intervalMode?: string
+  intervalPrompt?: string
 }
 
 export type ResolvedWorkflowDelivery = {
@@ -72,7 +74,9 @@ export function resolveUnconditionalForwarding({
     .map((route) => ({
       targetId: route.targetId,
       stopId: undefined,
-      route,
+      route: (route.sourceHandle || 'output') === 'interval' && connectedFilter?.intervalPrompt
+        ? { ...route, prompt: connectedFilter.intervalPrompt }
+        : route,
       promptNodeId: connectedFilter?.id,
       promptBranch: intervalHit.branch,
       promptNextCount: intervalHit.nextCount,
@@ -206,7 +210,9 @@ export function resolveConfiguredDeliveries({
           const resolvedRoute = {
             ...outgoing,
             condition: promptNode.condition,
-            prompt: promptNode.prompt,
+            prompt: (outgoing.sourceHandle || 'output') === 'interval'
+              ? (promptNode.intervalPrompt ?? promptNode.prompt)
+              : promptNode.prompt,
           }
           const intervalMetadata = {
             promptNodeId: promptNode.id,

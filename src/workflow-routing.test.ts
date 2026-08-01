@@ -136,6 +136,7 @@ test('routes a forwarding interval through both outputs when configured', () => 
       interval: 5,
       intervalCount: 4,
       intervalMode: 'both',
+      intervalPrompt: 'Prüfe als Stichprobe.',
     }],
     targetIds: new Set(['reviewer', 'auditor']),
     stopIds: new Set(),
@@ -143,11 +144,12 @@ test('routes a forwarding interval through both outputs when configured', () => 
 
   assert.deepEqual(deliveries.map((delivery) => ({
     targetId: delivery.targetId,
+    prompt: delivery.route.prompt,
     branch: delivery.promptBranch,
     nextCount: delivery.promptNextCount,
   })), [
-    { targetId: 'reviewer', branch: 'interval', nextCount: 0 },
-    { targetId: 'auditor', branch: 'interval', nextCount: 0 },
+    { targetId: 'reviewer', prompt: 'Weiter', branch: 'interval', nextCount: 0 },
+    { targetId: 'auditor', prompt: 'Prüfe als Stichprobe.', branch: 'interval', nextCount: 0 },
   ])
 })
 
@@ -196,7 +198,7 @@ test('fixed forwarding selects its interval branch on the configured hit', () =>
     routes: [
       route('developer-filter', 'developer', 'forward-filter'),
       { ...route('filter-reviewer', 'forward-filter', 'reviewer'), sourceHandle: 'output' },
-      { ...route('filter-auditor', 'forward-filter', 'auditor'), sourceHandle: 'interval' },
+      { ...route('filter-auditor', 'forward-filter', 'auditor'), sourceHandle: 'interval', prompt: 'Untersuche den Stand.' },
     ],
     statusFilters: [{
       id: 'forward-filter',
@@ -228,17 +230,19 @@ test('fixed forwarding can deliver through normal and interval outputs on the co
       interval: 5,
       intervalCount: 4,
       intervalMode: 'both',
+      intervalPrompt: 'Untersuche den Stand.',
     }],
     targetIds: new Set(['reviewer', 'auditor']),
   })
 
   assert.deepEqual(resolved.deliveries.map((delivery) => ({
     targetId: delivery.targetId,
+    prompt: delivery.route.prompt,
     branch: delivery.promptBranch,
     nextCount: delivery.promptNextCount,
   })), [
-    { targetId: 'reviewer', branch: 'interval', nextCount: 0 },
-    { targetId: 'auditor', branch: 'interval', nextCount: 0 },
+    { targetId: 'reviewer', prompt: '', branch: 'interval', nextCount: 0 },
+    { targetId: 'auditor', prompt: 'Untersuche den Stand.', branch: 'interval', nextCount: 0 },
   ])
   assert.equal(resolved.issue, '')
 })

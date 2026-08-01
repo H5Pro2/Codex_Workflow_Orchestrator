@@ -362,6 +362,7 @@ type WorkflowPrompt = {
   interval: number
   intervalCount: number
   intervalMode: ForwardIntervalMode
+  intervalPrompt: string
 }
 
 type WorkflowInitial = {
@@ -389,6 +390,7 @@ type WorkflowStatusFilter = {
   interval?: number
   intervalCount?: number
   intervalMode?: ForwardIntervalMode
+  intervalPrompt?: string
 }
 
 type WorkflowStop = {
@@ -435,6 +437,7 @@ function normalizeWorkflowPrompt(value: Partial<WorkflowPrompt>): WorkflowPrompt
     interval,
     intervalCount: normalizeForwardIntervalCount(value.intervalCount, interval),
     intervalMode: normalizeForwardIntervalMode(value.intervalMode),
+    intervalPrompt: value.intervalPrompt ?? '',
   }
 }
 
@@ -453,6 +456,7 @@ function normalizeWorkflowStatusFilter(value: Partial<WorkflowStatusFilter>): Wo
     interval,
     intervalCount: normalizeForwardIntervalCount(value.intervalCount, interval),
     intervalMode: normalizeForwardIntervalMode(value.intervalMode),
+    intervalPrompt: value.intervalPrompt ?? '',
   }
 }
 
@@ -5961,6 +5965,7 @@ function App() {
       interval: 0,
       intervalCount: 0,
       intervalMode: 'replace',
+      intervalPrompt: '',
     }
     setWorkflowPrompts((current) => [...current, prompt])
   }
@@ -5986,6 +5991,13 @@ function App() {
     sharedStateDirty.current = true
     setWorkflowPrompts((current) => current.map((prompt) =>
       prompt.id === promptId ? { ...prompt, intervalMode } : prompt,
+    ))
+  }
+
+  const updateWorkflowPromptIntervalPrompt = (promptId: string, intervalPrompt: string) => {
+    sharedStateDirty.current = true
+    setWorkflowPrompts((current) => current.map((prompt) =>
+      prompt.id === promptId ? { ...prompt, intervalPrompt } : prompt,
     ))
   }
 
@@ -6241,6 +6253,7 @@ function App() {
       interval: 0,
       intervalCount: 0,
       intervalMode: 'replace',
+      intervalPrompt: '',
     }
     sharedStateDirty.current = true
     setWorkflowStatusFilters((current) => [...current, filter])
@@ -6302,7 +6315,9 @@ function App() {
     sharedStateDirty.current = true
     setRoutes((current) =>
       current.map((route) =>
-        route.sourceId === filterId ? { ...route, prompt } : route,
+        route.sourceId === filterId && (route.sourceHandle ?? 'output') === 'output'
+          ? { ...route, prompt }
+          : route,
       ),
     )
   }
@@ -6323,6 +6338,20 @@ function App() {
     setWorkflowStatusFilters((current) => current.map((filter) =>
       filter.id === filterId ? { ...filter, intervalMode } : filter,
     ))
+  }
+
+  const updateWorkflowStatusFilterIntervalPrompt = (filterId: string, intervalPrompt: string) => {
+    sharedStateDirty.current = true
+    setWorkflowStatusFilters((current) => current.map((filter) =>
+      filter.id === filterId ? { ...filter, intervalPrompt } : filter,
+    ))
+    setRoutes((current) =>
+      current.map((route) =>
+        route.sourceId === filterId && (route.sourceHandle ?? 'output') === 'interval'
+          ? { ...route, prompt: intervalPrompt }
+          : route,
+      ),
+    )
   }
 
   const deleteWorkflowStatusFilter = (filterId: string) => {
@@ -9684,6 +9713,19 @@ function App() {
             </label>
             {selectedPrompt.interval > 0 && (
               <label>
+                {tx('Intervalltext', 'Interval text')}
+                <textarea
+                  rows={4}
+                  value={selectedPrompt.intervalPrompt}
+                  onChange={(event) =>
+                    updateWorkflowPromptIntervalPrompt(selectedPrompt.id, event.target.value)
+                  }
+                  placeholder={tx('Optional: eigener Text für den Intervall-Ausgang.', 'Optional: separate text for the interval output.')}
+                />
+              </label>
+            )}
+            {selectedPrompt.interval > 0 && (
+              <label>
                 {tx('Intervall-Verhalten', 'Interval behavior')}
                 <select
                   value={selectedPrompt.intervalMode}
@@ -10669,61 +10711,83 @@ function App() {
               </button>
             </div>
             <section className="statusFilterSummary" aria-label={tx('Feste Weiterleitung', 'Fixed forwarding')}>
-              <label>
-                Status
-                <input value={tx('Weiterleiten', 'Forward')} readOnly />
-              </label>
-              <label>
-                {tx('Zusatztext für den nächsten Agenten', 'Additional text for the next agent')}
-                <textarea
-                  rows={6}
-                  value={routes.find((route) => route.sourceId === selectedStatusFilter.id)?.prompt ?? ''}
-                  onChange={(event) =>
-                    updateWorkflowStatusFilterPrompt(selectedStatusFilter.id, event.target.value)
-                  }
-                  placeholder={tx('Optional: Anweisung oder Kontext anhängen.', 'Optional: append instruction or context.')}
-                />
-              </label>
-              <label>
-                {tx('Intervall', 'Interval')}
-                <input
-                  max={MAX_FORWARD_INTERVAL}
-                  min={1}
-                  onChange={(event) => updateWorkflowStatusFilterInterval(selectedStatusFilter.id, event.target.value)}
-                  placeholder={tx('Kein Intervall', 'No interval')}
-                  type="number"
-                  value={selectedStatusFilter.interval || ''}
-                />
-              </label>
-              {(selectedStatusFilter.interval ?? 0) > 0 && (
+              <div className="statusFilterBlock">
+                <p className="eyebrow">{tx('Normaler Ausgang', 'Normal output')}</p>
                 <label>
-                  {tx('Intervall-Verhalten', 'Interval behavior')}
-                  <select
-                    value={selectedStatusFilter.intervalMode ?? 'replace'}
-                    onChange={(event) =>
-                      updateWorkflowStatusFilterIntervalMode(selectedStatusFilter.id, event.target.value)
-                    }
-                  >
-                    <option value="replace">{tx('Nur Intervall-Ausgang', 'Interval output only')}</option>
-                    <option value="both">{tx('Normal + Intervall', 'Normal + interval')}</option>
-                  </select>
+                  Status
+                  <input value={tx('Weiterleiten', 'Forward')} readOnly />
                 </label>
-              )}
-              <p className="modalHint forwardIntervalHint">
-                {(selectedStatusFilter.interval ?? 0) > 0
-                  ? tx(
-                      (selectedStatusFilter.intervalMode ?? 'replace') === 'both'
-                        ? `Stand ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. Beim ${selectedStatusFilter.interval}. Treffer werden Normal und Intervall verwendet; der Zähler wird auf 0 gesetzt.`
-                        : `Stand ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. Beim ${selectedStatusFilter.interval}. Treffer wird der Intervall-Ausgang verwendet und der Zähler auf 0 gesetzt.`,
-                      (selectedStatusFilter.intervalMode ?? 'replace') === 'both'
-                        ? `Count ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. On hit ${selectedStatusFilter.interval}, normal and interval outputs are used, then the count resets to 0.`
-                        : `Count ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. The interval output is used on hit ${selectedStatusFilter.interval}, then the count resets to 0.`,
-                    )
-                  : tx(
-                      'Ohne Intervall besitzt der Baustein nur den normalen Ausgang.',
-                      'Without an interval, the node has only its normal output.',
-                    )}
-              </p>
+                <label>
+                  {tx('Zusatztext für den nächsten Agenten', 'Additional text for the next agent')}
+                  <textarea
+                    rows={5}
+                    value={routes.find((route) =>
+                      route.sourceId === selectedStatusFilter.id && (route.sourceHandle ?? 'output') === 'output'
+                    )?.prompt ?? ''}
+                    onChange={(event) =>
+                      updateWorkflowStatusFilterPrompt(selectedStatusFilter.id, event.target.value)
+                    }
+                    placeholder={tx('Optional: Anweisung oder Kontext anhängen.', 'Optional: append instruction or context.')}
+                  />
+                </label>
+              </div>
+              <div className="statusFilterBlock intervalBlock">
+                <p className="eyebrow">{tx('Intervall-Ausgang', 'Interval output')}</p>
+                <label>
+                  {tx('Intervall', 'Interval')}
+                  <input
+                    max={MAX_FORWARD_INTERVAL}
+                    min={1}
+                    onChange={(event) => updateWorkflowStatusFilterInterval(selectedStatusFilter.id, event.target.value)}
+                    placeholder={tx('Kein Intervall', 'No interval')}
+                    type="number"
+                    value={selectedStatusFilter.interval || ''}
+                  />
+                </label>
+                <label>
+                  {tx('Intervalltext', 'Interval text')}
+                  <textarea
+                    rows={4}
+                    value={selectedStatusFilter.intervalPrompt ?? ''}
+                    onChange={(event) =>
+                      updateWorkflowStatusFilterIntervalPrompt(selectedStatusFilter.id, event.target.value)
+                    }
+                    placeholder={tx('Optional: eigener Text für den Intervall-Ausgang.', 'Optional: separate text for the interval output.')}
+                  />
+                </label>
+              </div>
+              <div className="statusFilterBlock behaviorBlock">
+                <p className="eyebrow">{tx('Schaltung', 'Routing behavior')}</p>
+                {(selectedStatusFilter.interval ?? 0) > 0 && (
+                  <label>
+                    {tx('Intervall-Verhalten', 'Interval behavior')}
+                    <select
+                      value={selectedStatusFilter.intervalMode ?? 'replace'}
+                      onChange={(event) =>
+                        updateWorkflowStatusFilterIntervalMode(selectedStatusFilter.id, event.target.value)
+                      }
+                    >
+                      <option value="replace">{tx('Nur Intervall-Ausgang', 'Interval output only')}</option>
+                      <option value="both">{tx('Normal + Intervall', 'Normal + interval')}</option>
+                    </select>
+                  </label>
+                )}
+                <p className="modalHint forwardIntervalHint">
+                  {(selectedStatusFilter.interval ?? 0) > 0
+                    ? tx(
+                        (selectedStatusFilter.intervalMode ?? 'replace') === 'both'
+                          ? `Stand ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. Beim ${selectedStatusFilter.interval}. Treffer werden Normal und Intervall verwendet; der Zähler wird auf 0 gesetzt.`
+                          : `Stand ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. Beim ${selectedStatusFilter.interval}. Treffer wird der Intervall-Ausgang verwendet und der Zähler auf 0 gesetzt.`,
+                        (selectedStatusFilter.intervalMode ?? 'replace') === 'both'
+                          ? `Count ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. On hit ${selectedStatusFilter.interval}, normal and interval outputs are used, then the count resets to 0.`
+                          : `Count ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. The interval output is used on hit ${selectedStatusFilter.interval}, then the count resets to 0.`,
+                      )
+                    : tx(
+                        'Ohne Intervall besitzt der Baustein nur den normalen Ausgang.',
+                        'Without an interval, the node has only its normal output.',
+                      )}
+                </p>
+              </div>
             </section>
             <p className="modalHint statusFilterInfo">
               {tx('Dieser Baustein gibt die letzte Antwort des vorherigen Agenten direkt an den nächsten verbundenen Agenten weiter. Der Zusatztext wird an diese Übergabe angehängt.', 'This node forwards the previous agent answer directly to the next connected agent. The additional text is appended to that handoff.')}

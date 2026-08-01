@@ -2416,7 +2416,30 @@ label {
   padding: 12px;
 }
 
-.statusFilterSummary > label {
+.statusFilterBlock {
+  display: grid;
+  gap: 10px;
+  padding: 0 0 12px;
+}
+
+.statusFilterBlock + .statusFilterBlock {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.statusFilterBlock .eyebrow {
+  margin: 0;
+}
+
+.statusFilterBlock.intervalBlock {
+  border-top-color: color-mix(in srgb, var(--accent) 42%, var(--line) 58%);
+}
+
+.statusFilterBlock.behaviorBlock {
+  padding-bottom: 0;
+}
+
+.statusFilterSummary label {
   color: var(--muted);
   display: grid;
   font-size: 12px;
