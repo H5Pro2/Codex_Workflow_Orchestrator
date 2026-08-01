@@ -45,6 +45,7 @@ const pendingApprovals = new Map()
 const inactiveTurnSince = new Map()
 const workspaceSnapshotsByTurn = new Map()
 const workspaceChangesByTurn = new Map()
+const conversationCacheByThread = new Map()
 let nextRequestId = 1
 let nextApprovalId = 1
 let initialized = false
@@ -60,6 +61,7 @@ let latestProvisioningRecovery = {
 const sharedStateStore = createSharedStateStore(STATE_FILE)
 const provisioningJournal = createProvisioningJournal(PROVISIONING_JOURNAL_FILE)
 const programSettingsStore = createProgramSettingsStore(PROGRAM_SETTINGS_FILE)
+const CONVERSATION_TAIL_BYTES = 32 * 1024 * 1024
 
 const codex = spawn(
   process.execPath,
@@ -591,6 +593,155 @@ async function readThreadResultFromRollout(threadId, requestedTurnId) {
   return turn
 }
 
+function textFromUserMessageContent(content) {
+  return (content ?? [])
+    .filter((item) =>
+      (item.type === 'text' || item.type === 'input_text') &&
+      typeof item.text === 'string',
+    )
+    .map((item) => item.text)
+    .join('\n')
+}
+
+function textFromAgentMessageContent(content) {
+  return (content ?? [])
+    .filter((item) => item.type === 'output_text' && typeof item.text === 'string')
+    .map((item) => item.text)
+    .join('\n')
+}
+
+function cachedConversationMatches(cacheEntry, historyStats) {
+  return cacheEntry &&
+    cacheEntry.size === historyStats.size &&
+    cacheEntry.mtimeMs === historyStats.mtimeMs
+}
+
+async function readConversationFromRollout(thread, limitParam) {
+  if (!thread?.path) {
+    throw new Error('Fuer diesen Codex-Task wurde keine lokale Historie gefunden.')
+  }
+
+  const historyStats = await stat(thread.path)
+  const cached = conversationCacheByThread.get(thread.id)
+  if (cachedConversationMatches(cached, historyStats)) {
+    return {
+      messages: selectConversationWindow(cached.messages, limitParam),
+      totalMessages: cached.totalMessages,
+      source: 'cache',
+    }
+  }
+
+  const messages = []
+  const turnStatuses = new Map()
+  let latestTurnId = ''
+  const startOffset = Math.max(0, historyStats.size - CONVERSATION_TAIL_BYTES)
+  let skipPartialFirstLine = startOffset > 0
+  const historyLines = createInterface({
+    input: createReadStream(thread.path, { encoding: 'utf8', start: startOffset }),
+    crlfDelay: Infinity,
+  })
+
+  for await (const line of historyLines) {
+    if (skipPartialFirstLine) {
+      skipPartialFirstLine = false
+      continue
+    }
+    if (!line.trim()) {
+      continue
+    }
+    let entry
+    try {
+      entry = JSON.parse(line)
+    } catch {
+      continue
+    }
+
+    if (entry.type === 'turn_context' && entry.payload?.turn_id) {
+      latestTurnId = entry.payload.turn_id
+      if (!turnStatuses.has(latestTurnId)) {
+        turnStatuses.set(latestTurnId, 'inProgress')
+      }
+      continue
+    }
+
+    if (entry.type === 'response_item' && entry.payload?.type === 'message') {
+      const turnId =
+        entry.payload.internal_chat_message_metadata_passthrough?.turn_id || latestTurnId
+      if (!turnId) {
+        continue
+      }
+      if (!turnStatuses.has(turnId)) {
+        turnStatuses.set(turnId, 'inProgress')
+      }
+      if (entry.payload.role === 'user') {
+        const text = textFromUserMessageContent(entry.payload.content)
+        if (text) {
+          messages.push({
+            id: entry.payload.id,
+            turnId,
+            role: 'user',
+            text,
+            phase: 'request',
+            turnStatus: 'inProgress',
+          })
+        }
+        continue
+      }
+      if (entry.payload.role === 'assistant') {
+        const text = textFromAgentMessageContent(entry.payload.content)
+        if (text) {
+          messages.push({
+            id: entry.payload.id,
+            turnId,
+            role: 'assistant',
+            text,
+            phase: entry.payload.phase ?? 'message',
+            turnStatus: 'inProgress',
+            workspaceChanges: entry.payload.phase === 'final_answer'
+              ? workspaceChangesByTurn.get(turnId) ?? []
+              : [],
+          })
+        }
+      }
+      continue
+    }
+
+    if (entry.type === 'event_msg' && entry.payload?.type === 'task_complete') {
+      const turnId = entry.payload.turn_id || latestTurnId
+      if (turnId) {
+        turnStatuses.set(turnId, 'completed')
+      }
+      continue
+    }
+
+    if (
+      entry.type === 'event_msg' &&
+      ['turn_aborted', 'task_failed'].includes(entry.payload?.type)
+    ) {
+      const turnId = entry.payload.turn_id || latestTurnId
+      if (turnId) {
+        turnStatuses.set(turnId, entry.payload.type === 'turn_aborted' ? 'interrupted' : 'failed')
+      }
+    }
+  }
+
+  const nextMessages = messages.map((message) => ({
+    ...message,
+    turnStatus: turnStatuses.get(message.turnId) ?? message.turnStatus,
+  }))
+  conversationCacheByThread.set(thread.id, {
+    messages: nextMessages,
+    totalMessages: nextMessages.length,
+    size: historyStats.size,
+    mtimeMs: historyStats.mtimeMs,
+  })
+  return {
+    messages: selectConversationWindow(nextMessages, limitParam),
+    totalMessages: nextMessages.length,
+    source: 'rollout-tail',
+  }
+}
+
 function sendJson(response, status, body) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
   response.end(JSON.stringify(body))
@@ -1040,6 +1191,15 @@ const server = createServer(async (incoming, response) => {
     if (incoming.method === 'GET' && conversationMatch) {
       await ready
       const threadId = decodeURIComponent(conversationMatch[1])
+      const thread = (await listAllThreads()).find((item) => item.id === threadId)
+      if (thread?.path) {
+        try {
+          sendJson(response, 200, await readConversationFromRollout(thread, url.searchParams.get('limit')))
+          return
+        } catch {
+          conversationCacheByThread.delete(threadId)
+        }
+      }
       const result = await request('thread/read', {
         threadId,
         includeTurns: true,
