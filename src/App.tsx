@@ -1414,7 +1414,7 @@ function WorkflowDashboard({
           id: prompt.id,
           type: 'workflow',
           width: 190,
-          height: prompt.interval ? 104 : 64,
+          height: prompt.interval ? 128 : 64,
           position: positions[prompt.id] ?? { x: 180 + (index % 3) * 220, y: 250 + Math.floor(index / 3) * 150 },
           data: {
             label: prompt.name,
@@ -1447,7 +1447,7 @@ function WorkflowDashboard({
             id: filter.id,
             type: 'workflow',
             width: 190,
-            height: filter.interval ? 104 : 64,
+            height: filter.interval ? 128 : 64,
             position: positions[filter.id] ?? { x: 260 + (index % 3) * 220, y: 430 + Math.floor(index / 3) * 130 },
             data: {
               label: language === 'de' ? 'Weiterleiten' : 'Forward',
