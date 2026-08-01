@@ -158,6 +158,25 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
   let programSettings = null
   let programSettingsUpdatedAt = ''
   let version = '2026-07-25T12:00:00.000Z'
+  let conversationMessages = [
+    ...Array.from({ length: 18 }, (_, index) => ({
+      id: `message-progress-${index}`,
+      turnId: `turn-progress-${index}`,
+      role: 'assistant',
+      text: `Zwischenstand ${index + 1}: Der Agent dokumentiert einen ausreichend langen Fortschrittseintrag für die Scrollprüfung.`,
+      phase: 'commentary',
+      turnStatus: 'completed',
+    })),
+    {
+      id: 'message-result',
+      turnId: 'turn-result',
+      role: 'assistant',
+      text: 'Die Umsetzung ist fertig.\n\n[Workflow-Status: Forschungsauftrag koordinieren]',
+      phase: 'final_answer',
+      turnStatus: 'completed',
+      workspaceChanges: [{ path: 'src/auswertung.ts', kind: 'modified' }],
+    },
+  ]
   const browser = await chromium.launch({ executablePath, headless: true })
   t.after(() => browser.close())
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
@@ -208,15 +227,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
       return
     }
     if (pathname === '/api/threads/thread-ceo/conversation') {
-      await route.fulfill({ json: { messages: [{
-        id: 'message-result',
-        turnId: 'turn-result',
-        role: 'assistant',
-        text: 'Die Umsetzung ist fertig.\n\n[Workflow-Status: Forschungsauftrag koordinieren]',
-        phase: 'final_answer',
-        turnStatus: 'completed',
-        workspaceChanges: [{ path: 'src/auswertung.ts', kind: 'modified' }],
-      }] } })
+      await route.fulfill({ json: { messages: conversationMessages } })
       return
     }
     if (pathname === '/api/program-settings' && request.method() === 'GET') {
@@ -275,6 +286,39 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
   assert.equal(await page.locator('.chatMessage').count(), 0)
   await page.locator('.bridgeLastStatus').getByText('Forschungsauftrag koordinieren', { exact: true }).waitFor()
   await page.getByText('src/auswertung.ts', { exact: true }).waitFor()
+  await page.getByRole('tab', { name: 'Chat' }).click()
+  const communicationStream = page.locator('.communicationChatStream')
+  await assertEventually(async () => {
+    assert.equal(await communicationStream.locator('.chatMessage').count(), conversationMessages.length)
+    assert.equal(await communicationStream.evaluate((element) => (
+      element.scrollHeight - element.scrollTop - element.clientHeight <= 8
+    )), true)
+  })
+  await communicationStream.evaluate((element) => {
+    element.scrollTop = 0
+  })
+  const jumpToLatest = page.getByRole('button', { name: 'Zu den neuesten Nachrichten springen' })
+  await jumpToLatest.waitFor()
+  conversationMessages = [...conversationMessages, {
+    id: 'message-after-detach',
+    turnId: 'turn-after-detach',
+    role: 'assistant',
+    text: 'Neue Nachricht nach dem manuellen Hochscrollen.\n\n[Workflow-Status: Forschungsauftrag koordinieren]',
+    phase: 'commentary',
+    turnStatus: 'completed',
+  }]
+  await assertEventually(async () => {
+    assert.equal(await communicationStream.locator('.chatMessage').count(), conversationMessages.length)
+  }, { attempts: 70 })
+  assert.equal(await communicationStream.evaluate((element) => element.scrollTop), 0)
+  await jumpToLatest.click()
+  await assertEventually(async () => {
+    assert.equal(await communicationStream.evaluate((element) => (
+      element.scrollHeight - element.scrollTop - element.clientHeight <= 8
+    )), true)
+    assert.equal(await jumpToLatest.count(), 0)
+  })
+  await page.locator('.communicationTabs').getByRole('tab').first().click()
   await page.getByTitle('Programmeinstellungen öffnen').click()
   const workflowControlSetting = page.locator('.settingsRow', { hasText: 'Workflow-Steuerzeilen' })
   await workflowControlSetting.getByRole('checkbox').check()

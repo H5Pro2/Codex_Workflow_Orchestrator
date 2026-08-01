@@ -2724,10 +2724,13 @@ function App() {
 
   useEffect(() => {
     const stream = chatStreamRef.current
-    if (stream && chatPinnedToBottom) {
+    if (!stream || !chatPinnedToBottom || communicationView !== 'chat') return
+
+    const frame = window.requestAnimationFrame(() => {
       stream.scrollTop = stream.scrollHeight
-    }
-  }, [chatMessages, chatPinnedToBottom])
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [chatMessages, chatPinnedToBottom, communicationView, selectedAgent?.id])
 
   const activeDashboardOwnerId = selectedAgent?.id ?? ''
   const projectWorkflowStatuses = [
@@ -8875,7 +8878,10 @@ function App() {
                       <button
                         aria-selected={communicationView === 'chat'}
                         className={communicationView === 'chat' ? 'active' : ''}
-                        onClick={() => setCommunicationView('chat')}
+                        onClick={() => {
+                          setChatPinnedToBottom(true)
+                          setCommunicationView('chat')
+                        }}
                         role="tab"
                         type="button"
                       >
@@ -9036,9 +9042,13 @@ function App() {
                   <div
                     className="chatStream communicationChatStream"
                     ref={chatStreamRef}
+                    onWheel={(event) => {
+                      if (event.deltaY < 0) setChatPinnedToBottom(false)
+                    }}
                     onScroll={(event) => {
                       const target = event.currentTarget
-                      setChatPinnedToBottom(target.scrollHeight - target.scrollTop - target.clientHeight < 40)
+                      const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight
+                      setChatPinnedToBottom(distanceFromBottom <= 8)
                     }}
                   >
                     {chatMessages.length === 0 && !chatError && (
@@ -9070,6 +9080,21 @@ function App() {
                       )
                     })}
                   </div>
+                  {!chatPinnedToBottom && (
+                    <button
+                      aria-label={tx('Zu den neuesten Nachrichten springen', 'Jump to latest messages')}
+                      className="jumpToLatest communicationJumpToLatest"
+                      onClick={() => {
+                        const stream = chatStreamRef.current
+                        if (stream) stream.scrollTop = stream.scrollHeight
+                        setChatPinnedToBottom(true)
+                      }}
+                      title={tx('Zu den neuesten Nachrichten springen', 'Jump to latest messages')}
+                      type="button"
+                    >
+                      <span aria-hidden="true">↓</span>
+                    </button>
+                  )}
                 </div>
                 )}
               </section>
