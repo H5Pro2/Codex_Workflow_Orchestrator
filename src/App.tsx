@@ -10711,8 +10711,8 @@ function App() {
               </button>
             </div>
             <section className="statusFilterSummary" aria-label={tx('Feste Weiterleitung', 'Fixed forwarding')}>
-              <div className="statusFilterBlock">
-                <p className="eyebrow">{tx('Normaler Ausgang', 'Normal output')}</p>
+              <details className="statusFilterBlock">
+                <summary>{tx('Normaler Ausgang', 'Normal output')}</summary>
                 <label>
                   Status
                   <input value={tx('Weiterleiten', 'Forward')} readOnly />
@@ -10730,9 +10730,9 @@ function App() {
                     placeholder={tx('Optional: Anweisung oder Kontext anhängen.', 'Optional: append instruction or context.')}
                   />
                 </label>
-              </div>
-              <div className="statusFilterBlock intervalBlock">
-                <p className="eyebrow">{tx('Intervall-Ausgang', 'Interval output')}</p>
+              </details>
+              <details className="statusFilterBlock intervalBlock">
+                <summary>{tx('Intervall-Ausgang', 'Interval output')}</summary>
                 <label>
                   {tx('Intervall', 'Interval')}
                   <input
@@ -10755,9 +10755,9 @@ function App() {
                     placeholder={tx('Optional: eigener Text für den Intervall-Ausgang.', 'Optional: separate text for the interval output.')}
                   />
                 </label>
-              </div>
-              <div className="statusFilterBlock behaviorBlock">
-                <p className="eyebrow">{tx('Schaltung', 'Routing behavior')}</p>
+              </details>
+              <details className="statusFilterBlock behaviorBlock">
+                <summary>{tx('Schaltung', 'Routing behavior')}</summary>
                 {(selectedStatusFilter.interval ?? 0) > 0 && (
                   <label>
                     {tx('Intervall-Verhalten', 'Interval behavior')}
@@ -10787,7 +10787,7 @@ function App() {
                         'Without an interval, the node has only its normal output.',
                       )}
                 </p>
-              </div>
+              </details>
             </section>
             <p className="modalHint statusFilterInfo">
               {tx('Dieser Baustein gibt die letzte Antwort des vorherigen Agenten direkt an den nächsten verbundenen Agenten weiter. Der Zusatztext wird an diese Übergabe angehängt.', 'This node forwards the previous agent answer directly to the next connected agent. The additional text is appended to that handoff.')}
@@ -10797,7 +10797,7 @@ function App() {
                 className="deleteButton"
                 onClick={() => deleteWorkflowStatusFilter(selectedStatusFilter.id)}
               >
-                {tx('Weiterleiten löschen', 'Delete forwarding')}
+                {tx('Löschen', 'Delete')}
               </button>
               <button className="primary" onClick={() => setSelectedStatusFilterId('')}>{tx('Übernehmen', 'Apply')}</button>
             </div>

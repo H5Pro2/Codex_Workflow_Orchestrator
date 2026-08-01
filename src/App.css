@@ -2411,24 +2411,57 @@ label {
   background: transparent;
   border: 1px solid var(--line-strong);
   border-radius: 5px;
-  display: grid;
-  gap: 10px;
+  display: block;
   padding: 12px;
 }
 
 .statusFilterBlock {
-  display: grid;
-  gap: 10px;
-  padding: 0 0 12px;
-}
-
-.statusFilterBlock + .statusFilterBlock {
   border-top: 1px solid var(--line);
-  padding-top: 12px;
+  display: block;
+  padding: 0;
 }
 
-.statusFilterBlock .eyebrow {
-  margin: 0;
+.statusFilterBlock:first-child {
+  border-top: 0;
+}
+
+.statusFilterBlock summary {
+  align-items: center;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  font-weight: 800;
+  justify-content: space-between;
+  letter-spacing: .02em;
+  list-style: none;
+  min-height: 36px;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.statusFilterBlock summary::-webkit-details-marker {
+  display: none;
+}
+
+.statusFilterBlock summary::after {
+  color: var(--muted);
+  content: '>';
+  font-size: 14px;
+  transition: transform 140ms ease;
+}
+
+.statusFilterBlock[open] {
+  padding-bottom: 12px;
+}
+
+.statusFilterBlock[open] summary::after {
+  transform: rotate(90deg);
+}
+
+.statusFilterBlock[open] > label,
+.statusFilterBlock[open] > .modalHint {
+  margin-top: 10px;
 }
 
 .statusFilterBlock.intervalBlock {
@@ -2439,11 +2472,19 @@ label {
   padding-bottom: 0;
 }
 
+.statusFilterBlock.behaviorBlock[open] {
+  padding-bottom: 0;
+}
+
 .statusFilterSummary label {
   color: var(--muted);
   display: grid;
   font-size: 12px;
   gap: 6px;
+}
+
+.statusFilterBlock.intervalBlock input[type="number"] {
+  max-width: 128px;
 }
 
 .statusFilterDescription {
