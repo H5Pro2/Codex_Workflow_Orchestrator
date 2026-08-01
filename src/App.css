@@ -2411,8 +2411,7 @@ label {
   background: color-mix(in srgb, var(--surface) 72%, transparent);
   border: 1px solid var(--line-strong);
   border-radius: 5px;
-  display: grid;
-  gap: 4px;
+  display: block;
   padding: 6px;
 }
 
@@ -2423,6 +2422,22 @@ label {
   display: block;
   overflow: hidden;
   padding: 0;
+  position: relative;
+}
+
+.statusFilterBlock + .statusFilterBlock {
+  margin-top: 5px;
+}
+
+.statusFilterBlock + .statusFilterBlock::before {
+  background: var(--line);
+  content: '';
+  display: block;
+  height: 1px;
+  left: 10px;
+  position: absolute;
+  right: 10px;
+  top: -3px;
 }
 
 .statusFilterBlock summary {
