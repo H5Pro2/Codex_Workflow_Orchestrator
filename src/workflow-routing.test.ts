@@ -64,6 +64,35 @@ test('resolves configured stop paths', () => {
   assert.deepEqual(deliveries.map((delivery) => delivery.stopId), ['project-stop'])
 })
 
+test('routes an interval forwarding node through normal and interval outputs', () => {
+  const routes = [
+    route('agent-forward', 'agent', 'forward-node'),
+    { ...route('forward-normal', 'forward-node', 'reviewer'), sourceHandle: 'output' },
+    { ...route('forward-interval', 'forward-node', 'auditor'), sourceHandle: 'interval' },
+  ]
+  const resolveAt = (intervalCount: number) => resolveConfiguredDeliveries({
+    sourceId: 'agent',
+    result: 'Ergebnis',
+    resultStatusIds: [],
+    routes,
+    statusFilters: [],
+    promptNodes: [{ id: 'forward-node', condition: '', prompt: 'Weiter', interval: 5, intervalCount }],
+    targetIds: new Set(['reviewer', 'auditor']),
+    stopIds: new Set(),
+  })
+
+  assert.deepEqual(resolveAt(3).map((delivery) => ({
+    targetId: delivery.targetId,
+    branch: delivery.promptBranch,
+    nextCount: delivery.promptNextCount,
+  })), [{ targetId: 'reviewer', branch: 'normal', nextCount: 4 }])
+  assert.deepEqual(resolveAt(4).map((delivery) => ({
+    targetId: delivery.targetId,
+    branch: delivery.promptBranch,
+    nextCount: delivery.promptNextCount,
+  })), [{ targetId: 'auditor', branch: 'interval', nextCount: 0 }])
+})
+
 test('deduplicates multiple matching routes to the same target', () => {
   const deliveries = resolveConfiguredDeliveries({
     sourceId: 'researcher',

@@ -53,3 +53,22 @@ test('reports routes whose endpoint no longer exists', () => {
 
   assert.equal(issues.some((issue) => issue.code === 'dangling-route'), true)
 })
+
+test('requires both outputs for an enabled forwarding interval', () => {
+  const issues = auditWorkflowTopology({
+    agents,
+    activeAgentIds: new Set(['ceo']),
+    statuses: [{ id: 'delegate' }],
+    filters: [{ id: 'filter', ownerAgentId: 'ceo', statusId: 'delegate' }],
+    routes: [
+      { ownerAgentId: 'ceo', sourceId: 'ceo', targetId: 'filter' },
+      { ownerAgentId: 'ceo', sourceId: 'filter', targetId: 'forward-node' },
+      { ownerAgentId: 'ceo', sourceId: 'forward-node', sourceHandle: 'output', targetId: 'research' },
+    ],
+    terminals: [{ id: 'forward-node', ownerAgentId: 'ceo' }],
+    forwardingNodes: [{ id: 'forward-node', ownerAgentId: 'ceo', interval: 5 }],
+  })
+
+  assert.equal(issues.some((issue) => issue.detail.includes('keinen Intervall-Ausgang')), true)
+  assert.equal(issues.some((issue) => issue.detail.includes('keinen normalen Ausgang')), false)
+})

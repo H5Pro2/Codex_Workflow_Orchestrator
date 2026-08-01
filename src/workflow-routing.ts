@@ -1,9 +1,12 @@
+import { nextForwardIntervalHit } from './workflow-forward-interval.ts'
+
 export type WorkflowRouteLike = {
   id: string
   sourceId: string
   targetId: string
   condition: string
   prompt: string
+  sourceHandle?: string
   [key: string]: unknown
 }
 
@@ -16,12 +19,17 @@ export type WorkflowPromptLike = {
   id: string
   condition: string
   prompt: string
+  interval?: number
+  intervalCount?: number
 }
 
 export type ResolvedWorkflowDelivery = {
   route: WorkflowRouteLike
   targetId?: string
   stopId?: string
+  promptNodeId?: string
+  promptBranch?: 'normal' | 'interval'
+  promptNextCount?: number
 }
 
 export function resolveUnconditionalForwarding({
@@ -156,10 +164,13 @@ export function resolveConfiguredDeliveries({
 
       const promptNode = promptNodes.find((prompt) => prompt.id === route.targetId)
       if (!promptNode) return []
+      const intervalHit = nextForwardIntervalHit(promptNode.interval, promptNode.intervalCount)
+      const expectedHandle = intervalHit.branch === 'interval' ? 'interval' : 'output'
       return routes
         .filter(
           (outgoing) =>
             outgoing.sourceId === promptNode.id &&
+            (outgoing.sourceHandle || 'output') === expectedHandle &&
             routeConditionMatches(outgoing.condition, result),
         )
         .flatMap<ResolvedWorkflowDelivery>((outgoing) => {
@@ -168,8 +179,13 @@ export function resolveConfiguredDeliveries({
             condition: promptNode.condition,
             prompt: promptNode.prompt,
           }
-          if (targetIds.has(outgoing.targetId)) return [{ targetId: outgoing.targetId, route: resolvedRoute }]
-          if (stopIds.has(outgoing.targetId)) return [{ stopId: outgoing.targetId, route: resolvedRoute }]
+          const intervalMetadata = {
+            promptNodeId: promptNode.id,
+            promptBranch: intervalHit.branch,
+            promptNextCount: intervalHit.nextCount,
+          }
+          if (targetIds.has(outgoing.targetId)) return [{ targetId: outgoing.targetId, route: resolvedRoute, ...intervalMetadata }]
+          if (stopIds.has(outgoing.targetId)) return [{ stopId: outgoing.targetId, route: resolvedRoute, ...intervalMetadata }]
           return []
         })
     })

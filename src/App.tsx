@@ -103,7 +103,13 @@ import {
   resolveConfiguredDeliveries,
   resolveUnconditionalForwarding,
   wouldCreateUnsupportedUnconditionalForwardCycle,
+  type ResolvedWorkflowDelivery,
 } from './workflow-routing.ts'
+import {
+  MAX_FORWARD_INTERVAL,
+  normalizeForwardInterval,
+  normalizeForwardIntervalCount,
+} from './workflow-forward-interval.ts'
 import { decideWorkflowContinuation } from './workflow-decision.ts'
 import {
   shouldRequestWorkflowStatusRepair,
@@ -340,6 +346,7 @@ type WorkflowRoute = {
   targetId: string
   condition: string
   prompt: string
+  sourceHandle?: 'output' | 'interval'
   lastForwardedTask?: string
 }
 
@@ -350,6 +357,8 @@ type WorkflowPrompt = {
   name: string
   condition: string
   prompt: string
+  interval: number
+  intervalCount: number
 }
 
 type WorkflowInitial = {
@@ -403,6 +412,27 @@ type WorkflowDelivery = {
   route: WorkflowRoute
   target?: Agent
   stop?: WorkflowStop
+  promptNodeId?: string
+  promptBranch?: 'normal' | 'interval'
+  promptNextCount?: number
+}
+
+function normalizeWorkflowPrompt(value: Partial<WorkflowPrompt>): WorkflowPrompt {
+  const interval = normalizeForwardInterval(value.interval)
+  return {
+    id: value.id ?? crypto.randomUUID(),
+    ownerAgentId: value.ownerAgentId ?? '',
+    projectPath: value.projectPath ?? '',
+    name: value.name ?? 'Weiterleiten',
+    condition: value.condition ?? '',
+    prompt: value.prompt ?? '',
+    interval,
+    intervalCount: normalizeForwardIntervalCount(value.intervalCount, interval),
+  }
+}
+
+function normalizeWorkflowPrompts(value: unknown): WorkflowPrompt[] {
+  return Array.isArray(value) ? value.map((prompt) => normalizeWorkflowPrompt(prompt)) : []
 }
 
 function chatMessageIdentity(message: ChatMessage, agentName: string, language: UiLanguage) {
@@ -951,7 +981,7 @@ function loadStoredState() {
       events: Array.isArray(parsed.events) ? parsed.events : [],
       hiddenThreadIds: Array.isArray(parsed.hiddenThreadIds) ? parsed.hiddenThreadIds : [],
       routes: parsedRoutes,
-      workflowPrompts: Array.isArray(parsed.workflowPrompts) ? parsed.workflowPrompts : [],
+      workflowPrompts: normalizeWorkflowPrompts(parsed.workflowPrompts),
       workflowInitials: Array.isArray(parsed.workflowInitials) ? parsed.workflowInitials : [],
       workflowStatuses: Array.isArray(parsed.workflowStatuses) ? parsed.workflowStatuses : [],
       workflowStatusFilters: parsedStatusFilters,
@@ -1367,7 +1397,13 @@ function WorkflowDashboard({
           width: 190,
           height: 64,
           position: positions[prompt.id] ?? { x: 180 + (index % 3) * 220, y: 250 + Math.floor(index / 3) * 150 },
-          data: { label: prompt.name, kind: 'prompt' as const, kindLabel: language === 'de' ? 'Weiterleiten' : 'Forward' },
+          data: {
+            label: prompt.name,
+            kind: 'prompt' as const,
+            kindLabel: language === 'de' ? 'Weiterleiten' : 'Forward',
+            interval: prompt.interval,
+            intervalCount: prompt.intervalCount,
+          },
           className: 'workflowNode prompt',
         })),
         ...initials.map((initial, index) => ({
@@ -1425,7 +1461,7 @@ function WorkflowDashboard({
         id: route.id,
         source: route.sourceId,
         target: route.targetId,
-        sourceHandle: 'output',
+        sourceHandle: route.sourceHandle ?? 'output',
         targetHandle: 'input',
         type: 'workflow',
         interactionWidth: 28,
@@ -1442,6 +1478,7 @@ function WorkflowDashboard({
   const isNodeDraggingRef = useRef(false)
   const previousDashboardIdRef = useRef(dashboardId)
   const nodeSignature = initialNodes.map((node) => node.id).sort().join(':')
+  const handleSignature = prompts.map((prompt) => `${prompt.id}:${prompt.interval}`).join(':')
 
   useEffect(() => {
     initialNodesRef.current = initialNodes
@@ -1484,7 +1521,7 @@ function WorkflowDashboard({
       initialNodesRef.current.forEach((node) => updateNodeInternals(node.id))
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [dashboardId, nodeSignature, updateNodeInternals])
+  }, [dashboardId, handleSignature, nodeSignature, updateNodeInternals])
 
   return (
     <div
@@ -2222,7 +2259,7 @@ function App() {
     setEvents(Array.isArray(state.events) ? state.events : [])
     setHiddenThreadIds(Array.isArray(state.hiddenThreadIds) ? state.hiddenThreadIds : [])
     setRoutes(incomingRoutes)
-    setWorkflowPrompts(Array.isArray(state.workflowPrompts) ? state.workflowPrompts : [])
+    setWorkflowPrompts(normalizeWorkflowPrompts(state.workflowPrompts))
     setWorkflowInitials(Array.isArray(state.workflowInitials) ? state.workflowInitials : [])
     setWorkflowStatuses(Array.isArray(state.workflowStatuses) ? state.workflowStatuses : [])
     setWorkflowStatusFilters(incomingStatusFilters)
@@ -2785,6 +2822,9 @@ function App() {
     dashboardPositions[activeDashboardOwnerId] = { x: 50, y: 260 }
   }
   const selectedRoute = projectRoutes.find((route) => route.id === selectedRouteId)
+  const selectedRouteSourcePrompt = selectedRoute
+    ? projectPrompts.find((prompt) => prompt.id === selectedRoute.sourceId)
+    : undefined
   const selectedPrompt = projectPrompts.find((prompt) => prompt.id === selectedPromptId)
   const selectedInitial = projectInitials.find((initial) => initial.id === selectedInitialId)
   const selectedStatusFilter = projectStatusFilters.find((filter) => filter.id === selectedStatusFilterId)
@@ -4866,6 +4906,37 @@ function App() {
     })
   }, [updateWorkflowRuntime])
 
+  const commitForwardIntervalHits = useCallback((deliveries: readonly WorkflowDelivery[]) => {
+    const updates = new Map<string, { count: number; branch: 'normal' | 'interval' }>()
+    deliveries.forEach((delivery) => {
+      if (
+        delivery.promptNodeId &&
+        delivery.promptBranch &&
+        typeof delivery.promptNextCount === 'number'
+      ) {
+        updates.set(delivery.promptNodeId, {
+          count: delivery.promptNextCount,
+          branch: delivery.promptBranch,
+        })
+      }
+    })
+    if (updates.size === 0) return
+
+    sharedStateDirty.current = true
+    setWorkflowPrompts((current) => current.map((prompt) => {
+      const update = updates.get(prompt.id)
+      return update ? { ...prompt, intervalCount: update.count } : prompt
+    }))
+    updates.forEach((update, promptId) => {
+      if (update.branch !== 'interval') return
+      const prompt = workflowPrompts.find((item) => item.id === promptId)
+      addEvent(
+        'Weiterleiten-Intervall erreicht',
+        `${prompt?.name ?? 'Weiterleiten'}: Der Intervall-Ausgang wurde verwendet; der Zähler beginnt wieder bei 0.`,
+      )
+    })
+  }, [addEvent, workflowPrompts])
+
   const recordSupervisorDiagnosis = useCallback(({
     source,
     diagnosis,
@@ -5035,7 +5106,7 @@ function App() {
       agent.lastCompletedTurnId,
       reportsTechnicalFailure || unconditionalForwarding.enabled,
     )
-    const resolvedConfiguredDeliveries = reportsInternalWorkflowError
+    const resolvedConfiguredDeliveries: ResolvedWorkflowDelivery[] = reportsInternalWorkflowError
       ? []
       : unconditionalForwarding.enabled && unconditionalForwarding.delivery
         ? [unconditionalForwarding.delivery]
@@ -5049,12 +5120,20 @@ function App() {
             targetIds: new Set(agents.map((item) => item.id)),
             stopIds: new Set(workflowStops.map((item) => item.id)),
           })
-    const configuredDeliveries = resolvedConfiguredDeliveries.flatMap<WorkflowDelivery>(({ targetId, stopId, route }) => {
+    const configuredDeliveries = resolvedConfiguredDeliveries.flatMap<WorkflowDelivery>(({
+      targetId,
+      stopId,
+      route,
+      promptNodeId,
+      promptBranch,
+      promptNextCount,
+    }) => {
       const resolvedRoute = route as WorkflowRoute
       const target = agents.find((item) => item.id === targetId)
-      if (target) return [{ target, route: resolvedRoute }]
+      const promptMetadata = { promptNodeId, promptBranch, promptNextCount }
+      if (target) return [{ target, route: resolvedRoute, ...promptMetadata }]
       const stop = workflowStops.find((item) => item.id === stopId)
-      return stop ? [{ stop, route: resolvedRoute }] : []
+      return stop ? [{ stop, route: resolvedRoute, ...promptMetadata }] : []
     })
     const internalErrorManagerId = reportsInternalWorkflowError
       ? internalWorkflowErrorManagerId(agent, agents)
@@ -5360,6 +5439,7 @@ function App() {
     })
 
     if (stopDeliveries.length > 0) {
+      commitForwardIntervalHits(stopDeliveries)
       sharedStateDirty.current = true
       setTransmittingAgentIds([])
       updateDeliveryQueue(() => ({}))
@@ -5558,7 +5638,7 @@ function App() {
           runStartedAt: '',
         })
         addEvent('Weitergabe nicht gesendet', `${target.name} ist mit keinem Codex-Chat verknüpft.`)
-        return { targetName: target.name, delivered: false }
+        return { targetId: target.id, targetName: target.name, delivered: false }
       }
 
       updateAgent(target.id, {
@@ -5596,7 +5676,7 @@ function App() {
             ),
           )
         }
-        return { targetName: target.name, delivered: true }
+        return { targetId: target.id, targetName: target.name, delivered: true }
       } catch (error) {
         activeDeliveryTargetIds.current.delete(target.id)
         updateAgent(target.id, {
@@ -5608,7 +5688,7 @@ function App() {
           'Weitergabe nicht gesendet',
           `${target.name}: ${error instanceof Error ? error.message : 'Connector nicht erreichbar.'}`,
         )
-        return { targetName: target.name, delivered: false }
+        return { targetId: target.id, targetName: target.name, delivered: false }
       }
     }))
     const deliveryOutcome = summarizeDeliveryAttempts(deliveryAttempts)
@@ -5619,6 +5699,12 @@ function App() {
         : {}),
     })
     if (deliveryOutcome.delivered) {
+      const deliveredTargetIds = new Set(
+        deliveryAttempts.filter((attempt) => attempt.delivered).map((attempt) => attempt.targetId),
+      )
+      commitForwardIntervalHits(
+        readyAgentDeliveries.filter((delivery) => deliveredTargetIds.has(delivery.target.id)),
+      )
       updateWorkflowRuntime((current) => {
         const checkpoint = current.checkpoints.find(
           (item) => samePath(item.projectPath, agent.projectPath) && item.sourceAgentId === agent.id,
@@ -5672,7 +5758,7 @@ function App() {
         }),
       ))
     }
-  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, persistWorkflowCheckpoint, projectGoals, recordSupervisorDiagnosis, releaseAutomationLease, resetInactiveAgentStatuses, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, commitForwardIntervalHits, knowledgeSources, persistWorkflowCheckpoint, projectGoals, recordSupervisorDiagnosis, releaseAutomationLease, resetInactiveAgentStatuses, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   useEffect(() => {
     if (!autoRun || !automationLeader || !sharedStateReady || !selectedProjectPath) return
@@ -5715,15 +5801,18 @@ function App() {
   }, [addEvent, agents, autoRun, automationLeader, checkpointRecoveryRevision, handoff, selectedProjectPath, sharedStateReady])
 
   const connectAgents = useCallback((connection: Connection) => {
+    const sourceHandle = connection.sourceHandle === 'interval' ? 'interval' : 'output'
+    const sourcePrompt = workflowPrompts.find((prompt) => prompt.id === connection.source)
     if (
       !connection.source ||
       !connection.target ||
       connection.source === connection.target ||
-      connection.sourceHandle !== 'output' ||
+      !['output', 'interval'].includes(connection.sourceHandle ?? '') ||
       connection.targetHandle !== 'input'
     ) {
       return
     }
+    if (sourceHandle === 'interval' && (!sourcePrompt || sourcePrompt.interval === 0)) return
     const sourceInitial = workflowInitials.find((initial) => initial.id === connection.source)
     if (sourceInitial) {
       if (connection.target !== sourceInitial.ownerAgentId) {
@@ -5772,6 +5861,7 @@ function App() {
     if (routes.some((route) =>
       route.ownerAgentId === activeDashboardOwnerId &&
       route.sourceId === connection.source &&
+      (route.sourceHandle ?? 'output') === sourceHandle &&
       route.targetId === connection.target,
     )) {
       addEvent('Workflow-Verbindung nicht erstellt', 'Diese Verbindung ist bereits vorhanden.')
@@ -5783,6 +5873,7 @@ function App() {
       projectPath: selectedProject?.path ?? '',
       sourceId: connection.source,
       targetId: connection.target,
+      sourceHandle,
       condition: 'Immer',
       prompt: sourceInitial ? '' : 'Übernimm das Ergebnis, prüfe es gemäß deiner Rolle und arbeite selbstständig weiter.',
     }
@@ -5810,6 +5901,8 @@ function App() {
       name: 'Weiterleiten',
       condition: 'Immer',
       prompt: 'Bearbeite die vorherige Antwort gemaess deiner Rolle und arbeite selbststaendig weiter.',
+      interval: 0,
+      intervalCount: 0,
     }
     setWorkflowPrompts((current) => [...current, prompt])
   }
@@ -5818,6 +5911,16 @@ function App() {
     setWorkflowPrompts((current) =>
       current.map((prompt) => (prompt.id === promptId ? { ...prompt, ...patch } : prompt)),
     )
+  }
+
+  const updateWorkflowPromptInterval = (promptId: string, value: unknown) => {
+    const interval = normalizeForwardInterval(value)
+    sharedStateDirty.current = true
+    setWorkflowPrompts((current) => current.map((prompt) =>
+      prompt.id === promptId
+        ? { ...prompt, interval, intervalCount: 0 }
+        : prompt,
+    ))
   }
 
   const deleteWorkflowPrompt = (promptId: string) => {
@@ -7148,6 +7251,11 @@ function App() {
           ? { ...route, lastForwardedTask: undefined }
           : route,
       ))
+      setWorkflowPrompts((current) => current.map((prompt) =>
+        samePath(prompt.projectPath, activeProjectPath)
+          ? { ...prompt, intervalCount: 0 }
+          : prompt,
+      ))
       updateWorkflowRuntime((current) =>
         resetProjectWorkflowRuntime(current, activeProjectPath),
       )
@@ -7196,6 +7304,7 @@ function App() {
       ],
       filters: workflowStatusFilters.filter((filter) => samePath(filter.projectPath, activeProjectPath)),
       routes: routes.filter((route) => samePath(route.projectPath, activeProjectPath)),
+      forwardingNodes: workflowPrompts.filter((prompt) => samePath(prompt.projectPath, activeProjectPath)),
       terminals: [
         ...workflowStops,
         ...workflowInitials,
@@ -9415,7 +9524,7 @@ function App() {
       )}
 
       {PROMPT_NODES_ENABLED && selectedPrompt && (
-        <div className="modalBackdrop" role="presentation" onMouseDown={() => setSelectedPromptId('')}>
+        <div className="modalBackdrop workflowNodeEditorBackdrop" role="presentation" onMouseDown={() => setSelectedPromptId('')}>
           <section
             className="promptModal"
             role="dialog"
@@ -9428,7 +9537,7 @@ function App() {
                 <p className="eyebrow">{tx('Weiterleiten', 'Forward')}</p>
                 <h2>{selectedPrompt.name}</h2>
               </div>
-              <button title={tx('Fenster schliessen', 'Close window')} onClick={() => setSelectedPromptId('')}>x</button>
+              <button title={tx('Fenster schließen', 'Close window')} onClick={() => setSelectedPromptId('')}>x</button>
             </div>
             <label>
               {tx('Name', 'Name')}
@@ -9438,18 +9547,40 @@ function App() {
               />
             </label>
             <label>
-              {tx('Zusatzprompt fuer den naechsten Agenten', 'Additional prompt for the next agent')}
+              {tx('Zusatzprompt für den nächsten Agenten', 'Additional prompt for the next agent')}
               <textarea
                 rows={6}
                 value={selectedPrompt.prompt}
                 onChange={(event) => updateWorkflowPrompt(selectedPrompt.id, { prompt: event.target.value, condition: '' })}
               />
             </label>
+            <label>
+              {tx('Intervall', 'Interval')}
+              <input
+                max={MAX_FORWARD_INTERVAL}
+                min={1}
+                onChange={(event) => updateWorkflowPromptInterval(selectedPrompt.id, event.target.value)}
+                placeholder={tx('Kein Intervall', 'No interval')}
+                type="number"
+                value={selectedPrompt.interval || ''}
+              />
+            </label>
+            <p className="modalHint forwardIntervalHint">
+              {selectedPrompt.interval > 0
+                ? tx(
+                    `Stand ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. Beim ${selectedPrompt.interval}. Treffer wird der Intervall-Ausgang verwendet und der Stand auf 0 gesetzt.`,
+                    `Count ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. The interval output is used on hit ${selectedPrompt.interval}, then the count resets to 0.`,
+                  )
+                : tx(
+                    'Ohne Intervall besitzt der Baustein nur den normalen Ausgang.',
+                    'Without an interval, the node has only its normal output.',
+                  )}
+            </p>
             <div className="modalActions">
               <button className="deleteButton" onClick={() => deleteWorkflowPrompt(selectedPrompt.id)}>
                 {tx('Weiterleiten-Baustein loeschen', 'Delete forwarding node')}
               </button>
-              <button className="primary" onClick={() => setSelectedPromptId('')}>{tx('Uebernehmen', 'Apply')}</button>
+              <button className="primary" onClick={() => setSelectedPromptId('')}>{tx('Übernehmen', 'Apply')}</button>
             </div>
           </section>
         </div>
@@ -10318,6 +10449,15 @@ function App() {
               <strong>{dashboardNodeLabel(selectedRoute.sourceId)}</strong> {tx('leitet an', 'forwards to')}{' '}
               <strong>{dashboardNodeLabel(selectedRoute.targetId)}</strong>.
             </p>
+            {selectedRouteSourcePrompt && selectedRouteSourcePrompt.interval > 0 && (
+              <p className="modalHint routeBranchHint">
+                {tx('Ausgang', 'Output')}: <strong>
+                  {(selectedRoute.sourceHandle ?? 'output') === 'interval'
+                    ? tx('Intervall', 'Interval')
+                    : tx('Normal', 'Normal')}
+                </strong>
+              </p>
+            )}
             <div className="modalActions">
               <button
                 className="deleteButton"

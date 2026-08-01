@@ -416,10 +416,22 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
     { width: forwardSymbolBox?.width, height: forwardSymbolBox?.height },
   )
   await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Weiterleiten' }).click()
-  await workflowDashboard.locator('.react-flow__node.prompt', { hasText: 'Weiterleiten' }).waitFor({ timeout: 5_000 })
+  const forwardNode = workflowDashboard.locator('.react-flow__node.prompt', { hasText: 'Weiterleiten' })
+  await forwardNode.waitFor({ timeout: 5_000 })
   await page.waitForTimeout(700)
   assert.equal(sharedState.workflowPrompts.some((prompt) => prompt.name === 'Weiterleiten'), true)
   assert.equal(await waitForVisibleEdge(), true)
+
+  await forwardNode.dblclick()
+  const forwardDialog = page.getByRole('dialog', { name: 'Weiterleiten-Baustein bearbeiten' })
+  await forwardDialog.getByLabel('Intervall').fill('2')
+  await forwardDialog.getByText('Stand 0/2.').waitFor()
+  await forwardDialog.getByRole('button', { name: 'Übernehmen' }).click()
+  await page.waitForTimeout(700)
+  assert.equal(sharedState.workflowPrompts.find((prompt) => prompt.name === 'Weiterleiten')?.interval, 2)
+  assert.equal(await forwardNode.locator('[data-handleid="output"]').count(), 1)
+  assert.equal(await forwardNode.locator('[data-handleid="interval"]').count(), 1)
+  await forwardNode.getByText('0/2', { exact: true }).waitFor()
 
   await page.waitForTimeout(700)
   assert.deepEqual(sharedState.workflowBoardAgentIds.ceo, ['ceo', 'analyst', 'qa'])

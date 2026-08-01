@@ -2186,6 +2186,31 @@ label {
   color: #9bd7ff;
 }
 
+.workflowNodeContent.prompt .normalOutput,
+.workflowCanvas .react-flow__node.prompt .react-flow__handle.normalOutput {
+  top: 34%;
+}
+
+.workflowNodeContent.prompt .intervalOutput,
+.workflowCanvas .react-flow__node.prompt .react-flow__handle.intervalOutput {
+  top: 72%;
+}
+
+.workflowNodeContent.prompt .portLabel.intervalOutput {
+  color: #f4c96b;
+  right: 8px;
+}
+
+.workflowCanvas .react-flow__node.prompt .react-flow__handle.intervalOutput {
+  --workflow-handle-color: #d6a94d;
+}
+
+.workflowNodeContent .intervalProgress {
+  color: #f4c96b;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .workflowCanvas .react-flow__node.prompt .react-flow__handle {
   --workflow-handle-color: #3aa8ff;
 }
@@ -3140,6 +3165,10 @@ label {
   padding: 20px;
   position: fixed;
   z-index: 100;
+}
+
+.workflowNodeEditorBackdrop {
+  z-index: 110;
 }
 
 .promptModal {

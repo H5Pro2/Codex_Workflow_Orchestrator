@@ -18,6 +18,13 @@ type AuditRoute = {
   ownerAgentId: string
   sourceId: string
   targetId: string
+  sourceHandle?: string
+}
+
+type AuditForwardingNode = {
+  id: string
+  ownerAgentId: string
+  interval?: number
 }
 
 type AuditTerminal = {
@@ -38,6 +45,7 @@ export function auditWorkflowTopology({
   filters,
   routes,
   terminals,
+  forwardingNodes = [],
 }: {
   agents: readonly AuditAgent[]
   activeAgentIds: ReadonlySet<string>
@@ -45,6 +53,7 @@ export function auditWorkflowTopology({
   filters: readonly AuditFilter[]
   routes: readonly AuditRoute[]
   terminals: readonly AuditTerminal[]
+  forwardingNodes?: readonly AuditForwardingNode[]
 }) {
   const issues: WorkflowTopologyIssue[] = []
   const agentById = new Map(agents.map((agent) => [agent.id, agent]))
@@ -89,6 +98,31 @@ export function auditWorkflowTopology({
         })
       }
     })
+  })
+
+  forwardingNodes.forEach((node) => {
+    if (!activeAgentIds.has(node.ownerAgentId) || !node.interval) return
+    const owner = agentById.get(node.ownerAgentId)
+    if (!owner) return
+    const outgoingHandles = new Set(
+      routes
+        .filter((route) => route.ownerAgentId === node.ownerAgentId && route.sourceId === node.id)
+        .map((route) => route.sourceHandle || 'output'),
+    )
+    if (!outgoingHandles.has('output')) {
+      issues.push({
+        agentId: node.ownerAgentId,
+        code: 'missing-target',
+        detail: `${owner.name}: Ein Weiterleiten-Intervall besitzt keinen normalen Ausgang.`,
+      })
+    }
+    if (!outgoingHandles.has('interval')) {
+      issues.push({
+        agentId: node.ownerAgentId,
+        code: 'missing-target',
+        detail: `${owner.name}: Ein Weiterleiten-Intervall besitzt keinen Intervall-Ausgang.`,
+      })
+    }
   })
 
   routes.forEach((route) => {

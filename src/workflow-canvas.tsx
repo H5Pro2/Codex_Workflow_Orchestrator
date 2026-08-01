@@ -19,12 +19,15 @@ export type WorkflowNodeData = {
   kindLabel?: string
   hasInstruction?: boolean
   instructionIndicatorLabel?: string
+  interval?: number
+  intervalCount?: number
 }
 
 export function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
   const isInitial = data.kind === 'initial'
   const isStop = data.kind === 'stop'
   const isTimer = data.kind === 'timer'
+  const hasInterval = data.kind === 'prompt' && Boolean(data.interval)
   return (
     <div className={`workflowNodeContent ${data.kind}`}>
       {isInitial && data.hasInstruction && (
@@ -39,8 +42,26 @@ export function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
       {!isInitial && !isTimer && <span className="portLabel input">In</span>}
       <strong>{data.label}</strong>
       <span className="nodeKind">{data.kindLabel ?? data.kind}</span>
-      {!isStop && <span className="portLabel output">Out</span>}
-      {!isStop && <Handle id="output" type="source" position={Position.Right} />}
+      {!isStop && (
+        <span className={`portLabel output ${hasInterval ? 'normalOutput' : ''}`}>
+          {hasInterval ? 'Normal' : 'Out'}
+        </span>
+      )}
+      {!isStop && (
+        <Handle
+          className={hasInterval ? 'normalOutput' : ''}
+          id="output"
+          type="source"
+          position={Position.Right}
+        />
+      )}
+      {hasInterval && (
+        <>
+          <span className="intervalProgress">{data.intervalCount ?? 0}/{data.interval}</span>
+          <span className="portLabel intervalOutput">Intervall</span>
+          <Handle className="intervalOutput" id="interval" type="source" position={Position.Right} />
+        </>
+      )}
     </div>
   )
 }
