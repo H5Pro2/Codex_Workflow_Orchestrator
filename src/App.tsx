@@ -2341,10 +2341,9 @@ function App() {
         loadedSharedState = Boolean(data.state && data.updatedAt)
         if (
           active &&
-          !sharedStateDirty.current &&
           data.state &&
           data.updatedAt &&
-          data.updatedAt !== sharedStateVersion.current
+          (initial || (!sharedStateDirty.current && data.updatedAt !== sharedStateVersion.current))
         ) {
           sharedStateVersion.current = data.updatedAt
           applySharedState(data.state)
