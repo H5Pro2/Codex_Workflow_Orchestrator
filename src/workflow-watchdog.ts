@@ -1,4 +1,4 @@
-export const TURN_INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000
+export const TURN_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000
 export const TURN_MAX_RUNTIME_MS = 45 * 60 * 1000
 
 export type TurnActivityObservation = {
@@ -25,8 +25,5 @@ export function turnNeedsWatchdogIntervention(
   now: number,
 ) {
   if (!Number.isFinite(runStartedAt) || runStartedAt <= 0) return false
-  return (
-    now - observation.lastActivityAt >= TURN_INACTIVITY_TIMEOUT_MS ||
-    now - runStartedAt >= TURN_MAX_RUNTIME_MS
-  )
+  return now - observation.lastActivityAt >= TURN_INACTIVITY_TIMEOUT_MS
 }

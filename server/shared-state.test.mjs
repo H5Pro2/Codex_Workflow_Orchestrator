@@ -110,3 +110,22 @@ test('keeps project loop counts after the shared-state store is restarted', asyn
     'project-two': 5,
   })
 })
+
+test('merges project loop counts when an older tab writes a full snapshot', async () => {
+  const { store } = await createStore()
+  const initial = await store.update({
+    agents: [],
+    workflowLoopCounts: {
+      'project-one': 3,
+    },
+  }, { force: true })
+  const staleFullSnapshot = await store.update({
+    agents: [{ id: 'ceo' }],
+    workflowLoopCounts: {},
+  }, { expectedUpdatedAt: initial.updatedAt })
+
+  assert.equal(staleFullSnapshot.ok, true)
+  assert.deepEqual((await store.read()).state.workflowLoopCounts, {
+    'project-one': 3,
+  })
+})

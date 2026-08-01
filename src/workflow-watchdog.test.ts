@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   TURN_INACTIVITY_TIMEOUT_MS,
-  TURN_MAX_RUNTIME_MS,
   observeTurnActivity,
   turnNeedsWatchdogIntervention,
 } from './workflow-watchdog.ts'
@@ -23,7 +22,7 @@ test('intervenes after prolonged inactivity', () => {
   assert.equal(turnNeedsWatchdogIntervention(observation, 500, now), true)
 })
 
-test('does not interrupt a turn that showed activity less than three minutes ago', () => {
+test('does not warn for a turn that showed activity less than five minutes ago', () => {
   const now = Date.now()
   const observation = observeTurnActivity(undefined, 'turn-1', 'recent', now - 1_000)
 
@@ -33,9 +32,9 @@ test('does not interrupt a turn that showed activity less than three minutes ago
   )
 })
 
-test('enforces a maximum runtime even while activity changes', () => {
-  const now = TURN_MAX_RUNTIME_MS + 10_000
+test('allows a long-running turn while it still shows activity', () => {
+  const now = 60 * 60 * 1000
   const observation = observeTurnActivity(undefined, 'turn-1', 'recent', now - 1_000)
 
-  assert.equal(turnNeedsWatchdogIntervention(observation, 1, now), true)
+  assert.equal(turnNeedsWatchdogIntervention(observation, 1, now), false)
 })

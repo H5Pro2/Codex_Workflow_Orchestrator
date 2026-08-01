@@ -37,6 +37,20 @@ async function waitForServer(url) {
   throw new Error(`Vite wurde nicht rechtzeitig erreichbar: ${url}`)
 }
 
+async function assertEventually(assertion, { attempts = 30, delayMs = 100 } = {}) {
+  let lastError
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await assertion()
+      return
+    } catch (error) {
+      lastError = error
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+    }
+  }
+  throw lastError
+}
+
 function fixtureState() {
   return {
     agents: [
@@ -238,8 +252,22 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
   })
 
   await page.goto(`http://127.0.0.1:${port}/`)
+  const loopInput = page.getByRole('spinbutton', { name: 'Anzahl der Workflow-Läufe' })
+  await assertEventually(async () => {
+    assert.equal(await loopInput.inputValue(), '3')
+  })
+  await loopInput.fill('')
+  await loopInput.type('5')
+  await loopInput.press('Tab')
+  await assertEventually(async () => {
+    assert.equal(sharedState.workflowLoopCounts['project-1'], 5)
+  })
+  await page.reload()
+  await assertEventually(async () => {
+    assert.equal(await loopInput.inputValue(), '5')
+  })
   const loopCount = page.getByLabel('Anzahl der Workflow-Läufe')
-  assert.equal(await loopCount.inputValue(), '3')
+  assert.equal(await loopCount.inputValue(), '5')
   await loopCount.fill('4')
   await page.waitForTimeout(700)
   assert.equal(sharedState.workflowLoopCounts['project-1'], 4)
@@ -273,11 +301,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
     (element) => getComputedStyle(element).backgroundColor,
   )
   assert.equal(projectGoalButtonColor, 'rgb(34, 68, 102)')
-  await page.getByRole('button', { name: 'Statusbefehle' }).click()
-  const fixedForwardStatus = page.locator('.workflowStatusItem', { hasText: 'Weiterleiten' })
-  await fixedForwardStatus.getByText('Fester Systemstatus', { exact: true }).waitFor()
-  assert.equal(await fixedForwardStatus.getByRole('button').count(), 0)
-  await page.getByRole('button', { name: 'Status-Fenster schließen' }).click()
+  assert.equal(await page.getByRole('button', { name: 'Statusbefehle' }).count(), 0)
   await page.getByRole('button', { name: 'Setup öffnen' }).click()
   const knowledgeAccess = page.locator('section[aria-label="Projektwissen verwenden"]')
   const knowledgeAccessToggle = knowledgeAccess.getByRole('checkbox')
@@ -347,19 +371,10 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
   await database.getByRole('button', { name: 'Datenbank-Fenster schließen' }).click({ timeout: 5_000 })
   await page.locator('.agentRail .agentButton', { hasText: 'Projektanalyst mit langer Bezeichnung' }).click()
   await page.getByRole('button', { name: 'Setup öffnen' }).click()
-  await page.locator('.agentStatusMenu > summary').click()
-  const systemStatus = page.locator('.agentStatusMenu .systemStatusOption')
-  await systemStatus.getByText('Interner Workflow-Fehler', { exact: true }).waitFor()
-  assert.equal(await systemStatus.getByRole('checkbox').isChecked(), true)
-  assert.equal(await systemStatus.getByRole('checkbox').isDisabled(), true)
+  assert.equal(await page.locator('.agentStatusMenu').count(), 0)
   await page.locator('.agentRail .agentButton', { hasText: 'CEO' }).click()
   await page.getByRole('button', { name: 'Setup öffnen' }).click()
-  const ceoStatusMenu = page.locator('.agentStatusMenu')
-  await ceoStatusMenu.locator('summary').click()
-  assert.equal(
-    await ceoStatusMenu.locator('.promptStatusOption', { hasText: 'Forschungsauftrag koordinieren' }).getByRole('checkbox').isChecked(),
-    true,
-  )
+  assert.equal(await page.locator('.agentStatusMenu').count(), 0)
   await page.getByRole('button', { name: 'Workflow-Dashboard öffnen' }).click({ timeout: 5_000 })
   const workflowDashboard = page.getByRole('dialog', { name: 'Workflow-Dashboard von CEO' })
   await workflowDashboard.waitFor({ timeout: 5_000 })
@@ -374,12 +389,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
   await workflowDashboard.locator('.workflowCanvas').click({ position: { x: 18, y: 18 } })
   assert.equal(await workflowDashboard.locator('details.dashboardAgentMenu').getAttribute('open'), null)
 
-  await workflowDashboard.locator('details.dashboardStatusMenu > summary').click()
-  assert.equal(
-    await workflowDashboard.locator('.dashboardStatusOptions .promptStatusOption', { hasText: 'Forschungsauftrag koordinieren' }).getByRole('checkbox').isChecked(),
-    true,
-  )
-  await workflowDashboard.locator('details.dashboardStatusMenu > summary').click()
+  assert.equal(await workflowDashboard.locator('details.dashboardStatusMenu').count(), 0)
 
   await workflowDashboard.locator('.react-flow__edge-path').first().waitFor({ state: 'attached', timeout: 5_000 })
 
@@ -400,13 +410,15 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
 
   await workflowDashboard.locator('details.dashboardTools > summary').click()
   const initialSymbolBox = await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Initial' }).locator('.toolSymbol').boundingBox()
-  const statusSymbolBox = await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Status' }).locator('.toolSymbol').boundingBox()
+  const forwardSymbolBox = await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Weiterleiten' }).locator('.toolSymbol').boundingBox()
   assert.deepEqual(
     { width: initialSymbolBox?.width, height: initialSymbolBox?.height },
-    { width: statusSymbolBox?.width, height: statusSymbolBox?.height },
+    { width: forwardSymbolBox?.width, height: forwardSymbolBox?.height },
   )
-  await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Status' }).click()
-  assert.equal(await page.getByRole('dialog', { name: 'Status-Filter bearbeiten' }).count(), 0)
+  await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Weiterleiten' }).click()
+  await workflowDashboard.locator('.react-flow__node.prompt', { hasText: 'Weiterleiten' }).waitFor({ timeout: 5_000 })
+  await page.waitForTimeout(700)
+  assert.equal(sharedState.workflowPrompts.some((prompt) => prompt.name === 'Weiterleiten'), true)
   assert.equal(await waitForVisibleEdge(), true)
 
   await page.waitForTimeout(700)

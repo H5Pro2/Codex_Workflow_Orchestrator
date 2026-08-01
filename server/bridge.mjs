@@ -687,6 +687,23 @@ const server = createServer(async (incoming, response) => {
       return
     }
 
+    const threadReadMatch = url.pathname.match(/^\/api\/threads\/([^/]+)$/)
+    if (incoming.method === 'GET' && threadReadMatch) {
+      const threadId = decodeURIComponent(threadReadMatch[1])
+      const threads = await listAllThreads()
+      const rawState = await readFile(CODEX_GLOBAL_STATE_FILE, 'utf8')
+      const state = JSON.parse(rawState)
+      const projects = savedProjectsFromState(state)
+      const thread = applyThreadProjectAssignments(threads, state, projects)
+        .find((item) => item.id === threadId)
+      if (!thread) {
+        sendJson(response, 404, { error: 'Codex-Chat wurde nicht gefunden.' })
+        return
+      }
+      sendJson(response, 200, { thread })
+      return
+    }
+
     if (incoming.method === 'GET' && url.pathname === '/api/projects') {
       const projects = await listSavedProjects()
       sendJson(response, 200, { projects })

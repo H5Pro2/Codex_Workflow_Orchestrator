@@ -1,5 +1,5 @@
 export const MIN_WORKFLOW_LOOPS = 1
-export const MAX_WORKFLOW_LOOPS = 20
+export const MAX_WORKFLOW_LOOPS = 999
 
 export type WorkflowLoopCounts = Record<string, number>
 
@@ -16,15 +16,34 @@ export function normalizeWorkflowLoopCounts(value: unknown): WorkflowLoopCounts 
   )
 }
 
-export function workflowLoopCountForProject(counts: WorkflowLoopCounts, projectId: string) {
-  return normalizeWorkflowLoopCount(counts[projectId])
+function uniqueProjectKeys(projectId: string, aliases: readonly string[] = []) {
+  return [...new Set([projectId, ...aliases].map((key) => key.trim()).filter(Boolean))]
+}
+
+export function workflowLoopCountForProject(
+  counts: WorkflowLoopCounts,
+  projectId: string,
+  aliases: readonly string[] = [],
+) {
+  for (const key of uniqueProjectKeys(projectId, aliases)) {
+    if (Object.hasOwn(counts, key)) {
+      return normalizeWorkflowLoopCount(counts[key])
+    }
+  }
+  return MIN_WORKFLOW_LOOPS
 }
 
 export function setWorkflowLoopCount(
   counts: WorkflowLoopCounts,
   projectId: string,
   count: unknown,
+  aliases: readonly string[] = [],
 ): WorkflowLoopCounts {
-  if (!projectId) return counts
-  return { ...counts, [projectId]: normalizeWorkflowLoopCount(count) }
+  const keys = uniqueProjectKeys(projectId, aliases)
+  if (keys.length === 0) return counts
+  const normalized = normalizeWorkflowLoopCount(count)
+  return Object.fromEntries([
+    ...Object.entries(counts),
+    ...keys.map((key) => [key, normalized] as const),
+  ])
 }

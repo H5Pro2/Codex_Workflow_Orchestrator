@@ -18,6 +18,32 @@ function stableStateString(state) {
   return JSON.stringify(canonicalize(state))
 }
 
+function mergeWorkflowLoopCounts(previousState, nextState) {
+  if (!nextState || typeof nextState !== 'object' || Array.isArray(nextState)) {
+    return nextState
+  }
+  const hasPreviousCounts =
+    previousState?.workflowLoopCounts &&
+    typeof previousState.workflowLoopCounts === 'object' &&
+    !Array.isArray(previousState.workflowLoopCounts)
+  const hasNextCounts =
+    nextState.workflowLoopCounts &&
+    typeof nextState.workflowLoopCounts === 'object' &&
+    !Array.isArray(nextState.workflowLoopCounts)
+  if (!hasPreviousCounts && !hasNextCounts) {
+    return nextState
+  }
+  const previousCounts = hasPreviousCounts ? previousState.workflowLoopCounts : {}
+  const nextCounts = hasNextCounts ? nextState.workflowLoopCounts : {}
+  return {
+    ...nextState,
+    workflowLoopCounts: {
+      ...previousCounts,
+      ...nextCounts,
+    },
+  }
+}
+
 function nextVersion(previousVersion, now) {
   const previousTime = Date.parse(previousVersion)
   const currentTime = now().getTime()
@@ -62,7 +88,9 @@ export function createSharedStateStore(stateFile, { now = () => new Date() } = {
         return { ok: false, state, updatedAt }
       }
 
-      if (stableStateString(state) === stableStateString(nextState)) {
+      const mergedNextState = mergeWorkflowLoopCounts(state, nextState)
+
+      if (stableStateString(state) === stableStateString(mergedNextState)) {
         return { ok: true, state, updatedAt }
       }
 
@@ -70,11 +98,11 @@ export function createSharedStateStore(stateFile, { now = () => new Date() } = {
       const temporaryFile = `${stateFile}.tmp`
       await writeFile(
         temporaryFile,
-        JSON.stringify({ updatedAt: nextUpdatedAt, state: nextState }, null, 2),
+        JSON.stringify({ updatedAt: nextUpdatedAt, state: mergedNextState }, null, 2),
         'utf8',
       )
       await rename(temporaryFile, stateFile)
-      state = nextState
+      state = mergedNextState
       updatedAt = nextUpdatedAt
       return { ok: true, state, updatedAt }
     })

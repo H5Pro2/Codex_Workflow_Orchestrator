@@ -131,11 +131,13 @@ import {
 import {
   MAX_WORKFLOW_LOOPS,
   MIN_WORKFLOW_LOOPS,
+  normalizeWorkflowLoopCount,
   normalizeWorkflowLoopCounts,
   setWorkflowLoopCount,
   workflowLoopCountForProject,
   type WorkflowLoopCounts,
 } from './workflow-loop.ts'
+import { wouldCompleteWorkflowCycleOnReturn } from './workflow-cycle-boundary.ts'
 import {
   WorkflowConnectionLine,
   WorkflowEdge,
@@ -151,14 +153,6 @@ import { workflowConstraintViolation } from './workflow-constraints.ts'
 import { auditWorkflowTopology } from './workflow-topology-audit.ts'
 import { manualInstructionSupersedesCheckpoints } from './manual-checkpoint-policy.ts'
 import { currentHandoffContextInstruction } from './handoff-context.ts'
-import { fixedForwardingHandoffInstruction } from './fixed-forwarding-policy.ts'
-import {
-  fixedForwardingAuthorizationRepairInstruction,
-  fixedForwardingNextTaskRepairInstruction,
-  isFixedForwardingIncompleteTask,
-  isFixedForwardingAuthorizationStall,
-  isFixedForwardingNoNextTask,
-} from './fixed-forwarding-stall.ts'
 import {
   workflowDeliveryKey,
   wouldRepeatWorkflowCycle,
@@ -451,7 +445,8 @@ const STORAGE_KEY = 'codex-workflow-orchestrator'
 const LANGUAGE_STORAGE_KEY = 'codex-workflow-orchestrator-language'
 const PROGRAM_SETTINGS_STORAGE_KEY = 'codex-workflow-orchestrator-program-settings'
 const TEAM_PLAN_FORMAT_CLAIM_PREFIX = 'codex-orchestrator-team-plan-format-v1:'
-const PROMPT_NODES_ENABLED = false
+const PROMPT_NODES_ENABLED = true
+const LEGACY_STATUS_UI_ENABLED = false
 
 function teamPlanFormatClaimKey(agentId: string, sourceTurnId: string) {
   return `${TEAM_PLAN_FORMAT_CLAIM_PREFIX}${agentId}:${sourceTurnId || 'unknown'}`
@@ -483,16 +478,16 @@ function clearAutomaticTeamPlanFormatClaim(agentId: string) {
 const defaultProgramSettings: ProgramSettings = {
   displayName: '',
   theme: 'dark',
-  accentColor: '#72d6c9',
-  backgroundColor: '#0b0b0c',
-  foregroundColor: '#f2f2f3',
-  buttonColor: '#19191b',
-  buttonTextColor: '#f2f2f3',
-  topbarColor: '#0f1012',
-  projectBarColor: '#131315',
-  agentRailColor: '#131315',
-  workspaceColor: '#131315',
-  eventLogColor: '#131315',
+  accentColor: '#8b949e',
+  backgroundColor: '#0d1117',
+  foregroundColor: '#e6edf3',
+  buttonColor: '#21262d',
+  buttonTextColor: '#e6edf3',
+  topbarColor: '#0d1117',
+  projectBarColor: '#11161c',
+  agentRailColor: '#11161c',
+  workspaceColor: '#0d1117',
+  eventLogColor: '#11161c',
   uiFont: 'Segoe UI Variable Text',
   codeFont: 'Cascadia Code',
   contrast: 60,
@@ -506,29 +501,7 @@ function loadProgramSettings(): ProgramSettings {
       return defaultProgramSettings
     }
     const parsed = JSON.parse(stored) as Partial<ProgramSettings>
-    const storedBackground = parsed.backgroundColor?.toLowerCase()
-    const storedForeground = parsed.foregroundColor?.toLowerCase()
-    const hasStaleLightPalette = parsed.theme === 'light'
-      && storedBackground === defaultProgramSettings.backgroundColor
-      && storedForeground === defaultProgramSettings.foregroundColor
-    const hasStaleDarkPalette = parsed.theme === 'dark'
-      && storedBackground === '#f7f7f8'
-      && storedForeground === '#18181b'
-    return {
-      ...defaultProgramSettings,
-      ...parsed,
-      backgroundColor: hasStaleLightPalette
-        ? '#f7f7f8'
-        : hasStaleDarkPalette
-          ? defaultProgramSettings.backgroundColor
-          : parsed.backgroundColor ?? defaultProgramSettings.backgroundColor,
-      foregroundColor: hasStaleLightPalette
-        ? '#18181b'
-        : hasStaleDarkPalette
-          ? defaultProgramSettings.foregroundColor
-          : parsed.foregroundColor ?? defaultProgramSettings.foregroundColor,
-      contrast: Math.min(100, Math.max(0, Number(parsed.contrast ?? defaultProgramSettings.contrast))),
-    }
+    return normalizeProgramSettingsClient(parsed)
   } catch {
     return defaultProgramSettings
   }
@@ -536,6 +509,60 @@ function loadProgramSettings(): ProgramSettings {
 
 function isHexColor(value: string) {
   return /^#[0-9a-f]{6}$/i.test(value)
+}
+
+function normalizeProgramSettingsClient(settings: Partial<ProgramSettings>): ProgramSettings {
+  const merged = { ...defaultProgramSettings, ...settings }
+  const background = merged.backgroundColor?.toLowerCase()
+  const foreground = merged.foregroundColor?.toLowerCase()
+  const accent = merged.accentColor?.toLowerCase()
+  const hasStaleLightPalette = merged.theme === 'light'
+    && background === defaultProgramSettings.backgroundColor
+    && foreground === defaultProgramSettings.foregroundColor
+  const hasStaleDarkPalette = merged.theme === 'dark'
+    && background === '#f7f7f8'
+    && foreground === '#18181b'
+  const usesOldDarkDefaults = merged.theme === 'dark' && (
+    (background === '#0b0b0c' && foreground === '#f2f2f3' && (!accent || accent === '#72d6c9')) ||
+    (background === '#000000' && (!accent || accent === '#47a9c2')) ||
+    (background === '#090c10' && foreground === '#e6edf3' && (!accent || accent === '#8b949e'))
+  )
+  if (hasStaleLightPalette) {
+    return {
+      ...merged,
+      backgroundColor: '#f7f7f8',
+      foregroundColor: '#18181b',
+      contrast: Math.min(100, Math.max(0, Number(merged.contrast ?? defaultProgramSettings.contrast))),
+    }
+  }
+  if (hasStaleDarkPalette) {
+    return {
+      ...merged,
+      backgroundColor: defaultProgramSettings.backgroundColor,
+      foregroundColor: defaultProgramSettings.foregroundColor,
+      contrast: Math.min(100, Math.max(0, Number(merged.contrast ?? defaultProgramSettings.contrast))),
+    }
+  }
+  if (!usesOldDarkDefaults) {
+    return {
+      ...merged,
+      contrast: Math.min(100, Math.max(0, Number(merged.contrast ?? defaultProgramSettings.contrast))),
+    }
+  }
+  return {
+    ...merged,
+    accentColor: defaultProgramSettings.accentColor,
+    backgroundColor: defaultProgramSettings.backgroundColor,
+    foregroundColor: defaultProgramSettings.foregroundColor,
+    buttonColor: defaultProgramSettings.buttonColor,
+    buttonTextColor: defaultProgramSettings.buttonTextColor,
+    topbarColor: defaultProgramSettings.topbarColor,
+    projectBarColor: defaultProgramSettings.projectBarColor,
+    agentRailColor: defaultProgramSettings.agentRailColor,
+    workspaceColor: defaultProgramSettings.workspaceColor,
+    eventLogColor: defaultProgramSettings.eventLogColor,
+    contrast: defaultProgramSettings.contrast,
+  }
 }
 
 function hasCustomizedProgramSettings(settings: ProgramSettings) {
@@ -573,8 +600,6 @@ const languageCopy: Record<UiLanguage, {
   stop: string
   projects: string
   project: string
-  manageChats: string
-  noChats: string
   online: string
   offline: string
   liveSync: string
@@ -586,10 +611,8 @@ const languageCopy: Record<UiLanguage, {
     credit: 'Guthaben',
     start: 'Auto Start',
     stop: 'Auto Stop',
-    projects: 'Codex Projekte und Tasks',
+    projects: 'Projekt',
     project: 'Projekt',
-    manageChats: 'Agenten-Übersicht',
-    noChats: 'Für dieses Projekt wurden keine Chats gefunden.',
     online: 'Codex-Connector verbunden',
     offline: 'Codex-Connector offline',
     liveSync: 'Keine Live-Synchronisierung',
@@ -601,10 +624,8 @@ const languageCopy: Record<UiLanguage, {
     credit: 'Credits',
     start: 'Auto Start',
     stop: 'Auto Stop',
-    projects: 'Codex projects and tasks',
+    projects: 'Project',
     project: 'Project',
-    manageChats: 'Agent overview',
-    noChats: 'No chats were found for this project.',
     online: 'Codex Connector connected',
     offline: 'Codex Connector offline',
     liveSync: 'No live synchronization',
@@ -1181,7 +1202,9 @@ function buildHandoffMessage(
       : '',
     '',
     currentHandoffContextInstruction(),
-    fixedForwarding ? `\n${fixedForwardingHandoffInstruction()}` : '',
+    fixedForwarding
+      ? 'Feste Weiterleitung: Der Orchestrator hat die vorherige Antwort automatisch als Gesprächsbeitrag weitergegeben. Bearbeite den Eingang gemäß deiner Rolle und der Übergabe-Anweisung.'
+      : '',
     '',
     'Ergebnis / Auftrag:',
     source.lastResult || 'Kein Ergebnistext hinterlegt.',
@@ -1325,6 +1348,7 @@ function WorkflowDashboard({
   selectedAgentNodeId: string
   language: UiLanguage
 }) {
+  void statuses
   const initialNodes = useMemo<Node[]>(
     () =>
       [
@@ -1343,7 +1367,7 @@ function WorkflowDashboard({
           width: 190,
           height: 64,
           position: positions[prompt.id] ?? { x: 180 + (index % 3) * 220, y: 250 + Math.floor(index / 3) * 150 },
-          data: { label: prompt.name, kind: 'prompt' as const, kindLabel: language === 'de' ? 'Prompt / Bedingung' : 'Prompt / condition' },
+          data: { label: prompt.name, kind: 'prompt' as const, kindLabel: language === 'de' ? 'Weiterleiten' : 'Forward' },
           className: 'workflowNode prompt',
         })),
         ...initials.map((initial, index) => ({
@@ -1364,14 +1388,13 @@ function WorkflowDashboard({
           className: 'workflowNode initial',
         })),
         ...statusFilters.map((filter, index) => {
-          const status = statuses.find((item) => item.id === filter.statusId)
           return {
             id: filter.id,
             type: 'workflow',
             width: 190,
             height: 64,
             position: positions[filter.id] ?? { x: 260 + (index % 3) * 220, y: 430 + Math.floor(index / 3) * 130 },
-            data: { label: status?.name || filter.name, kind: 'status' as const, kindLabel: language === 'de' ? 'Status-Filter' : 'Status filter' },
+            data: { label: language === 'de' ? 'Weiterleiten' : 'Forward', kind: 'status' as const, kindLabel: language === 'de' ? 'Weiterleiten' : 'Forward' },
             className: 'workflowNode statusFilter',
           }
         }),
@@ -1394,7 +1417,7 @@ function WorkflowDashboard({
           className: `workflowNode timer ${timer.enabled ? 'enabled' : 'disabled'}`,
         })),
       ],
-    [agents, initials, language, positions, prompts, selectedAgentNodeId, statusFilters, statuses, stops, timers],
+    [agents, initials, language, positions, prompts, selectedAgentNodeId, statusFilters, stops, timers],
   )
   const initialEdges = useMemo<Edge[]>(
     () =>
@@ -1660,9 +1683,14 @@ function App() {
   const [agentPendingDeletionId, setAgentPendingDeletionId] = useState('')
   const [agentDeleteError, setAgentDeleteError] = useState('')
   const [agentCreationOpen, setAgentCreationOpen] = useState(false)
-  const [newAgentName, setNewAgentName] = useState('')
+  const [newAgentChatId, setNewAgentChatId] = useState('')
   const [agentCreationBusy, setAgentCreationBusy] = useState(false)
   const [agentCreationError, setAgentCreationError] = useState('')
+  const [agentEditId, setAgentEditId] = useState('')
+  const [agentEditName, setAgentEditName] = useState('')
+  const [agentEditChatId, setAgentEditChatId] = useState('')
+  const [agentEditBusy, setAgentEditBusy] = useState(false)
+  const [agentEditError, setAgentEditError] = useState('')
   const [teamPlanApplying, setTeamPlanApplying] = useState(false)
   const [teamPlanFormatRequesting, setTeamPlanFormatRequesting] = useState(false)
   const [teamPlanError, setTeamPlanError] = useState('')
@@ -1671,6 +1699,9 @@ function App() {
   const [teamReadyNotice, setTeamReadyNotice] = useState<{ project: string; agents: number; statuses: number; connections: number; stops: number } | null>(null)
   const [autoRun, setAutoRun] = useState(storedState.autoRun)
   const [workflowLoopCounts, setWorkflowLoopCounts] = useState<WorkflowLoopCounts>(storedState.workflowLoopCounts)
+  const [workflowLoopCountDraft, setWorkflowLoopCountDraft] = useState('')
+  const [workflowLoopCountEditing, setWorkflowLoopCountEditing] = useState(false)
+  const workflowLoopInputRef = useRef<HTMLInputElement | null>(null)
   const [workflowResetting, setWorkflowResetting] = useState(false)
   const [projectFilter, setProjectFilter] = useState(storedState.selectedProjectId)
   const [hiddenThreadIds, setHiddenThreadIds] = useState<string[]>(storedState.hiddenThreadIds)
@@ -1849,7 +1880,7 @@ function App() {
         if (!active) return
         if (data.settings) {
           programSettingsRemoteUpdateRef.current = true
-          setProgramSettings((current) => ({ ...current, ...data.settings }))
+          setProgramSettings((current) => normalizeProgramSettingsClient({ ...current, ...data.settings }))
           programSettingsUpdatedAtRef.current = typeof data.updatedAt === 'string' ? data.updatedAt : ''
         } else if (hasCustomizedProgramSettings(initialProgramSettingsRef.current)) {
           const createResponse = await fetch('/api/program-settings', {
@@ -1886,7 +1917,7 @@ function App() {
         if (!active || !data.settings || data.updatedAt === programSettingsUpdatedAtRef.current) return
         programSettingsUpdatedAtRef.current = typeof data.updatedAt === 'string' ? data.updatedAt : ''
         programSettingsRemoteUpdateRef.current = true
-        setProgramSettings((current) => ({ ...current, ...data.settings }))
+        setProgramSettings((current) => normalizeProgramSettingsClient({ ...current, ...data.settings }))
       } catch {
         // Connector health is shown separately.
       }
@@ -1925,6 +1956,7 @@ function App() {
   }, [programSettings.theme, systemDark])
   const [chatError, setChatError] = useState('')
   const [chatPinnedToBottom, setChatPinnedToBottom] = useState(true)
+  const [communicationView, setCommunicationView] = useState<'overview' | 'chat'>('overview')
   const [, setChatSending] = useState(false)
   const chatMessagesSnapshotRef = useRef('')
   const chatSendHandlerRef = useRef<(agentId: string, text: string) => Promise<boolean>>(
@@ -1995,7 +2027,7 @@ function App() {
       if (!(target instanceof Element)) {
         return
       }
-      document.querySelectorAll<HTMLElement>('details.threadManager[open], details.dashboardAgentMenu[open], details.dashboardTools[open], details.dashboardStatusMenu[open], details.promptStatusMenu[open]').forEach((menu) => {
+      document.querySelectorAll<HTMLElement>('details.dashboardAgentMenu[open], details.dashboardTools[open], details.dashboardStatusMenu[open], details.promptStatusMenu[open]').forEach((menu) => {
         if (!menu.contains(target)) {
           menu.removeAttribute('open')
         }
@@ -2130,8 +2162,31 @@ function App() {
               sharedStateDirty.current = false
             }
           } else if (response.status === 409 && isLatest()) {
-            // Let the polling loop apply a genuinely newer snapshot from another tab.
-            sharedStateDirty.current = false
+            const serverState = data.state && typeof data.state === 'object' ? data.state : null
+            const serverUpdatedAt = typeof data.updatedAt === 'string' ? data.updatedAt : ''
+            if (!serverState || !serverUpdatedAt) {
+              return
+            }
+            const mergedState = {
+              ...serverState,
+              workflowLoopCounts: {
+                ...normalizeWorkflowLoopCounts(serverState.workflowLoopCounts),
+                ...workflowLoopCounts,
+              },
+            }
+            const retryResponse = await fetch('/api/state', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                state: mergedState,
+                expectedUpdatedAt: serverUpdatedAt,
+              }),
+            })
+            const retryData = await retryResponse.json()
+            if (retryResponse.ok) {
+              sharedStateVersion.current = retryData.updatedAt
+              sharedStateDirty.current = false
+            }
           }
         } catch {
           // LocalStorage remains the offline fallback.
@@ -2232,11 +2287,41 @@ function App() {
     setUserConfirmationError('')
   }, [pendingUserConfirmationAgent?.id, pendingUserConfirmationAgent?.pendingUserConfirmation?.requestedAt])
   const selectedProjectPath = selectedProject?.path ?? ''
+  const selectedLoopProjectAliases = useMemo(
+    () => selectedProjectPath
+      ? [selectedProjectPath, `path:${selectedProjectPath}`]
+      : [],
+    [selectedProjectPath],
+  )
   const selectedWorkflowRun = activeWorkflowRun(workflowRuntime, selectedProjectPath)
   const selectedLoopCount = workflowLoopCountForProject(
     workflowLoopCounts,
     selectedProject?.id ?? projectFilter,
+    selectedLoopProjectAliases,
   )
+  const persistSelectedLoopCount = useCallback((count: unknown) => {
+    if (!selectedProject && !projectFilter) return normalizeWorkflowLoopCount(count)
+    const normalized = normalizeWorkflowLoopCount(count)
+    sharedStateDirty.current = true
+    setWorkflowLoopCounts((current) => setWorkflowLoopCount(
+      current,
+      selectedProject?.id ?? projectFilter,
+      normalized,
+      selectedLoopProjectAliases,
+    ))
+    return normalized
+  }, [projectFilter, selectedLoopProjectAliases, selectedProject])
+  useEffect(() => {
+    if (!workflowLoopCountEditing) {
+      setWorkflowLoopCountDraft(String(selectedLoopCount))
+    }
+  }, [selectedLoopCount, workflowLoopCountEditing])
+  const handleSelectedLoopCountInput = useCallback((value: string) => {
+    setWorkflowLoopCountDraft(value)
+    if (value.trim()) {
+      persistSelectedLoopCount(value)
+    }
+  }, [persistSelectedLoopCount])
   const selectedLoopProgress = selectedWorkflowRun
     ? workflowRunCycleProgress(workflowRuntime, selectedProjectPath)
     : null
@@ -2372,14 +2457,16 @@ function App() {
     [codexThreads, selectedProject],
   )
   const projectAgents = useMemo(
-    () =>
-      agents.filter(
+    () => {
+      const visibleThreadIds = new Set(visibleThreads.map((thread) => thread.id))
+      return agents.filter(
         (agent) =>
           (agent.projectId === projectFilter ||
             samePath(agent.projectPath, selectedProject?.path ?? '')) &&
-          (!agent.threadId || !hiddenThreadIds.includes(agent.threadId)),
-      ),
-    [agents, hiddenThreadIds, projectFilter, selectedProject?.path],
+          (!agent.threadId || !hiddenThreadIds.includes(agent.threadId) || !visibleThreadIds.has(agent.threadId)),
+      )
+    },
+    [agents, hiddenThreadIds, projectFilter, selectedProject?.path, visibleThreads],
   )
   const selectedAgent = useMemo(
     () => projectAgents.find((agent) => agent.id === selectedId) ?? projectAgents[0],
@@ -2564,7 +2651,7 @@ function App() {
       loading = true
       try {
         const response = await fetch(
-          `/api/threads/${encodeURIComponent(threadId)}/conversation?limit=120`,
+          `/api/threads/${encodeURIComponent(threadId)}/conversation?limit=50`,
         )
         const data = await response.json()
         if (!response.ok) {
@@ -2861,53 +2948,7 @@ function App() {
         }
       })
 
-      const missingThreads = codexThreads.filter(
-        (thread) => !synchronized.some((agent) => agent.threadId === thread.id),
-      )
-
-      const reconciled = [
-        ...synchronized,
-        ...missingThreads.map((thread): Agent => {
-          const project = projectForThread(thread, codexProjects)
-          return {
-            id: crypto.randomUUID(),
-            name: thread.title,
-            role: defaultAgentRole(thread.title),
-            projectId: project?.id ?? `path:${thread.cwd}`,
-            projectPath: project?.path ?? thread.cwd,
-            threadTitle: thread.title,
-            threadId: thread.id,
-            prompt: 'Definiere die Rollen-Anweisung für diesen Codex Task.',
-            promptDocuments: [createDefaultPromptDocument('Definiere die Rollen-Anweisung für diesen Codex Task.')],
-            activePromptDocumentId: 'default',
-            status: 'wartet',
-            talkTo: [],
-            autoForward: true,
-            usesProjectKnowledge: true,
-            webAccess: 'off',
-            assignment: 'agent',
-            teamProvisioningEnabled: false,
-            managementInstructionRules: [...DEFAULT_CEO_INSTRUCTIONS],
-            lastAppliedTeamPlanSignature: '',
-            workflowStatusIds: [],
-            workflowStatusUpdatedAt: '',
-            finishSignal: '"status":"fertig"',
-            lastResult: '',
-            instructionVersion: 1,
-            lastInstruction: '',
-            runStartedAt: '',
-            lastDurationMs: 0,
-            completedRuns: 0,
-            consecutiveFailedRuns: 0,
-            pendingTurnId: '',
-            runPurpose: '',
-            lastCompletedTurnId: '',
-            lastInboundAgentId: '',
-            pendingUserConfirmation: null,
-            updatedAt: new Date().toISOString(),
-          }
-        }),
-      ]
+      const reconciled = synchronized
 
       const validAgentIds = new Set(reconciled.map((agent) => agent.id))
       const cleaned = reconciled.map((agent) => ({
@@ -2915,7 +2956,7 @@ function App() {
         talkTo: agent.talkTo.filter((targetId) => validAgentIds.has(targetId)),
       }))
 
-      return hasChanges || missingThreads.length > 0 ? cleaned : current
+      return hasChanges ? cleaned : current
     })
   }, [codexProjects, codexThreads, connectorOnline])
 
@@ -3556,142 +3597,61 @@ function App() {
     }
   }, [])
 
-  const addAgentFromThread = (threadId: string) => {
-    const thread = codexThreads.find((item) => item.id === threadId)
-    const project = thread ? projectForThread(thread, codexProjects) : undefined
-    if (!thread || !project) {
-      return
-    }
-
-    const existing = agents.find((agent) => agent.threadId === thread.id)
-    if (existing) {
-      setSelectedId(existing.id)
-      addEvent('Codex Task bereits verlinkt', `${thread.title} ist schon mit ${existing.name} verbunden.`)
-      return
-    }
-
-    const agent: Agent = {
-      id: crypto.randomUUID(),
-      name: thread.title,
-      role: defaultAgentRole(thread.title),
-      projectId: project.id,
-      projectPath: project.path,
-      threadTitle: thread.title,
-      threadId: thread.id,
-      prompt: 'Definiere die Rollen-Anweisung für diesen Codex Task.',
-      promptDocuments: [createDefaultPromptDocument('Definiere die Rollen-Anweisung für diesen Codex Task.')],
-      activePromptDocumentId: 'default',
-      status: thread.status === 'active' ? 'laeuft' : 'wartet',
-      talkTo: [],
-      autoForward: true,
-      usesProjectKnowledge: true,
-      webAccess: 'off',
-      assignment: 'agent',
-      teamProvisioningEnabled: false,
-      managementInstructionRules: [...DEFAULT_CEO_INSTRUCTIONS],
-      lastAppliedTeamPlanSignature: '',
-      workflowStatusIds: [],
-      workflowStatusUpdatedAt: '',
-      finishSignal: '"status":"fertig"',
-      lastResult: '',
-      instructionVersion: 1,
-      lastInstruction: '',
-      runStartedAt: '',
-      lastDurationMs: 0,
-      completedRuns: 0,
-      consecutiveFailedRuns: 0,
-      pendingTurnId: '',
-      runPurpose: '',
-      lastCompletedTurnId: '',
-      lastInboundAgentId: '',
-      pendingUserConfirmation: null,
-      updatedAt: new Date().toISOString(),
-    }
-    setAgents((current) => [...current, agent])
-    setSelectedId(agent.id)
-    addEvent('Codex Task übernommen', `${project.label} / ${thread.title}`)
-  }
-
   const createAgent = async () => {
-    const name = newAgentName.trim()
-    if (!name || !selectedProject || agentCreationBusy) {
+    const chatId = newAgentChatId.trim()
+    if (!chatId || !selectedProject || agentCreationBusy) {
       return
     }
     if (autoRun || autoRunRef.current) {
       setAgentCreationError(tx(
-        'Agenten können nur bei Auto Stop erstellt werden.',
+        'Agenten koennen nur bei Auto Stop erstellt werden.',
         'Agents can only be created while Auto Stop is active.',
       ))
       return
     }
 
-    if (agents.some(
-      (agent) =>
-        samePath(agent.projectPath, selectedProject.path) &&
-        agent.name.trim().toLocaleLowerCase('de-DE') === name.toLocaleLowerCase('de-DE'),
-    )) {
+    const existingAgent = agents.find((agent) => agent.threadId === chatId)
+    if (existingAgent) {
+      setSelectedId(existingAgent.id)
       setAgentCreationError(tx(
-        'In diesem Projekt gibt es bereits einen Agenten mit diesem Namen.',
-        'An agent with this name already exists in this project.',
+        'Diese Chat-ID ist bereits mit einem Agenten verknuepft.',
+        'This chat ID is already linked to an agent.',
       ))
-      return
-    }
-
-    const existingThread = codexThreads.find(
-      (thread) =>
-        threadBelongsToProject(thread, selectedProject) &&
-        thread.title.trim().toLocaleLowerCase('de-DE') === name.toLocaleLowerCase('de-DE'),
-    )
-    if (existingThread) {
-      addAgentFromThread(existingThread.id)
-      setAgentCreationOpen(false)
-      setNewAgentName('')
       return
     }
 
     setAgentCreationBusy(true)
     setAgentCreationError('')
     try {
-      const response = await fetch('/api/threads', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cwd: selectedProject.path,
-          projectId: selectedProject.id,
-          name,
-          initialPrompt: tx(
-            'Dieser Codex-Chat wurde als Agent eingerichtet. Antworte ausschließlich mit BEREIT und warte danach auf eine Benutzeranweisung.',
-            'This Codex chat was created as an agent. Reply only with READY, then wait for a user instruction.',
-          ),
-        }),
-      })
+      const response = await fetch(`/api/threads/${encodeURIComponent(chatId)}`)
       const data = await response.json()
       if (!response.ok) {
-        throw new Error(data.error || tx('Codex-Chat konnte nicht erstellt werden.', 'The Codex chat could not be created.'))
+        throw new Error(data.error || tx('Codex-Chat wurde nicht gefunden.', 'The Codex chat was not found.'))
       }
 
       const thread: CodexThread = {
         id: data.thread.id,
-        title: data.thread.name || name,
-        cwd: selectedProject.path,
-        status: data.thread.status || 'idle',
-        projectId: selectedProject.id,
-        projectPath: selectedProject.path,
+        title: data.thread.name || data.thread.preview || tx('Unbenannter Chat', 'Untitled chat'),
+        cwd: data.thread.cwd || selectedProject.path,
+        status: data.thread.status || 'notLoaded',
+        projectId: data.thread.projectId || selectedProject.id,
+        projectPath: data.thread.projectPath || selectedProject.path,
+        projectAssignmentPending: data.thread.projectAssignmentPending,
       }
+      const threadProject = projectForThread(thread, codexProjects) ?? selectedProject
+      const name = thread.title
       const agent: Agent = {
         id: crypto.randomUUID(),
         name,
         role: defaultAgentRole(name),
-        projectId: selectedProject.id,
-        projectPath: selectedProject.path,
-        // The setup turn may create an automatic Codex title. Keep this empty
-        // until the completed setup turn has been renamed to the requested name.
-        threadTitle: data.inventoryPending ? '' : thread.title,
+        projectId: threadProject.id,
+        projectPath: threadProject.path,
+        threadTitle: thread.title,
         threadId: thread.id,
-        prompt: 'Definiere die Rollen-Anweisung für diesen Codex-Agenten.',
-        promptDocuments: [createDefaultPromptDocument('Definiere die Rollen-Anweisung für diesen Codex-Agenten.')],
+        prompt: 'Definiere die Rollen-Anweisung fuer diesen Codex-Agenten.',
+        promptDocuments: [createDefaultPromptDocument('Definiere die Rollen-Anweisung fuer diesen Codex-Agenten.')],
         activePromptDocumentId: 'default',
-        status: data.turn?.id ? 'laeuft' : 'wartet',
+        status: thread.status === 'active' ? 'laeuft' : 'wartet',
         talkTo: [],
         autoForward: true,
         usesProjectKnowledge: true,
@@ -3706,20 +3666,18 @@ function App() {
         lastResult: '',
         instructionVersion: 1,
         lastInstruction: '',
-        runStartedAt: data.turn?.id ? new Date().toISOString() : '',
+        runStartedAt: '',
         lastDurationMs: 0,
         completedRuns: 0,
         consecutiveFailedRuns: 0,
-        pendingTurnId: data.turn?.id ?? '',
-        runPurpose: data.turn?.id ? 'prompt' : '',
+        pendingTurnId: '',
+        runPurpose: '',
         lastCompletedTurnId: '',
         lastInboundAgentId: '',
         pendingUserConfirmation: null,
         updatedAt: new Date().toISOString(),
       }
 
-      // Prevent a shared-state snapshot from replacing this freshly created
-      // local record before the debounced state write has reached the connector.
       sharedStateDirty.current = true
       setCodexThreads((current) => [
         ...current.filter((item) => item.id !== thread.id),
@@ -3728,14 +3686,90 @@ function App() {
       setAgents((current) => [...current, agent])
       setSelectedId(agent.id)
       setAgentCreationOpen(false)
-      setNewAgentName('')
-      addEvent('Agent und Codex-Chat erstellt', `${selectedProject.label} / ${name}`)
+      setNewAgentChatId('')
+      addEvent('Codex-Chat verlinkt', `${threadProject.label} / ${name}`)
     } catch (error) {
       setAgentCreationError(
         error instanceof Error ? error.message : tx('Der Codex-Connector ist nicht erreichbar.', 'The Codex connector is unavailable.'),
       )
     } finally {
       setAgentCreationBusy(false)
+    }
+  }
+
+  const openAgentEdit = (agent: Agent) => {
+    setSelectedId(agent.id)
+    setAgentEditId(agent.id)
+    setAgentEditName(agent.name)
+    setAgentEditChatId(agent.threadId)
+    setAgentEditError('')
+  }
+
+  const saveAgentEdit = async () => {
+    const agent = agents.find((item) => item.id === agentEditId)
+    const name = agentEditName.trim()
+    const chatId = agentEditChatId.trim()
+    if (!agent || agentEditBusy) {
+      return
+    }
+    if (!name) {
+      setAgentEditError(tx('Ein Name ist erforderlich.', 'A name is required.'))
+      return
+    }
+    if (!chatId) {
+      setAgentEditError(tx('Eine Chat-ID ist erforderlich.', 'A chat ID is required.'))
+      return
+    }
+    if (agents.some((item) => item.id !== agent.id && item.threadId === chatId)) {
+      setAgentEditError(tx(
+        'Diese Chat-ID ist bereits mit einem anderen Agenten verknuepft.',
+        'This chat ID is already linked to another agent.',
+      ))
+      return
+    }
+
+    setAgentEditBusy(true)
+    setAgentEditError('')
+    try {
+      const response = await fetch(`/api/threads/${encodeURIComponent(chatId)}`)
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || tx('Codex-Chat wurde nicht gefunden.', 'The Codex chat was not found.'))
+      }
+      const thread: CodexThread = {
+        id: data.thread.id,
+        title: data.thread.name || data.thread.preview || name,
+        cwd: data.thread.cwd || agent.projectPath,
+        status: data.thread.status || 'notLoaded',
+        projectId: data.thread.projectId || agent.projectId,
+        projectPath: data.thread.projectPath || agent.projectPath,
+        projectAssignmentPending: data.thread.projectAssignmentPending,
+      }
+      const threadProject = projectForThread(thread, codexProjects)
+      updateAgent(agent.id, {
+        name,
+        role: isDefaultAgentRole(agent.role, agent.name) ? defaultAgentRole(name) : agent.role,
+        projectId: threadProject?.id ?? agent.projectId,
+        projectPath: threadProject?.path ?? agent.projectPath,
+        threadId: thread.id,
+        threadTitle: thread.title,
+        status: thread.status === 'active' ? 'laeuft' : agent.status === 'laeuft' ? 'wartet' : agent.status,
+        updatedAt: new Date().toISOString(),
+      })
+      setCodexThreads((current) => [
+        ...current.filter((item) => item.id !== thread.id),
+        thread,
+      ])
+      addEvent('Agent-Verknuepfung aktualisiert', `${name} -> ${thread.id}`)
+      setAgentEditId('')
+      setAgentEditName('')
+      setAgentEditChatId('')
+    } catch (error) {
+      setAgentEditError(
+        error instanceof Error ? error.message : tx('Der Codex-Connector ist nicht erreichbar.', 'The Codex connector is unavailable.'),
+      )
+    } finally {
+      setAgentEditBusy(false)
     }
   }
 
@@ -4323,26 +4357,6 @@ function App() {
     setTeamPlanError('')
     setTeamPlanProgress('')
   }
-
-  const setThreadVisibility = (thread: CodexThread, visible: boolean) => {
-    if (visible) {
-      setHiddenThreadIds((current) => current.filter((id) => id !== thread.id))
-      addAgentFromThread(thread.id)
-      return
-    }
-
-    setHiddenThreadIds((current) =>
-      current.includes(thread.id) ? current : [...current, thread.id],
-    )
-    addEvent('Codex Task ausgeblendet', `${thread.title} bleibt in Codex erhalten.`)
-  }
-
-  useEffect(() => {
-    const firstVisible = projectAgents[0]
-    if (!projectAgents.some((agent) => agent.id === selectedId)) {
-      setSelectedId(firstVisible?.id ?? '')
-    }
-  }, [projectAgents, selectedId])
 
   const deleteAgent = async (agent: Agent) => {
     setAgentDeleteError('')
@@ -4983,156 +4997,6 @@ function App() {
       statusFilters: workflowStatusFilters,
       targetIds: new Set(agents.map((item) => item.id)),
     })
-    const noNextFixedForwardingTask =
-      unconditionalForwarding.enabled &&
-      isFixedForwardingNoNextTask(agent.lastResult)
-    const incompleteFixedForwardingTask =
-      unconditionalForwarding.enabled &&
-      !noNextFixedForwardingTask &&
-      isFixedForwardingIncompleteTask(agent.lastResult)
-    if (incompleteFixedForwardingTask) {
-      const reason = `${agent.name} meldet keinen ausführbaren Folgeauftrag. Die feste Weiterleitung wird pausiert, damit die fehlenden Angaben ergänzt werden können.`
-      recordSupervisorDiagnosis({
-        source: agent,
-        diagnosis: diagnoseWorkflowStall({
-          agentName: agent.name,
-          automationEnabled: true,
-          activeRouteCount: activeRoutes.length,
-          deliveryCount: 0,
-          statusKind: 'valid',
-          statusNames: [UNCONDITIONAL_FORWARD_STATUS_NAME],
-          fixedForwardingEnabled: true,
-          blockedFollowUp: true,
-          continuationReason: reason,
-        }),
-        statusIds: [UNCONDITIONAL_FORWARD_STATUS_ID],
-        statusNames: [UNCONDITIONAL_FORWARD_STATUS_NAME],
-      })
-      persistWorkflowCheckpoint({
-        source: agent,
-        targets: [],
-        statusIds: [UNCONDITIONAL_FORWARD_STATUS_ID],
-        statusNames: [UNCONDITIONAL_FORWARD_STATUS_NAME],
-        state: 'blocked',
-        reason,
-      })
-      sharedStateDirty.current = true
-      autoRunRef.current = false
-      setAutoRun(false)
-      setTransmittingAgentIds([])
-      updateDeliveryQueue(() => ({}))
-      activeDeliveryTargetIds.current.clear()
-      updateAgent(agent.id, {
-        status: 'rueckfrage',
-        pendingTurnId: '',
-        runStartedAt: '',
-      })
-      addEvent('Weitergabe pausiert', `${reason} Erwartet werden Arbeitsobjekt, Aufgabe, Erfolgskriterium und Verifikation.`)
-      return
-    }
-    const authorizationStall =
-      unconditionalForwarding.enabled &&
-      !unconditionalForwarding.issue &&
-      !parseUserInteractionRequest(agent.lastResult) &&
-      (isFixedForwardingAuthorizationStall(agent.lastResult) || noNextFixedForwardingTask)
-    if (authorizationStall) {
-      if (agent.runPurpose !== 'handoff-repair' && agent.threadId) {
-        const reserved = reserveAgentDispatch(activeDeliveryTargetIds.current, agent)
-        if (!reserved) return
-        try {
-          const response = await fetch(
-            `/api/threads/${encodeURIComponent(agent.threadId)}/messages`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                text: withInternalInstructions(
-                  '',
-                  noNextFixedForwardingTask
-                    ? fixedForwardingNextTaskRepairInstruction()
-                    : fixedForwardingAuthorizationRepairInstruction(),
-                ),
-                cwd: agent.projectPath,
-                webAccess: agent.webAccess,
-              }),
-            },
-          )
-          const data = await response.json()
-          if (!response.ok) {
-            throw new Error(data.error || 'Die Weiterleitungskorrektur konnte nicht gesendet werden.')
-          }
-          const turnId = requireStartedTurnId(data, 'die Weiterleitungskorrektur')
-          applyThreadReplacement(agent, data.replacementThread)
-          updateAgent(agent.id, {
-            status: 'laeuft',
-            pendingTurnId: turnId,
-            runStartedAt: new Date().toISOString(),
-            runPurpose: 'handoff-repair',
-          })
-          updateWorkflowRuntime((current) => appendWorkflowRunEntry(
-            current,
-            agent.projectPath,
-            workflowRunEntry('status-repair', {
-              agentId: agent.id,
-              agentName: agent.name,
-              statusIds: [UNCONDITIONAL_FORWARD_STATUS_ID],
-              statusNames: [UNCONDITIONAL_FORWARD_STATUS_NAME],
-              detail: 'Eine unnötige zweite Freigabe wurde verworfen; der autorisierte Folgeauftrag wird erneut ausgeführt.',
-            }),
-          ))
-          addEvent(
-            'Folgeauftrag klargestellt',
-            `${agent.name}: Die feste Weiterleitung gilt bereits als Freigabe. Der konkrete Auftrag wird ohne Rückschleife erneut bearbeitet.`,
-          )
-          return
-        } catch (error) {
-          releaseAgentDispatch(activeDeliveryTargetIds.current, agent.id)
-          addEvent(
-            'Weiterleitungskorrektur fehlgeschlagen',
-            `${agent.name}: ${error instanceof Error ? error.message : 'Connector nicht erreichbar.'}`,
-          )
-        }
-      }
-
-      const reason = `${agent.name} hat trotz verbindlicher Weiterleitung erneut eine unnötige zweite Freigabe verlangt.`
-      recordSupervisorDiagnosis({
-        source: agent,
-        diagnosis: diagnoseWorkflowStall({
-          agentName: agent.name,
-          automationEnabled: true,
-          activeRouteCount: activeRoutes.length,
-          deliveryCount: 0,
-          statusKind: 'valid',
-          statusNames: [UNCONDITIONAL_FORWARD_STATUS_NAME],
-          fixedForwardingEnabled: true,
-          fixedForwardingIssue: reason,
-          continuationReason: reason,
-        }),
-        statusIds: [UNCONDITIONAL_FORWARD_STATUS_ID],
-        statusNames: [UNCONDITIONAL_FORWARD_STATUS_NAME],
-      })
-      persistWorkflowCheckpoint({
-        source: agent,
-        targets: [],
-        statusIds: [UNCONDITIONAL_FORWARD_STATUS_ID],
-        statusNames: [UNCONDITIONAL_FORWARD_STATUS_NAME],
-        state: 'blocked',
-        reason,
-      })
-      sharedStateDirty.current = true
-      autoRunRef.current = false
-      setAutoRun(false)
-      setTransmittingAgentIds([])
-      updateDeliveryQueue(() => ({}))
-      activeDeliveryTargetIds.current.clear()
-      updateAgent(agent.id, {
-        status: 'rueckfrage',
-        pendingTurnId: '',
-        runStartedAt: '',
-      })
-      addEvent('Automatik gestoppt', `${reason} Der Workflow wartet auf eine Benutzerentscheidung.`)
-      return
-    }
     const workflowSignal = unconditionalForwarding.enabled
       ? {
           kind: 'valid' as const,
@@ -5169,7 +5033,7 @@ function App() {
     const currentTaskSignature = deliveryDeduplicationSignature(
       taskSignature(agent.lastResult),
       agent.lastCompletedTurnId,
-      reportsTechnicalFailure,
+      reportsTechnicalFailure || unconditionalForwarding.enabled,
     )
     const resolvedConfiguredDeliveries = reportsInternalWorkflowError
       ? []
@@ -5456,7 +5320,25 @@ function App() {
       }
     }
 
-    if (agentDeliveries.length > 0) {
+    const projectInitialAgentIds = new Set(
+      workflowInitials
+        .filter((initial) => samePath(initial.projectPath, agent.projectPath))
+        .flatMap((initial) =>
+          routes
+            .filter((route) => route.sourceId === initial.id)
+            .map((route) => route.targetId),
+        ),
+    )
+    const activeRun = activeWorkflowRun(workflowRuntimeRef.current, agent.projectPath)
+    const returningToInitialAgent = autoRunRef.current &&
+      wouldCompleteWorkflowCycleOnReturn({
+        run: activeRun,
+        sourceAgentId: agent.id,
+        targetAgentIds: agentDeliveries.map(({ target }) => target.id),
+        initialAgentIds: projectInitialAgentIds,
+      })
+
+    if (agentDeliveries.length > 0 && !returningToInitialAgent) {
       persistWorkflowCheckpoint({
         source: agent,
         targets: agentDeliveries.map((delivery) => delivery.target),
@@ -5572,6 +5454,95 @@ function App() {
         pendingTurnId: '',
         runStartedAt: '',
       })
+      return
+    }
+
+    if (returningToInitialAgent) {
+      sharedStateDirty.current = true
+      setTransmittingAgentIds([])
+      updateDeliveryQueue(() => ({}))
+      activeDeliveryTargetIds.current.clear()
+      updateAgent(agent.id, {
+        status: 'fertig',
+        pendingTurnId: '',
+        runStartedAt: '',
+      })
+      const progress = workflowRunCycleProgress(workflowRuntimeRef.current, agent.projectPath)
+      const completionDetail = `${agent.name}: Rückgabe zum Initial-Agenten beendet Lauf ${progress.cycle}/${progress.targetCycles}.`
+      updateWorkflowRuntime((current) => {
+        const checkpoint = current.checkpoints.find(
+          (item) => samePath(item.projectPath, agent.projectPath) && item.sourceAgentId === agent.id,
+        )
+        const withoutCheckpoint = checkpoint ? removeWorkflowCheckpoint(current, checkpoint.id) : current
+        const completedEntry = workflowRunEntry('completed', {
+          agentId: agent.id,
+          agentName: agent.name,
+          statusIds: resultStatusIds,
+          statusNames: resultStatusNames,
+          detail: completionDetail,
+        })
+        return progress.shouldContinue
+          ? advanceWorkflowRunCycle(
+              withoutCheckpoint,
+              agent.projectPath,
+              completedEntry,
+              workflowRunEntry('started', {
+                detail: `Lauf ${progress.cycle + 1}/${progress.targetCycles} gestartet`,
+              }),
+            )
+          : appendWorkflowRunEntry(withoutCheckpoint, agent.projectPath, completedEntry)
+      })
+
+      if (progress.shouldContinue) {
+        setRoutes((current) => current.map((route) =>
+          samePath(route.projectPath, agent.projectPath)
+            ? { ...route, lastForwardedTask: undefined }
+            : route,
+        ))
+        resetInactiveAgentStatuses()
+        addEvent(
+          'Workflow-Lauf abgeschlossen',
+          `Lauf ${progress.cycle}/${progress.targetCycles} ist abgeschlossen. Lauf ${progress.cycle + 1}/${progress.targetCycles} wird gestartet.`,
+        )
+        window.setTimeout(() => {
+          void startInitialWorkflowsRef.current()
+            .then(({ sentCount, busyCount }) => {
+              if (sentCount > 0 || busyCount > 0) return
+              autoRunRef.current = false
+              setAutoRun(false)
+              releaseAutomationLease()
+              updateWorkflowRuntime((current) => appendWorkflowRunEntry(
+                current,
+                agent.projectPath,
+                workflowRunEntry('paused', {
+                  detail: `Lauf ${progress.cycle + 1}/${progress.targetCycles} konnte nicht gestartet werden.`,
+                }),
+              ))
+              addEvent(
+                'Workflow-Loop angehalten',
+                `Lauf ${progress.cycle + 1}/${progress.targetCycles} wurde nicht von einem Initial-Agenten angenommen.`,
+              )
+            })
+            .catch((error) => {
+              autoRunRef.current = false
+              setAutoRun(false)
+              releaseAutomationLease()
+              addEvent(
+                'Workflow-Loop angehalten',
+                error instanceof Error ? error.message : 'Der nächste Lauf konnte nicht gestartet werden.',
+              )
+            })
+        }, 0)
+        return
+      }
+
+      autoRunRef.current = false
+      setAutoRun(false)
+      releaseAutomationLease()
+      addEvent(
+        'Automatik am Laufende beendet',
+        `${agent.name} hat Lauf ${progress.cycle}/${progress.targetCycles} abgeschlossen. Die Rückgabe zum Initial-Agenten wurde nicht erneut gesendet.`,
+      )
       return
     }
 
@@ -5729,7 +5700,7 @@ function App() {
         }),
       ))
     }
-  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, persistWorkflowCheckpoint, projectGoals, recordSupervisorDiagnosis, releaseAutomationLease, resetInactiveAgentStatuses, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, knowledgeSources, persistWorkflowCheckpoint, projectGoals, recordSupervisorDiagnosis, releaseAutomationLease, resetInactiveAgentStatuses, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   useEffect(() => {
     if (!autoRun || !automationLeader || !sharedStateReady || !selectedProjectPath) return
@@ -5738,8 +5709,12 @@ function App() {
       selectedProjectPath,
     )
     if (!checkpoint || recoveredCheckpointIds.current.has(checkpoint.id)) return
+    const checkpointIsOrphaned = isOrphanedPendingCheckpoint(checkpoint, agents)
     const checkpointAge = Date.now() - Date.parse(checkpoint.updatedAt)
-    if (!Number.isFinite(checkpointAge) || checkpointAge < ORPHANED_HANDOFF_GRACE_MS) {
+    if (
+      !checkpointIsOrphaned &&
+      (!Number.isFinite(checkpointAge) || checkpointAge < ORPHANED_HANDOFF_GRACE_MS)
+    ) {
       const remainingDelay = Number.isFinite(checkpointAge)
         ? Math.max(250, ORPHANED_HANDOFF_GRACE_MS - checkpointAge)
         : ORPHANED_HANDOFF_GRACE_MS
@@ -5749,7 +5724,7 @@ function App() {
       )
       return () => window.clearTimeout(timer)
     }
-    if (!isOrphanedPendingCheckpoint(checkpoint, agents)) return
+    if (!checkpointIsOrphaned) return
     const source = agents.find((agent) => agent.id === checkpoint.sourceAgentId)
     if (!source) return
 
@@ -5859,9 +5834,9 @@ function App() {
       id: crypto.randomUUID(),
       ownerAgentId: activeDashboardOwnerId,
       projectPath: selectedProject?.path ?? '',
-      name: 'Neue Bedingung',
-      condition: 'Wenn das Ergebnis geprüft werden soll',
-      prompt: 'Prüfe das eingehende Ergebnis und leite es entsprechend der Bedingung weiter.',
+      name: 'Weiterleiten',
+      condition: 'Immer',
+      prompt: 'Bearbeite die vorherige Antwort gemaess deiner Rolle und arbeite selbststaendig weiter.',
     }
     setWorkflowPrompts((current) => [...current, prompt])
   }
@@ -6178,6 +6153,15 @@ function App() {
     }))
   }
 
+  const updateWorkflowStatusFilterPrompt = (filterId: string, prompt: string) => {
+    sharedStateDirty.current = true
+    setRoutes((current) =>
+      current.map((route) =>
+        route.sourceId === filterId ? { ...route, prompt } : route,
+      ),
+    )
+  }
+
   const deleteWorkflowStatusFilter = (filterId: string) => {
     const removedFilter = workflowStatusFilters.find((filter) => filter.id === filterId)
     sharedStateDirty.current = true
@@ -6307,6 +6291,13 @@ function App() {
     sharedStateDirty.current = true
     setWorkflowTimers((current) => [...current, timer])
     addEvent('Zeitplan erstellt', 'Doppelklick auf den Baustein öffnet die Konfiguration.')
+  }
+
+  if (LEGACY_STATUS_UI_ENABLED) {
+    void addWorkflowStatusFilter
+    void selectWorkflowStatusFilterStatus
+    void addWorkflowStop
+    void addWorkflowTimer
   }
 
   const updateWorkflowTimer = (timerId: string, patch: Partial<WorkflowTimer>) => {
@@ -6611,46 +6602,15 @@ function App() {
                     !watchdogInterventionTurnIds.current.has(activeTurnId)
                   ) {
                     watchdogInterventionTurnIds.current.add(activeTurnId)
-                    let interruptData: { error?: string }
-                    try {
-                      const interruptResponse = await fetch(
-                        `/api/threads/${encodeURIComponent(agent.threadId)}/interrupt`,
-                        {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ turnId: activeTurnId }),
-                        },
-                      )
-                      interruptData = await interruptResponse.json()
-                      if (!interruptResponse.ok) {
-                        throw new Error(
-                          interruptData.error ||
-                            'Der festhängende Codex-Lauf konnte nicht unterbrochen werden.',
-                        )
-                      }
-                    } catch (error) {
-                      watchdogInterventionTurnIds.current.delete(activeTurnId)
-                      throw error
-                    }
-                    data = {
-                      turnId: activeTurnId,
-                      status: 'interrupted',
-                      text: '',
-                      durationMs: runAgeMs,
-                      error: {
-                        message:
-                          'Systemüberwachung: Der Codex-Lauf zeigte zu lange keinen Fortschritt.',
-                      },
-                    }
                     addEvent(
-                      'Systemüberwachung eingegriffen',
-                      `${agent.name}: Lauf nach ausbleibendem Fortschritt kontrolliert unterbrochen.`,
+                      'Systemueberwachung meldet Verzoegerung',
+                      `${agent.name}: Seit mindestens fuenf Minuten wurde keine neue Codex-Aktivitaet erkannt. Der Lauf bleibt aktiv.`,
                     )
-                    const durationSeconds = Math.round(runAgeMs / 1000)
+                    const noticeDurationSeconds = Math.round(runAgeMs / 1000)
                     setStallNotice({
                       agentName: agent.name,
                       turnId: activeTurnId,
-                      durationSeconds,
+                      durationSeconds: noticeDurationSeconds,
                     })
                   }
                 }
@@ -6727,7 +6687,7 @@ function App() {
                     ? `${agent.name}: Aufgabe wird nach ${consecutiveFailedRuns} Fehlläufen zur Aufteilung gemeldet.`
                     : `${agent.name}: ${failureDetail}`,
                 )
-                if (autoRun && failedAgent.assignment === 'management') {
+                if (autoRunRef.current && failedAgent.assignment === 'management') {
                   updateDeliveryQueue((current) => removeDeliveryTarget(current, failedAgent.id))
                   sharedStateDirty.current = true
                   autoRunRef.current = false
@@ -6739,7 +6699,7 @@ function App() {
                     'Automatik gestoppt',
                     `${failedAgent.name} benötigt nach einem fehlgeschlagenen Lauf eine Benutzerentscheidung.`,
                   )
-                } else if (autoRun && failedAgent.runPurpose !== 'chat' && failedAgent.autoForward) {
+                } else if (autoRunRef.current && failedAgent.runPurpose !== 'chat' && failedAgent.autoForward) {
                   await handoff(failedAgent)
                   await forwardNextQueuedSource(failedAgent.id)
                 }
@@ -6776,20 +6736,6 @@ function App() {
                 completedRuns: agent.completedRuns + 1,
                 consecutiveFailedRuns: 0,
                 updatedAt: new Date().toISOString(),
-              }
-              if (
-                !pendingUserConfirmation &&
-                completedAgent.runPurpose !== 'chat' &&
-                completedAgent.runPurpose !== 'chat-forward' &&
-                completedAgent.autoForward
-              ) {
-                persistWorkflowCheckpoint({
-                  source: completedAgent,
-                  targets: [],
-                  statusIds: [],
-                  statusNames: [],
-                  state: 'pending',
-                })
               }
               activeDeliveryTargetIds.current.delete(agent.id)
               updateAgent(agent.id, completedAgent)
@@ -6838,7 +6784,7 @@ function App() {
                 (/<orchestrator_team_plan>/i.test(completedAgent.lastResult) ||
                   looksLikeManagementTeamPlan(completedAgent.lastResult))
               if (
-                !autoRun &&
+                !autoRunRef.current &&
                 authorizedTeamPlanRequestAgentIds.current.has(completedAgent.id) &&
                 teamPlanNeedsFormatCorrection &&
                 !automaticTeamPlanFormatRequests.current.has(completedAgent.id) &&
@@ -6855,7 +6801,7 @@ function App() {
                 await requestTeamPlanFormatCorrectionRef.current(completedAgent)
                 return
               }
-              if (autoRun && pendingTeamPlan) {
+              if (autoRunRef.current && pendingTeamPlan) {
                 sharedStateDirty.current = true
                 autoRunRef.current = false
                 setAutoRun(false)
@@ -6906,7 +6852,7 @@ function App() {
                 )
                 return
               }
-              if (autoRun && agent.autoForward) {
+              if (autoRunRef.current && agent.autoForward) {
                 await handoff(completedAgent)
               }
               if (autoRunRef.current) {
@@ -7364,19 +7310,26 @@ function App() {
         )
         return
       }
-      updateWorkflowRuntime((current) => appendWorkflowRunEntry(
-        current,
-        activeProjectPath,
-        workflowRunEntry('resumed', {
-          agentId: source.id,
-          agentName: source.name,
-          targetAgentIds: pendingCheckpoint.targetAgentIds,
-          targetAgentNames: pendingCheckpoint.targetAgentNames,
-          statusIds: pendingCheckpoint.statusIds,
-          statusNames: pendingCheckpoint.statusNames,
-          detail: `Fortsetzung: ${source.name} -> ${pendingCheckpoint.targetAgentNames.join(', ')}`,
-        }),
-      ))
+      updateWorkflowRuntime((current) => {
+        const now = new Date().toISOString()
+        const started = beginWorkflowRun(current, activeProjectPath, now, crypto.randomUUID(), {
+          cycle: 1,
+          targetCycles: selectedLoopCount,
+        })
+        return appendWorkflowRunEntry(
+          started.runtime,
+          activeProjectPath,
+          workflowRunEntry('resumed', {
+            agentId: source.id,
+            agentName: source.name,
+            targetAgentIds: pendingCheckpoint.targetAgentIds,
+            targetAgentNames: pendingCheckpoint.targetAgentNames,
+            statusIds: pendingCheckpoint.statusIds,
+            statusNames: pendingCheckpoint.statusNames,
+            detail: `Fortsetzung: ${source.name} -> ${pendingCheckpoint.targetAgentNames.join(', ')} · Lauf 1/${selectedLoopCount}`,
+          }, now),
+        )
+      })
       addEvent(
         'Workflow wiederaufgenommen',
         `${source.name} -> ${pendingCheckpoint.targetAgentNames.join(', ')} (${pendingCheckpoint.statusNames.join(', ')})`,
@@ -7753,22 +7706,36 @@ function App() {
               disabled={autoRun || !selectedProject}
               max={MAX_WORKFLOW_LOOPS}
               min={MIN_WORKFLOW_LOOPS}
+              ref={workflowLoopInputRef}
               step="1"
               type="number"
-              value={selectedLoopCount}
+              value={workflowLoopCountEditing ? workflowLoopCountDraft : String(selectedLoopCount)}
+              onBlur={() => {
+                const normalized = persistSelectedLoopCount(workflowLoopCountDraft)
+                setWorkflowLoopCountDraft(String(normalized))
+                setWorkflowLoopCountEditing(false)
+              }}
               onChange={(event) => {
-                sharedStateDirty.current = true
-                setWorkflowLoopCounts((current) => setWorkflowLoopCount(
-                  current,
-                  selectedProject?.id ?? projectFilter,
-                  event.target.value,
-                ))
+                handleSelectedLoopCountInput(event.currentTarget.value)
+              }}
+              onInput={(event) => {
+                handleSelectedLoopCountInput(event.currentTarget.value)
+              }}
+              onKeyUp={(event) => {
+                handleSelectedLoopCountInput(event.currentTarget.value)
+              }}
+              onMouseUp={(event) => {
+                handleSelectedLoopCountInput(event.currentTarget.value)
+              }}
+              onFocus={() => {
+                setWorkflowLoopCountDraft(String(selectedLoopCount))
+                setWorkflowLoopCountEditing(true)
               }}
             />
             <small>
               {autoRun && selectedLoopProgress
                 ? `${selectedLoopProgress.cycle}/${selectedLoopProgress.targetCycles}`
-                : tx('pro Start', 'per start')}
+                : `1/${selectedLoopCount}`}
             </small>
           </label>
           <button className={autoRun ? 'danger' : ''} onClick={toggleAutomation}>
@@ -7914,7 +7881,7 @@ function App() {
               <div>
                 <p className="eyebrow">{tx('SYSTEMÜBERWACHUNG', 'SYSTEM MONITORING')}</p>
                 <h2 id="stall-notice-title">
-                  {tx('Festhängender Lauf abgebrochen', 'Stalled run interrupted')}
+                  {tx('Lauf dauert länger', 'Run is taking longer')}
                 </h2>
               </div>
               <button
@@ -7924,14 +7891,14 @@ function App() {
             </div>
             <p className="stallNoticeText">
               {tx(
-                `Der Lauf von „${stallNotice.agentName}“ wurde nach ${stallNotice.durationSeconds} Sekunden ohne Fortschritt unterbrochen.`,
-                `The run for “${stallNotice.agentName}” was interrupted after ${stallNotice.durationSeconds} seconds without progress.`,
+                `Der Lauf von „${stallNotice.agentName}“ zeigt seit längerer Zeit keine neue Aktivität. Er läuft weiter und wurde nicht abgebrochen.`,
+                `The run for “${stallNotice.agentName}” has not shown new activity for a while. It is still running and was not interrupted.`,
               )}
             </p>
             <p className="modalHint">
               {tx(
-                'Der Abbruch wurde im Ablaufprotokoll vermerkt. Prüfe den betroffenen Agenten vor einem Neustart.',
-                'The interruption was recorded in the activity log. Check the affected agent before restarting.',
+                'Wenn der Lauf wirklich festhängt, brich ihn manuell zurück. Sonst kannst du dieses Fenster schließen und weiterlaufen lassen.',
+                'If the run is really stuck, reset it manually. Otherwise, close this window and let it continue.',
               )}
             </p>
             <div className="modalActions">
@@ -8004,26 +7971,25 @@ function App() {
               </button>
             </div>
             <p className="modalHint">
-              {tx('Erstellt einen Codex-Chat im Projekt', 'Creates a Codex chat in project')} „{selectedProject?.label ?? tx('Kein Projekt', 'No project')}“.
-              {' '}{tx(
-                'Ein kurzer Setup-Turn bestätigt den Chat. Die Automatik und die Workflow-Weitergabe bleiben aus.',
-                'A short setup turn confirms the chat. Automation and workflow forwarding remain off.',
+              {tx(
+                'Verknuepft einen vorhandenen Codex-Chat ueber seine Chat-ID. Der Agent uebernimmt automatisch den Chat-Namen.',
+                'Links an existing Codex chat by chat ID. The agent automatically uses the chat name.',
               )}
             </p>
             <label>
-              Name
+              Chat-ID
               <input
                 autoFocus
                 disabled={agentCreationBusy}
-                onChange={(event) => setNewAgentName(event.target.value)}
+                onChange={(event) => setNewAgentChatId(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
                     event.preventDefault()
                     void createAgent()
                   }
                 }}
-                placeholder={tx('Zum Beispiel: Prompt-Architekt', 'For example: Prompt Architect')}
-                value={newAgentName}
+                placeholder="019f..."
+                value={newAgentChatId}
               />
             </label>
             {agentCreationError && <p className="formError">{agentCreationError}</p>}
@@ -8043,7 +8009,7 @@ function App() {
               <button disabled={agentCreationBusy} onClick={() => setAgentCreationOpen(false)}>{tx('Abbrechen', 'Cancel')}</button>
               <button
                 className="primary"
-                disabled={!newAgentName.trim() || agentCreationBusy}
+                disabled={!newAgentChatId.trim() || agentCreationBusy}
                 onClick={() => void createAgent()}
               >
                 {agentCreationBusy ? tx('Erstelle…', 'Creating…') : tx('Erstellen', 'Create')}
@@ -8052,6 +8018,90 @@ function App() {
           </section>
         </div>
       )}
+
+      {agentEditId && (() => {
+        const editingAgent = agents.find((item) => item.id === agentEditId)
+        if (!editingAgent) {
+          return null
+        }
+        return (
+          <div
+            className="modalBackdrop"
+            role="presentation"
+            onMouseDown={() => !agentEditBusy && setAgentEditId('')}
+          >
+            <section
+              className="promptModal agentCreationModal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={tx('Agent bearbeiten', 'Edit agent')}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="modalHeader">
+                <div>
+                  <p className="eyebrow">Codex Agent</p>
+                  <h2>{tx('Agent bearbeiten', 'Edit agent')}</h2>
+                </div>
+                <button
+                  aria-label={tx('Fenster schliessen', 'Close window')}
+                  disabled={agentEditBusy}
+                  title={tx('Fenster schliessen', 'Close window')}
+                  onClick={() => setAgentEditId('')}
+                >
+                  x
+                </button>
+              </div>
+              <p className="modalHint">
+                {tx(
+                  'Name und Chat-ID koennen nachtraeglich angepasst werden. Beim Speichern wird die Chat-ID erneut geprueft.',
+                  'Name and chat ID can be changed afterwards. The chat ID is checked again when saving.',
+                )}
+              </p>
+              <label>
+                Name
+                <input
+                  autoFocus
+                  disabled={agentEditBusy}
+                  onChange={(event) => setAgentEditName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void saveAgentEdit()
+                    }
+                  }}
+                  value={agentEditName}
+                />
+              </label>
+              <label>
+                Chat-ID
+                <input
+                  disabled={agentEditBusy}
+                  onChange={(event) => setAgentEditChatId(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void saveAgentEdit()
+                    }
+                  }}
+                  placeholder="019f..."
+                  value={agentEditChatId}
+                />
+              </label>
+              {agentEditError && <p className="formError">{agentEditError}</p>}
+              <div className="modalActions">
+                <button disabled={agentEditBusy} onClick={() => setAgentEditId('')}>{tx('Abbrechen', 'Cancel')}</button>
+                <button
+                  className="primary"
+                  disabled={!agentEditName.trim() || !agentEditChatId.trim() || agentEditBusy}
+                  onClick={() => void saveAgentEdit()}
+                >
+                  {agentEditBusy ? tx('Speichere...', 'Saving...') : tx('Speichern', 'Save')}
+                </button>
+              </div>
+            </section>
+          </div>
+        )
+      })()}
 
       {agentPendingDeletionId && (() => {
         const agent = agents.find((item) => item.id === agentPendingDeletionId)
@@ -8146,36 +8196,6 @@ function App() {
         <div>
           <p className="eyebrow">{copy.projects}</p>
           <div className="codexPicker">
-            <label>
-              {copy.project}
-              <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
-                {codexProjects.map((project) => (
-                  <option key={project.id} value={project.id}>{project.label}</option>
-                ))}
-              </select>
-            </label>
-            <details className="threadManager">
-              <summary>{copy.manageChats}</summary>
-              <div className="threadOptions">
-                {visibleThreads.length === 0 && <p>{copy.noChats}</p>}
-                {visibleThreads.map((thread) => {
-                  const isVisible = !hiddenThreadIds.includes(thread.id)
-                  return (
-                    <label className="threadOption" key={thread.id}>
-                      <input
-                        type="checkbox"
-                        checked={isVisible}
-                        onChange={(event) => setThreadVisibility(thread, event.target.checked)}
-                      />
-                      <span>
-                        <strong>{thread.title}</strong>
-                        <small>{thread.status}</small>
-                      </span>
-                    </label>
-                  )
-                })}
-              </div>
-            </details>
             <button
               className="projectStatusButton"
               onClick={() => {
@@ -8188,14 +8208,16 @@ function App() {
             >
               {tx('Projektziel', 'Project goal')}
             </button>
-            <button
-              className="projectStatusButton"
-              onClick={() => setStatusLibraryOpen(true)}
-              title={tx('Projektweite Status konfigurieren', 'Configure project statuses')}
-              type="button"
-            >
-              {tx('Statusbefehle', 'Status commands')}
-            </button>
+            {LEGACY_STATUS_UI_ENABLED && (
+              <button
+                className="projectStatusButton"
+                onClick={() => setStatusLibraryOpen(true)}
+                title={tx('Projektweite Status konfigurieren', 'Configure project statuses')}
+                type="button"
+              >
+                {tx('Statusbefehle', 'Status commands')}
+              </button>
+            )}
             <button
               className="projectStatusButton"
               onClick={() => setKnowledgeLibraryOpen(true)}
@@ -8275,7 +8297,7 @@ function App() {
                     : tx('Agent im aktuellen Projekt erstellen', 'Create agent in current project')}
                   onClick={() => {
                     setAgentCreationError('')
-                    setNewAgentName('')
+                    setNewAgentChatId('')
                     setAgentCreationOpen(true)
                   }}
                 >
@@ -8344,6 +8366,7 @@ function App() {
                   setSetupOpen(false)
                   setPromptEditorOpen(false)
                 }}
+                onDoubleClick={() => openAgentEdit(agent)}
                 onDragStart={(event) => {
                   event.dataTransfer.effectAllowed = 'move'
                   event.dataTransfer.setData('application/x-codex-agent', agent.id)
@@ -8460,6 +8483,7 @@ function App() {
                 {tx('Rolle', 'Role')}
                 <input value={selectedAgent.role} onChange={(event) => updateAgent(selectedAgent.id, { role: event.target.value })} />
               </label>
+              {LEGACY_STATUS_UI_ENABLED && (
               <div className="agentStatusField">
                 <span>{tx('Statuseinstellung', 'Status settings')}</span>
                 <details className="promptStatusMenu agentStatusMenu">
@@ -8514,6 +8538,7 @@ function App() {
                   </div>
                 </details>
               </div>
+              )}
             </div>
 
             <section className={`managementControl ${selectedAgent.assignment === 'management' ? 'enabled' : ''}`}>
@@ -8754,10 +8779,32 @@ function App() {
                     <strong>{tx('Kommunikationsbrücke', 'Communication bridge')}</strong>
                     <small>{selectedAgent.threadTitle || selectedAgent.name}</small>
                   </div>
-                  <span className={`liveIndicator ${isAgentBusy(selectedAgent) ? 'active' : ''}`}>
-                    {isAgentBusy(selectedAgent) && <span className="activitySpinner" aria-hidden="true" />}
-                    {isAgentBusy(selectedAgent) ? tx('Codex arbeitet', 'Codex is working') : tx('Verbunden', 'Connected')}
-                  </span>
+                  <div className="communicationHeaderActions">
+                    <div className="communicationTabs" role="tablist" aria-label={tx('Ansicht', 'View')}>
+                      <button
+                        aria-selected={communicationView === 'overview'}
+                        className={communicationView === 'overview' ? 'active' : ''}
+                        onClick={() => setCommunicationView('overview')}
+                        role="tab"
+                        type="button"
+                      >
+                        {tx('Uebersicht', 'Overview')}
+                      </button>
+                      <button
+                        aria-selected={communicationView === 'chat'}
+                        className={communicationView === 'chat' ? 'active' : ''}
+                        onClick={() => setCommunicationView('chat')}
+                        role="tab"
+                        type="button"
+                      >
+                        Chat
+                      </button>
+                    </div>
+                    <span className={`liveIndicator ${isAgentBusy(selectedAgent) ? 'active' : ''}`}>
+                      {isAgentBusy(selectedAgent) && <span className="activitySpinner" aria-hidden="true" />}
+                      {isAgentBusy(selectedAgent) ? tx('Codex arbeitet', 'Codex is working') : tx('Verbunden', 'Connected')}
+                    </span>
+                  </div>
                 </div>
                 {selectedAgent.teamProvisioningEnabled && selectedTeamPlan && !selectedTeamPlanComplete &&
                   selectedTeamPlan.signature !== dismissedTeamPlanSignature && (
@@ -8836,6 +8883,7 @@ function App() {
                     {teamPlanError && <p className="formError">{teamPlanError}</p>}
                   </section>
                 )}
+                {communicationView === 'overview' ? (
                 <div className="communicationBridgeBody" aria-live="polite">
                   <div className="bridgeStatusBlock">
                     <span className="eyebrow">{tx('Codex-Verbindung', 'Codex connection')}</span>
@@ -8900,6 +8948,48 @@ function App() {
                     'Open the linked Codex chat for messages, questions, and files. The orchestrator forwards only explicitly approved workflow messages.',
                   )}</p>
                 </div>
+                ) : (
+                <div className="communicationChatView">
+                  {chatError && <p className="chatError">{chatError}</p>}
+                  <div
+                    className="chatStream communicationChatStream"
+                    ref={chatStreamRef}
+                    onScroll={(event) => {
+                      const target = event.currentTarget
+                      setChatPinnedToBottom(target.scrollHeight - target.scrollTop - target.clientHeight < 40)
+                    }}
+                  >
+                    {chatMessages.length === 0 && !chatError && (
+                      <p className="empty chatEmpty">{tx('Keine Chat-Nachrichten geladen.', 'No chat messages loaded.')}</p>
+                    )}
+                    {chatMessages.map((message) => {
+                      const identity = chatMessageIdentity(message, selectedAgent.name, language)
+                      return (
+                        <article className={`chatMessage ${message.role}`} key={message.id}>
+                          <div className="chatMessageMeta">
+                            <strong>{identity.name}</strong>
+                            <small>{identity.label}</small>
+                          </div>
+                          <p>{message.text}</p>
+                          {message.workspaceChanges && message.workspaceChanges.length > 0 && (
+                            <div className="chatFileChanges">
+                              <strong>{tx('Geaenderte Dateien', 'Changed files')}</strong>
+                              <ul>
+                                {message.workspaceChanges.map((change) => (
+                                  <li key={`${message.id}:${change.kind}:${change.path}`}>
+                                    <span className={`fileChangeKind ${change.kind}`}>{change.kind === 'added' ? 'A' : change.kind === 'deleted' ? 'D' : change.kind === 'renamed' ? 'R' : 'M'}</span>
+                                    <code>{change.path}</code>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </article>
+                      )
+                    })}
+                  </div>
+                </div>
+                )}
               </section>
             )}
           </section>
@@ -9357,15 +9447,15 @@ function App() {
             className="promptModal"
             role="dialog"
             aria-modal="true"
-            aria-label={tx('Prompt-Knoten bearbeiten', 'Edit prompt node')}
+            aria-label={tx('Weiterleiten-Baustein bearbeiten', 'Edit forwarding node')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">{tx('Workflow-Prompt', 'Workflow prompt')}</p>
+                <p className="eyebrow">{tx('Weiterleiten', 'Forward')}</p>
                 <h2>{selectedPrompt.name}</h2>
               </div>
-              <button title={tx('Fenster schließen', 'Close window')} onClick={() => setSelectedPromptId('')}>×</button>
+              <button title={tx('Fenster schliessen', 'Close window')} onClick={() => setSelectedPromptId('')}>x</button>
             </div>
             <label>
               {tx('Name', 'Name')}
@@ -9375,26 +9465,18 @@ function App() {
               />
             </label>
             <label>
-              {tx('Bedingung', 'Condition')}
-              <textarea
-                rows={3}
-                value={selectedPrompt.condition}
-                onChange={(event) => updateWorkflowPrompt(selectedPrompt.id, { condition: event.target.value })}
-              />
-            </label>
-            <label>
-              {tx('Prompt-Anweisung', 'Prompt instruction')}
+              {tx('Zusatzprompt fuer den naechsten Agenten', 'Additional prompt for the next agent')}
               <textarea
                 rows={6}
                 value={selectedPrompt.prompt}
-                onChange={(event) => updateWorkflowPrompt(selectedPrompt.id, { prompt: event.target.value })}
+                onChange={(event) => updateWorkflowPrompt(selectedPrompt.id, { prompt: event.target.value, condition: '' })}
               />
             </label>
             <div className="modalActions">
               <button className="deleteButton" onClick={() => deleteWorkflowPrompt(selectedPrompt.id)}>
-                {tx('Prompt-Knoten löschen', 'Delete prompt node')}
+                {tx('Weiterleiten-Baustein loeschen', 'Delete forwarding node')}
               </button>
-              <button className="primary" onClick={() => setSelectedPromptId('')}>{tx('Übernehmen', 'Apply')}</button>
+              <button className="primary" onClick={() => setSelectedPromptId('')}>{tx('Uebernehmen', 'Apply')}</button>
             </div>
           </section>
         </div>
@@ -9476,6 +9558,7 @@ function App() {
                   >
                     A
                   </button>
+                  {LEGACY_STATUS_UI_ENABLED && (
                   <details className="dashboardStatusMenu">
                   <summary
                     aria-label={tx('Statuseinstellung öffnen', 'Open status settings')}
@@ -9527,6 +9610,7 @@ function App() {
                     )}
                   </div>
                   </details>
+                  )}
                   <details className="dashboardTools">
                   <summary
                     aria-label={tx('Tools öffnen', 'Open tools')}
@@ -9553,58 +9637,17 @@ function App() {
                     </button>
                     <button
                       onClick={(event) => {
-                        addWorkflowStatusFilter()
+                        addWorkflowPrompt()
                         event.currentTarget.closest('details')?.removeAttribute('open')
                       }}
                       type="button"
                     >
                       <span className="toolSymbol">+</span>
                       <span>
-                        <strong>Status</strong>
-                        <small>{tx('Bei Status weiterleiten', 'Forward on status')}</small>
+                        <strong>Weiterleiten</strong>
+                        <small>{tx('Antwort mit optionalem Zusatzprompt weitergeben', 'Forward response with an optional prompt')}</small>
                       </span>
                     </button>
-                    <button
-                      onClick={(event) => {
-                        addWorkflowStop()
-                        event.currentTarget.closest('details')?.removeAttribute('open')
-                      }}
-                      type="button"
-                    >
-                      <span className="toolSymbol">■</span>
-                      <span>
-                        <strong>Stop</strong>
-                        <small>{tx('Workflow-Pfad beenden', 'End workflow path')}</small>
-                      </span>
-                    </button>
-                    <button
-                      onClick={(event) => {
-                        addWorkflowTimer()
-                        event.currentTarget.closest('details')?.removeAttribute('open')
-                      }}
-                      type="button"
-                    >
-                      <span className="toolSymbol">◷</span>
-                      <span>
-                        <strong>{tx('Zeitplan', 'Schedule')}</strong>
-                        <small>{tx('Aufgabe zeitgesteuert senden', 'Send task on schedule')}</small>
-                      </span>
-                    </button>
-                    {PROMPT_NODES_ENABLED && (
-                      <button
-                        onClick={(event) => {
-                          addWorkflowPrompt()
-                          event.currentTarget.closest('details')?.removeAttribute('open')
-                        }}
-                        type="button"
-                      >
-                        <span className="toolSymbol">+</span>
-                        <span>
-                          <strong>Prompt</strong>
-                          <small>{tx('Bedingung auswerten', 'Evaluate condition')}</small>
-                        </span>
-                      </button>
-                    )}
                   </div>
                   </details>
                 </div>
@@ -10363,61 +10406,50 @@ function App() {
             className="promptModal statusFilterModal"
             role="dialog"
             aria-modal="true"
-            aria-label={tx('Status-Filter konfigurieren', 'Configure status filter')}
+            aria-label={tx('Weiterleiten konfigurieren', 'Configure forwarding')}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="modalHeader">
               <div>
-                <p className="eyebrow">Workflow-Status</p>
-                <h2>{tx('Status-Filter konfigurieren', 'Configure status filter')}</h2>
+                <p className="eyebrow">{tx('Weiterleiten', 'Forward')}</p>
+                <h2>{tx('Weiterleiten', 'Forward')}</h2>
               </div>
               <button
-                aria-label={tx('Fenster schließen', 'Close window')}
-                title={tx('Fenster schließen', 'Close window')}
+                aria-label={tx('Fenster schliessen', 'Close window')}
+                title={tx('Fenster schliessen', 'Close window')}
                 onClick={() => setSelectedStatusFilterId('')}
               >
-                ×
+                x
               </button>
             </div>
-            <section className="statusFilterSummary" aria-label={tx('Ausgewählter Workflow-Status', 'Selected workflow status')}>
+            <section className="statusFilterSummary" aria-label={tx('Feste Weiterleitung', 'Fixed forwarding')}>
               <label>
                 Status
-                <select
-                  value={selectedStatusFilter.statusId}
-                  onChange={(event) =>
-                    selectWorkflowStatusFilterStatus(selectedStatusFilter.id, event.target.value)
-                  }
-                >
-                  {projectWorkflowStatuses.map((status) => (
-                    <option key={status.id} value={status.id}>{status.name}</option>
-                  ))}
-                </select>
+                <input value={tx('Weiterleiten', 'Forward')} readOnly />
               </label>
-              {(() => {
-                const status = projectWorkflowStatuses.find(
-                  (item) => item.id === selectedStatusFilter.statusId,
-                )
-                return status?.description
-                  ? (
-                      <div className="statusFilterDescription">
-                        <span>{tx('Bedeutung', 'Meaning')}</span>
-                        <p>{status.description}</p>
-                      </div>
-                    )
-                  : null
-              })()}
+              <label>
+                {tx('Zusatztext fuer den naechsten Agenten', 'Additional text for the next agent')}
+                <textarea
+                  rows={6}
+                  value={routes.find((route) => route.sourceId === selectedStatusFilter.id)?.prompt ?? ''}
+                  onChange={(event) =>
+                    updateWorkflowStatusFilterPrompt(selectedStatusFilter.id, event.target.value)
+                  }
+                  placeholder={tx('Optional: Anweisung oder Kontext anhaengen.', 'Optional: append instruction or context.')}
+                />
+              </label>
             </section>
             <p className="modalHint statusFilterInfo">
-              {tx('Der Statusbefehl wird in den projektweiten Statusbefehlen verwaltet. Dieser Baustein leitet nur passende Ergebnisse weiter.', 'The status command is managed in the project status commands. This node forwards matching results only.')}
+              {tx('Dieser Baustein gibt die letzte Antwort des vorherigen Agenten direkt an den naechsten verbundenen Agenten weiter. Der Zusatztext wird an diese Uebergabe angehaengt.', 'This node forwards the previous agent answer directly to the next connected agent. The additional text is appended to that handoff.')}
             </p>
             <div className="modalActions">
               <button
                 className="deleteButton"
                 onClick={() => deleteWorkflowStatusFilter(selectedStatusFilter.id)}
               >
-                {tx('Löschen', 'Delete')}
+                {tx('Weiterleiten loeschen', 'Delete forwarding')}
               </button>
-              <button className="primary" onClick={() => setSelectedStatusFilterId('')}>{tx('Übernehmen', 'Apply')}</button>
+              <button className="primary" onClick={() => setSelectedStatusFilterId('')}>{tx('Uebernehmen', 'Apply')}</button>
             </div>
           </section>
         </div>
@@ -10427,3 +10459,4 @@ function App() {
 }
 
 export default App
+
