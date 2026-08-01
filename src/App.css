@@ -2417,7 +2417,7 @@ label {
 
 .statusFilterBlock {
   background: color-mix(in srgb, var(--panel) 48%, transparent);
-  border: 1px solid transparent;
+  border: 0;
   border-radius: 4px;
   display: block;
   overflow: hidden;
@@ -2426,7 +2426,7 @@ label {
 }
 
 .statusFilterBlock + .statusFilterBlock {
-  margin-top: 0;
+  margin-top: 3px;
 }
 
 .statusFilterBlock summary {
@@ -2482,14 +2482,6 @@ label {
 
 .statusFilterBlock.intervalBlock {
   border-top-color: color-mix(in srgb, var(--accent) 42%, var(--line) 58%);
-}
-
-.statusFilterBlock.behaviorBlock {
-  padding-bottom: 0;
-}
-
-.statusFilterBlock.behaviorBlock[open] {
-  padding-bottom: 0;
 }
 
 .statusFilterSummary label {

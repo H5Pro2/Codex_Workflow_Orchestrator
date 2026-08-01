@@ -10755,9 +10755,6 @@ function App() {
                     placeholder={tx('Optional: eigener Text für den Intervall-Ausgang.', 'Optional: separate text for the interval output.')}
                   />
                 </label>
-              </details>
-              <details className="statusFilterBlock behaviorBlock">
-                <summary>{tx('Schaltung', 'Routing behavior')}</summary>
                 {(selectedStatusFilter.interval ?? 0) > 0 && (
                   <label>
                     {tx('Intervall-Verhalten', 'Interval behavior')}

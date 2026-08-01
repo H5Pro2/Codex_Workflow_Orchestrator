@@ -458,7 +458,6 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
   const statusForwardDialog = page.getByRole('dialog', { name: 'Weiterleiten konfigurieren' })
   await statusForwardDialog.getByText('Normaler Ausgang').click()
   await statusForwardDialog.getByText('Intervall-Ausgang').click()
-  await statusForwardDialog.getByText('Schaltung').click()
   await statusForwardDialog.getByLabel('Zusatztext für den nächsten Agenten').waitFor()
   await statusForwardDialog.getByRole('spinbutton', { name: 'Intervall' }).fill('5')
   await statusForwardDialog.getByLabel('Intervalltext').fill('Untersuche den aktuellen Stand.')
