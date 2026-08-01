@@ -453,6 +453,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
   assert.equal(await waitForVisibleEdge(), true)
 
   const statusForwardNode = workflowDashboard.locator('.react-flow__node.statusFilter').first()
+  const statusForwardNodeBoxBeforeInterval = await statusForwardNode.boundingBox()
   await statusForwardNode.dblclick()
   const statusForwardDialog = page.getByRole('dialog', { name: 'Weiterleiten konfigurieren' })
   await statusForwardDialog.getByLabel('Zusatztext für den nächsten Agenten').waitFor()
@@ -464,6 +465,8 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
   assert.equal(await statusForwardNode.locator('[data-handleid="output"]').count(), 1)
   assert.equal(await statusForwardNode.locator('[data-handleid="interval"]').count(), 1)
   await statusForwardNode.getByText('0/5', { exact: true }).waitFor()
+  const statusForwardNodeBoxAfterInterval = await statusForwardNode.boundingBox()
+  assert.ok(statusForwardNodeBoxAfterInterval.height > statusForwardNodeBoxBeforeInterval.height)
 
   await workflowDashboard.locator('details.dashboardTools > summary').click()
   const initialSymbolBox = await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Initial' }).locator('.toolSymbol').boundingBox()
@@ -475,6 +478,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
   await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Weiterleiten' }).click()
   const forwardNode = workflowDashboard.locator('.react-flow__node.prompt', { hasText: 'Weiterleiten' })
   await forwardNode.waitFor({ timeout: 5_000 })
+  const forwardNodeBoxBeforeInterval = await forwardNode.boundingBox()
   await page.waitForTimeout(700)
   assert.equal(sharedState.workflowPrompts.some((prompt) => prompt.name === 'Weiterleiten'), true)
   assert.equal(await waitForVisibleEdge(), true)
@@ -489,6 +493,8 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
   assert.equal(await forwardNode.locator('[data-handleid="output"]').count(), 1)
   assert.equal(await forwardNode.locator('[data-handleid="interval"]').count(), 1)
   await forwardNode.getByText('0/2', { exact: true }).waitFor()
+  const forwardNodeBoxAfterInterval = await forwardNode.boundingBox()
+  assert.ok(forwardNodeBoxAfterInterval.height > forwardNodeBoxBeforeInterval.height)
 
   await page.waitForTimeout(700)
   assert.deepEqual(sharedState.workflowBoardAgentIds.ceo, ['ceo', 'analyst', 'qa'])

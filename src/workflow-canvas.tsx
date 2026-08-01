@@ -29,7 +29,7 @@ export function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
   const isTimer = data.kind === 'timer'
   const hasInterval = (data.kind === 'prompt' || data.kind === 'status') && Boolean(data.interval)
   return (
-    <div className={`workflowNodeContent ${data.kind}`}>
+    <div className={`workflowNodeContent ${data.kind} ${hasInterval ? 'intervalEnabled' : ''}`}>
       {isInitial && data.hasInstruction && (
         <span
           className="initialInstructionIndicator nodrag"

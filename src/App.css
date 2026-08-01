@@ -2192,21 +2192,27 @@ label {
 }
 
 .workflowNodeContent.prompt .normalOutput,
-.workflowCanvas .react-flow__node.prompt .react-flow__handle.normalOutput {
+.workflowNodeContent.status .normalOutput,
+.workflowCanvas .react-flow__node.prompt .react-flow__handle.normalOutput,
+.workflowCanvas .react-flow__node.statusFilter .react-flow__handle.normalOutput {
   top: 34%;
 }
 
 .workflowNodeContent.prompt .intervalOutput,
-.workflowCanvas .react-flow__node.prompt .react-flow__handle.intervalOutput {
+.workflowNodeContent.status .intervalOutput,
+.workflowCanvas .react-flow__node.prompt .react-flow__handle.intervalOutput,
+.workflowCanvas .react-flow__node.statusFilter .react-flow__handle.intervalOutput {
   top: 72%;
 }
 
-.workflowNodeContent.prompt .portLabel.intervalOutput {
+.workflowNodeContent.prompt .portLabel.intervalOutput,
+.workflowNodeContent.status .portLabel.intervalOutput {
   color: #f4c96b;
   right: 8px;
 }
 
-.workflowCanvas .react-flow__node.prompt .react-flow__handle.intervalOutput {
+.workflowCanvas .react-flow__node.prompt .react-flow__handle.intervalOutput,
+.workflowCanvas .react-flow__node.statusFilter .react-flow__handle.intervalOutput {
   --workflow-handle-color: #d6a94d;
 }
 
