@@ -2408,21 +2408,21 @@ label {
 }
 
 .statusFilterSummary {
-  background: transparent;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
   border: 1px solid var(--line-strong);
   border-radius: 5px;
-  display: block;
-  padding: 12px;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
 }
 
 .statusFilterBlock {
-  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 48%, transparent);
+  border: 1px solid transparent;
+  border-radius: 4px;
   display: block;
+  overflow: hidden;
   padding: 0;
-}
-
-.statusFilterBlock:first-child {
-  border-top: 0;
 }
 
 .statusFilterBlock summary {
@@ -2432,10 +2432,13 @@ label {
   display: flex;
   font-size: 12px;
   font-weight: 800;
+  gap: 14px;
   justify-content: space-between;
-  letter-spacing: .02em;
+  letter-spacing: 0;
+  line-height: 1.2;
   list-style: none;
-  min-height: 36px;
+  min-height: 34px;
+  padding: 0 10px;
   text-transform: uppercase;
   user-select: none;
 }
@@ -2448,11 +2451,20 @@ label {
   color: var(--muted);
   content: '>';
   font-size: 14px;
+  flex: 0 0 18px;
+  text-align: right;
   transition: transform 140ms ease;
 }
 
 .statusFilterBlock[open] {
+  background: transparent;
+  border-color: var(--line);
   padding-bottom: 12px;
+}
+
+.statusFilterBlock[open] summary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 10px;
 }
 
 .statusFilterBlock[open] summary::after {
@@ -2461,7 +2473,7 @@ label {
 
 .statusFilterBlock[open] > label,
 .statusFilterBlock[open] > .modalHint {
-  margin-top: 10px;
+  margin: 10px 10px 0;
 }
 
 .statusFilterBlock.intervalBlock {
