@@ -3687,6 +3687,53 @@ button:hover {
   padding: 14px 0;
 }
 
+.eventLog article.workflowCheckpoint {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%),
+    color-mix(in srgb, var(--surface-raised) 38%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--accent) 34%, var(--line) 66%);
+  border-top-color: color-mix(in srgb, var(--accent) 40%, var(--line) 60%);
+  margin: 8px 0 18px;
+  padding: 13px 0 14px 11px;
+  position: relative;
+}
+
+.eventLog article.workflowCheckpoint::before {
+  background: var(--accent);
+  bottom: 12px;
+  content: "";
+  left: 0;
+  position: absolute;
+  top: 12px;
+  width: 3px;
+}
+
+.eventLog article.workflowCheckpoint strong {
+  color: color-mix(in srgb, var(--text) 84%, var(--accent) 16%);
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.eventLog article.workflowCheckpoint.pending strong {
+  color: #b9dcff;
+}
+
+.eventLog article.workflowCheckpoint.blocked {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, #fb7185 14%, transparent), transparent 62%),
+    color-mix(in srgb, var(--surface-raised) 38%, transparent);
+  border-bottom-color: color-mix(in srgb, #fb7185 32%, var(--line) 68%);
+  border-top-color: color-mix(in srgb, #fb7185 38%, var(--line) 62%);
+}
+
+.eventLog article.workflowCheckpoint.blocked::before {
+  background: #fb7185;
+}
+
+.eventLog article.workflowCheckpoint.blocked strong {
+  color: #ffc0cb;
+}
+
 .eventLog article strong {
   color: var(--text);
   display: block;
