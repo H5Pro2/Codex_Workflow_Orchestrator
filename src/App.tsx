@@ -383,6 +383,8 @@ type WorkflowStatusFilter = {
   projectPath: string
   name: string
   statusId: string
+  interval?: number
+  intervalCount?: number
 }
 
 type WorkflowStop = {
@@ -433,6 +435,23 @@ function normalizeWorkflowPrompt(value: Partial<WorkflowPrompt>): WorkflowPrompt
 
 function normalizeWorkflowPrompts(value: unknown): WorkflowPrompt[] {
   return Array.isArray(value) ? value.map((prompt) => normalizeWorkflowPrompt(prompt)) : []
+}
+
+function normalizeWorkflowStatusFilter(value: Partial<WorkflowStatusFilter>): WorkflowStatusFilter {
+  const interval = normalizeForwardInterval(value.interval)
+  return {
+    id: value.id ?? crypto.randomUUID(),
+    ownerAgentId: value.ownerAgentId ?? '',
+    projectPath: value.projectPath ?? '',
+    name: value.name ?? 'Weiterleiten',
+    statusId: value.statusId ?? '',
+    interval,
+    intervalCount: normalizeForwardIntervalCount(value.intervalCount, interval),
+  }
+}
+
+function normalizeWorkflowStatusFilters(value: unknown): WorkflowStatusFilter[] {
+  return Array.isArray(value) ? value.map((filter) => normalizeWorkflowStatusFilter(filter)) : []
 }
 
 function chatMessageIdentity(message: ChatMessage, agentName: string, language: UiLanguage) {
@@ -973,7 +992,7 @@ function loadStoredState() {
   try {
     const parsed = JSON.parse(stored)
     const parsedRoutes = Array.isArray(parsed.routes) ? parsed.routes : []
-    const parsedStatusFilters = Array.isArray(parsed.workflowStatusFilters) ? parsed.workflowStatusFilters : []
+    const parsedStatusFilters = normalizeWorkflowStatusFilters(parsed.workflowStatusFilters)
     return {
       agents: Array.isArray(parsed.agents)
         ? deduplicateAgents(normalizeAgentsWithExplicitStatuses(parsed.agents, parsedStatusFilters, parsedRoutes))
@@ -1430,7 +1449,13 @@ function WorkflowDashboard({
             width: 190,
             height: 64,
             position: positions[filter.id] ?? { x: 260 + (index % 3) * 220, y: 430 + Math.floor(index / 3) * 130 },
-            data: { label: language === 'de' ? 'Weiterleiten' : 'Forward', kind: 'status' as const, kindLabel: language === 'de' ? 'Weiterleiten' : 'Forward' },
+            data: {
+              label: language === 'de' ? 'Weiterleiten' : 'Forward',
+              kind: 'status' as const,
+              kindLabel: language === 'de' ? 'Weiterleiten' : 'Forward',
+              interval: filter.interval,
+              intervalCount: filter.intervalCount,
+            },
             className: 'workflowNode statusFilter',
           }
         }),
@@ -1478,7 +1503,10 @@ function WorkflowDashboard({
   const isNodeDraggingRef = useRef(false)
   const previousDashboardIdRef = useRef(dashboardId)
   const nodeSignature = initialNodes.map((node) => node.id).sort().join(':')
-  const handleSignature = prompts.map((prompt) => `${prompt.id}:${prompt.interval}`).join(':')
+  const handleSignature = [
+    ...prompts.map((prompt) => `${prompt.id}:${prompt.interval}`),
+    ...statusFilters.map((filter) => `${filter.id}:${filter.interval ?? 0}`),
+  ].join(':')
 
   useEffect(() => {
     initialNodesRef.current = initialNodes
@@ -2235,7 +2263,7 @@ function App() {
 
   const applySharedState = useCallback((state: ReturnType<typeof loadStoredState>) => {
     const incomingRoutes = Array.isArray(state.routes) ? state.routes : []
-    const incomingStatusFilters = Array.isArray(state.workflowStatusFilters) ? state.workflowStatusFilters : []
+    const incomingStatusFilters = normalizeWorkflowStatusFilters(state.workflowStatusFilters)
     const incomingAgents = Array.isArray(state.agents)
       ? deduplicateAgents(normalizeAgentsWithExplicitStatuses(state.agents, incomingStatusFilters, incomingRoutes))
       : []
@@ -2825,8 +2853,9 @@ function App() {
     dashboardPositions[activeDashboardOwnerId] = { x: 50, y: 260 }
   }
   const selectedRoute = projectRoutes.find((route) => route.id === selectedRouteId)
-  const selectedRouteSourcePrompt = selectedRoute
-    ? projectPrompts.find((prompt) => prompt.id === selectedRoute.sourceId)
+  const selectedRouteSourceForwarding = selectedRoute
+    ? projectPrompts.find((prompt) => prompt.id === selectedRoute.sourceId) ??
+      projectStatusFilters.find((filter) => filter.id === selectedRoute.sourceId)
     : undefined
   const selectedPrompt = projectPrompts.find((prompt) => prompt.id === selectedPromptId)
   const selectedInitial = projectInitials.find((initial) => initial.id === selectedInitialId)
@@ -4930,15 +4959,20 @@ function App() {
       const update = updates.get(prompt.id)
       return update ? { ...prompt, intervalCount: update.count } : prompt
     }))
+    setWorkflowStatusFilters((current) => current.map((filter) => {
+      const update = updates.get(filter.id)
+      return update ? { ...filter, intervalCount: update.count } : filter
+    }))
     updates.forEach((update, promptId) => {
       if (update.branch !== 'interval') return
-      const prompt = workflowPrompts.find((item) => item.id === promptId)
+      const forwardingNode = workflowPrompts.find((item) => item.id === promptId) ??
+        workflowStatusFilters.find((item) => item.id === promptId)
       addEvent(
         'Weiterleiten-Intervall erreicht',
-        `${prompt?.name ?? 'Weiterleiten'}: Der Intervall-Ausgang wurde verwendet; der Zähler beginnt wieder bei 0.`,
+        `${forwardingNode?.name ?? 'Weiterleiten'}: Der Intervall-Ausgang wurde verwendet; der Zähler beginnt wieder bei 0.`,
       )
     })
-  }, [addEvent, workflowPrompts])
+  }, [addEvent, workflowPrompts, workflowStatusFilters])
 
   const recordSupervisorDiagnosis = useCallback(({
     source,
@@ -5806,6 +5840,7 @@ function App() {
   const connectAgents = useCallback((connection: Connection) => {
     const sourceHandle = connection.sourceHandle === 'interval' ? 'interval' : 'output'
     const sourcePrompt = workflowPrompts.find((prompt) => prompt.id === connection.source)
+    const sourceStatusFilter = workflowStatusFilters.find((filter) => filter.id === connection.source)
     if (
       !connection.source ||
       !connection.target ||
@@ -5815,7 +5850,11 @@ function App() {
     ) {
       return
     }
-    if (sourceHandle === 'interval' && (!sourcePrompt || sourcePrompt.interval === 0)) return
+    if (
+      sourceHandle === 'interval' &&
+      !sourcePrompt?.interval &&
+      !sourceStatusFilter?.interval
+    ) return
     const sourceInitial = workflowInitials.find((initial) => initial.id === connection.source)
     if (sourceInitial) {
       if (connection.target !== sourceInitial.ownerAgentId) {
@@ -5826,9 +5865,9 @@ function App() {
         return
       }
     }
-    const sourceForwardFilter = workflowStatusFilters.find((filter) =>
-      filter.id === connection.source && filter.statusId === UNCONDITIONAL_FORWARD_STATUS_ID,
-    )
+    const sourceForwardFilter = sourceStatusFilter?.statusId === UNCONDITIONAL_FORWARD_STATUS_ID
+      ? sourceStatusFilter
+      : undefined
     const targetForwardFilter = workflowStatusFilters.find((filter) =>
       filter.id === connection.target && filter.statusId === UNCONDITIONAL_FORWARD_STATUS_ID,
     )
@@ -5842,7 +5881,9 @@ function App() {
     if (sourceForwardFilter) {
       const targetIsAgent = agents.some((agent) => agent.id === connection.target)
       const alreadyHasTarget = routes.some((route) =>
-        route.ownerAgentId === sourceForwardFilter.ownerAgentId && route.sourceId === sourceForwardFilter.id,
+        route.ownerAgentId === sourceForwardFilter.ownerAgentId &&
+        route.sourceId === sourceForwardFilter.id &&
+        (route.sourceHandle ?? 'output') === sourceHandle,
       )
       const createsUnsupportedCycle = targetIsAgent && wouldCreateUnsupportedUnconditionalForwardCycle({
         sourceAgentId: sourceForwardFilter.ownerAgentId,
@@ -5856,7 +5897,9 @@ function App() {
           'Workflow-Verbindung abgelehnt',
           createsUnsupportedCycle
             ? 'Der feste Status „Weiterleiten“ erlaubt nur einen direkten Zwei-Agenten-Kreis. Selbstschleifen und größere Kreise sind gesperrt.'
-            : 'Der feste Status „Weiterleiten“ muss mit genau einem Zielagenten verbunden sein.',
+            : sourceForwardFilter.interval
+              ? 'Jeder Ausgang des festen Status „Weiterleiten“ darf genau einen Zielagenten besitzen.'
+              : 'Der feste Status „Weiterleiten“ muss mit genau einem Zielagenten verbunden sein.',
         )
         return
       }
@@ -6175,6 +6218,8 @@ function App() {
       projectPath: selectedProject.path,
       name: `Status: ${status.name}`,
       statusId: status.id,
+      interval: 0,
+      intervalCount: 0,
     }
     sharedStateDirty.current = true
     setWorkflowStatusFilters((current) => [...current, filter])
@@ -6239,6 +6284,16 @@ function App() {
         route.sourceId === filterId ? { ...route, prompt } : route,
       ),
     )
+  }
+
+  const updateWorkflowStatusFilterInterval = (filterId: string, value: unknown) => {
+    const interval = normalizeForwardInterval(value)
+    sharedStateDirty.current = true
+    setWorkflowStatusFilters((current) => current.map((filter) =>
+      filter.id === filterId
+        ? { ...filter, interval, intervalCount: 0 }
+        : filter,
+    ))
   }
 
   const deleteWorkflowStatusFilter = (filterId: string) => {
@@ -7259,6 +7314,11 @@ function App() {
           ? { ...prompt, intervalCount: 0 }
           : prompt,
       ))
+      setWorkflowStatusFilters((current) => current.map((filter) =>
+        samePath(filter.projectPath, activeProjectPath)
+          ? { ...filter, intervalCount: 0 }
+          : filter,
+      ))
       updateWorkflowRuntime((current) =>
         resetProjectWorkflowRuntime(current, activeProjectPath),
       )
@@ -7307,7 +7367,10 @@ function App() {
       ],
       filters: workflowStatusFilters.filter((filter) => samePath(filter.projectPath, activeProjectPath)),
       routes: routes.filter((route) => samePath(route.projectPath, activeProjectPath)),
-      forwardingNodes: workflowPrompts.filter((prompt) => samePath(prompt.projectPath, activeProjectPath)),
+      forwardingNodes: [
+        ...workflowPrompts.filter((prompt) => samePath(prompt.projectPath, activeProjectPath)),
+        ...workflowStatusFilters.filter((filter) => samePath(filter.projectPath, activeProjectPath)),
+      ],
       terminals: [
         ...workflowStops,
         ...workflowInitials,
@@ -10474,7 +10537,7 @@ function App() {
               <strong>{dashboardNodeLabel(selectedRoute.sourceId)}</strong> {tx('leitet an', 'forwards to')}{' '}
               <strong>{dashboardNodeLabel(selectedRoute.targetId)}</strong>.
             </p>
-            {selectedRouteSourcePrompt && selectedRouteSourcePrompt.interval > 0 && (
+            {selectedRouteSourceForwarding && (selectedRouteSourceForwarding.interval ?? 0) > 0 && (
               <p className="modalHint routeBranchHint">
                 {tx('Ausgang', 'Output')}: <strong>
                   {(selectedRoute.sourceHandle ?? 'output') === 'interval'
@@ -10553,11 +10616,11 @@ function App() {
                 <h2>{tx('Weiterleiten', 'Forward')}</h2>
               </div>
               <button
-                aria-label={tx('Fenster schliessen', 'Close window')}
-                title={tx('Fenster schliessen', 'Close window')}
+                aria-label={tx('Fenster schließen', 'Close window')}
+                title={tx('Fenster schließen', 'Close window')}
                 onClick={() => setSelectedStatusFilterId('')}
               >
-                x
+                ×
               </button>
             </div>
             <section className="statusFilterSummary" aria-label={tx('Feste Weiterleitung', 'Fixed forwarding')}>
@@ -10566,28 +10629,50 @@ function App() {
                 <input value={tx('Weiterleiten', 'Forward')} readOnly />
               </label>
               <label>
-                {tx('Zusatztext fuer den naechsten Agenten', 'Additional text for the next agent')}
+                {tx('Zusatztext für den nächsten Agenten', 'Additional text for the next agent')}
                 <textarea
                   rows={6}
                   value={routes.find((route) => route.sourceId === selectedStatusFilter.id)?.prompt ?? ''}
                   onChange={(event) =>
                     updateWorkflowStatusFilterPrompt(selectedStatusFilter.id, event.target.value)
                   }
-                  placeholder={tx('Optional: Anweisung oder Kontext anhaengen.', 'Optional: append instruction or context.')}
+                  placeholder={tx('Optional: Anweisung oder Kontext anhängen.', 'Optional: append instruction or context.')}
                 />
               </label>
+              <label>
+                {tx('Intervall', 'Interval')}
+                <input
+                  max={MAX_FORWARD_INTERVAL}
+                  min={1}
+                  onChange={(event) => updateWorkflowStatusFilterInterval(selectedStatusFilter.id, event.target.value)}
+                  placeholder={tx('Kein Intervall', 'No interval')}
+                  type="number"
+                  value={selectedStatusFilter.interval || ''}
+                />
+              </label>
+              <p className="modalHint forwardIntervalHint">
+                {(selectedStatusFilter.interval ?? 0) > 0
+                  ? tx(
+                      `Stand ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. Beim ${selectedStatusFilter.interval}. Treffer wird der Intervall-Ausgang verwendet und der Zähler auf 0 gesetzt.`,
+                      `Count ${selectedStatusFilter.intervalCount ?? 0}/${selectedStatusFilter.interval}. The interval output is used on hit ${selectedStatusFilter.interval}, then the count resets to 0.`,
+                    )
+                  : tx(
+                      'Ohne Intervall besitzt der Baustein nur den normalen Ausgang.',
+                      'Without an interval, the node has only its normal output.',
+                    )}
+              </p>
             </section>
             <p className="modalHint statusFilterInfo">
-              {tx('Dieser Baustein gibt die letzte Antwort des vorherigen Agenten direkt an den naechsten verbundenen Agenten weiter. Der Zusatztext wird an diese Uebergabe angehaengt.', 'This node forwards the previous agent answer directly to the next connected agent. The additional text is appended to that handoff.')}
+              {tx('Dieser Baustein gibt die letzte Antwort des vorherigen Agenten direkt an den nächsten verbundenen Agenten weiter. Der Zusatztext wird an diese Übergabe angehängt.', 'This node forwards the previous agent answer directly to the next connected agent. The additional text is appended to that handoff.')}
             </p>
             <div className="modalActions">
               <button
                 className="deleteButton"
                 onClick={() => deleteWorkflowStatusFilter(selectedStatusFilter.id)}
               >
-                {tx('Weiterleiten loeschen', 'Delete forwarding')}
+                {tx('Weiterleiten löschen', 'Delete forwarding')}
               </button>
-              <button className="primary" onClick={() => setSelectedStatusFilterId('')}>{tx('Uebernehmen', 'Apply')}</button>
+              <button className="primary" onClick={() => setSelectedStatusFilterId('')}>{tx('Übernehmen', 'Apply')}</button>
             </div>
           </section>
         </div>

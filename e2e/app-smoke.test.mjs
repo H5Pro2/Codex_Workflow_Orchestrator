@@ -136,7 +136,7 @@ function fixtureState() {
   }
 }
 
-test('manages internal CEO instructions through the real UI', { timeout: 45_000 }, async (t) => {
+test('manages internal CEO instructions through the real UI', { timeout: 75_000 }, async (t) => {
   const executablePath = chromeCandidates.find((candidate) => existsSync(candidate))
   if (!executablePath) {
     t.skip('Kein unterstützter lokaler Chromium-Browser gefunden.')
@@ -451,6 +451,19 @@ test('manages internal CEO instructions through the real UI', { timeout: 45_000 
     return false
   }
   assert.equal(await waitForVisibleEdge(), true)
+
+  const statusForwardNode = workflowDashboard.locator('.react-flow__node.statusFilter').first()
+  await statusForwardNode.dblclick()
+  const statusForwardDialog = page.getByRole('dialog', { name: 'Weiterleiten konfigurieren' })
+  await statusForwardDialog.getByLabel('Zusatztext für den nächsten Agenten').waitFor()
+  await statusForwardDialog.getByLabel('Intervall').fill('5')
+  await statusForwardDialog.getByText('Stand 0/5.').waitFor()
+  await statusForwardDialog.getByRole('button', { name: 'Übernehmen' }).click()
+  await page.waitForTimeout(700)
+  assert.equal(sharedState.workflowStatusFilters[0].interval, 5)
+  assert.equal(await statusForwardNode.locator('[data-handleid="output"]').count(), 1)
+  assert.equal(await statusForwardNode.locator('[data-handleid="interval"]').count(), 1)
+  await statusForwardNode.getByText('0/5', { exact: true }).waitFor()
 
   await workflowDashboard.locator('details.dashboardTools > summary').click()
   const initialSymbolBox = await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Initial' }).locator('.toolSymbol').boundingBox()

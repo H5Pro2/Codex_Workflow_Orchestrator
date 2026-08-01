@@ -27,7 +27,7 @@ export function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
   const isInitial = data.kind === 'initial'
   const isStop = data.kind === 'stop'
   const isTimer = data.kind === 'timer'
-  const hasInterval = data.kind === 'prompt' && Boolean(data.interval)
+  const hasInterval = (data.kind === 'prompt' || data.kind === 'status') && Boolean(data.interval)
   return (
     <div className={`workflowNodeContent ${data.kind}`}>
       {isInitial && data.hasInstruction && (
