@@ -2331,12 +2331,14 @@ function App() {
   useEffect(() => {
     let active = true
     const synchronize = async (initial = false) => {
+      let loadedSharedState = false
       try {
         const response = await fetch('/api/state')
         if (!response.ok) {
           throw new Error('Gemeinsamer Zustand nicht erreichbar.')
         }
         const data = await response.json()
+        loadedSharedState = Boolean(data.state && data.updatedAt)
         if (
           active &&
           !sharedStateDirty.current &&
@@ -2351,7 +2353,7 @@ function App() {
         // The current browser state remains available while the connector is offline.
       } finally {
         if (initial && active) {
-          setSharedStateReady(true)
+          setSharedStateReady(loadedSharedState)
         }
       }
     }

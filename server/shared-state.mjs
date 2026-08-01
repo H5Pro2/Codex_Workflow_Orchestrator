@@ -44,6 +44,28 @@ function mergeWorkflowLoopCounts(previousState, nextState) {
   }
 }
 
+function collectionSize(state, key) {
+  const value = state?.[key]
+  return Array.isArray(value) ? value.length : 0
+}
+
+function rejectsDestructiveEmptySnapshot(previousState, nextState) {
+  if (!previousState || !nextState) {
+    return false
+  }
+  const previousTopologySize =
+    collectionSize(previousState, 'agents') +
+    collectionSize(previousState, 'routes') +
+    collectionSize(previousState, 'workflowInitials') +
+    collectionSize(previousState, 'workflowStatusFilters')
+  const nextTopologySize =
+    collectionSize(nextState, 'agents') +
+    collectionSize(nextState, 'routes') +
+    collectionSize(nextState, 'workflowInitials') +
+    collectionSize(nextState, 'workflowStatusFilters')
+  return previousTopologySize > 0 && nextTopologySize === 0
+}
+
 function nextVersion(previousVersion, now) {
   const previousTime = Date.parse(previousVersion)
   const currentTime = now().getTime()
@@ -89,6 +111,9 @@ export function createSharedStateStore(stateFile, { now = () => new Date() } = {
       }
 
       const mergedNextState = mergeWorkflowLoopCounts(state, nextState)
+      if (!force && rejectsDestructiveEmptySnapshot(state, mergedNextState)) {
+        return { ok: false, state, updatedAt }
+      }
 
       if (stableStateString(state) === stableStateString(mergedNextState)) {
         return { ok: true, state, updatedAt }

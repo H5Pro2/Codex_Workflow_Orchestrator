@@ -80,6 +80,30 @@ test('serializes concurrent writes so only one tab can win', async () => {
   assert.equal((await store.read()).state.winner, 'first')
 })
 
+test('rejects an accidental empty topology snapshot over existing workflow data', async () => {
+  const { stateFile, store } = await createStore()
+  const initial = await store.update({
+    agents: [{ id: 'ceo' }],
+    routes: [{ id: 'route-1' }],
+    workflowInitials: [{ id: 'initial-1' }],
+    workflowStatusFilters: [{ id: 'filter-1' }],
+    workflowLoopCounts: {
+      'project-one': 3,
+    },
+  }, { force: true })
+  const emptySnapshot = await store.update({
+    agents: [],
+    routes: [],
+    workflowInitials: [],
+    workflowStatusFilters: [],
+    workflowLoopCounts: {},
+  }, { expectedUpdatedAt: initial.updatedAt })
+
+  assert.equal(emptySnapshot.ok, false)
+  assert.equal(emptySnapshot.updatedAt, initial.updatedAt)
+  assert.equal(JSON.parse(await readFile(stateFile, 'utf8')).state.agents.length, 1)
+})
+
 test('does not create a new version for semantically identical state', async () => {
   const { store } = await createStore()
   const first = await store.update({ routes: [], agent: { name: 'CEO', role: 'Lead' } })
