@@ -72,7 +72,6 @@ import {
   INTERNAL_WORKFLOW_ERROR_STATUS_NAME,
   internalWorkflowErrorHandoffInstruction,
   internalWorkflowErrorManagerId,
-  internalWorkflowErrorStatus,
   shouldEscalateInternalWorkflowError,
 } from './internal-workflow-error.ts'
 import { verifiedPromptInstruction } from './prompt-delivery.ts'
@@ -372,6 +371,7 @@ type WorkflowPrompt = {
   name: string
   condition: string
   prompt: string
+  intervalSource: 'none' | 'custom' | 'project'
   interval: number
   intervalCount: number
   intervalMode: ForwardIntervalMode
@@ -469,6 +469,11 @@ function normalizeWorkflowPrompt(value: Partial<WorkflowPrompt>): WorkflowPrompt
     name: value.name ?? 'Weiterleiten',
     condition: value.condition ?? '',
     prompt: value.prompt ?? '',
+    intervalSource: ['none', 'custom', 'project'].includes(value.intervalSource ?? '')
+      ? value.intervalSource!
+      : interval > 0
+        ? 'custom'
+        : 'none',
     interval,
     intervalCount: normalizeForwardIntervalCount(value.intervalCount, interval),
     intervalMode: normalizeForwardIntervalMode(value.intervalMode),
@@ -1353,7 +1358,7 @@ function workflowStatusesForAgent(agent: Agent, statuses: WorkflowStatusDefiniti
   const fixedForwarding = agent.workflowStatusIds.includes(UNCONDITIONAL_FORWARD_STATUS_ID)
     ? [unconditionalForwardStatus(agent.projectPath)]
     : []
-  return [...fixedForwarding, ...assignedStatuses, internalWorkflowErrorStatus(agent.projectPath)]
+  return [...fixedForwarding, ...assignedStatuses]
 }
 
 function formatDuration(durationMs: number, language: UiLanguage) {
@@ -5290,12 +5295,21 @@ function App() {
       runPurpose: agent.runPurpose,
       statusIds: workflowSignal.statusIds,
     }))
+    const legacyInternalStatusSignal =
+      workflowSignal.names.some((name) =>
+        name.trim().toLocaleLowerCase('de-DE') === INTERNAL_WORKFLOW_ERROR_STATUS_NAME.toLocaleLowerCase('de-DE'),
+      ) ||
+      workflowSignal.statusIds.includes(INTERNAL_WORKFLOW_ERROR_STATUS_ID)
     const resultStatusIds = reportsInternalWorkflowError
       ? [INTERNAL_WORKFLOW_ERROR_STATUS_ID]
-      : workflowSignal.statusIds
+      : legacyInternalStatusSignal
+        ? []
+        : workflowSignal.statusIds
     const resultStatusNames = reportsInternalWorkflowError
       ? [INTERNAL_WORKFLOW_ERROR_STATUS_NAME]
-      : workflowSignal.names
+      : legacyInternalStatusSignal
+        ? []
+        : workflowSignal.names
     const reportsTechnicalFailure = reportsInternalWorkflowError || projectStatuses.some(
       (status) =>
         resultStatusIds.includes(status.id) &&
@@ -6111,6 +6125,7 @@ function App() {
       name: 'Weiterleiten',
       condition: 'Immer',
       prompt: 'Bearbeite die vorherige Antwort gemäß deiner Rolle und arbeite selbstständig weiter.',
+      intervalSource: 'none',
       interval: 0,
       intervalCount: 0,
       intervalMode: 'replace',
@@ -6130,9 +6145,29 @@ function App() {
     sharedStateDirty.current = true
     setWorkflowPrompts((current) => current.map((prompt) =>
       prompt.id === promptId
-        ? { ...prompt, interval, intervalCount: 0 }
+        ? {
+            ...prompt,
+            interval,
+            intervalSource: interval > 0
+              ? prompt.intervalSource === 'project'
+                ? 'project'
+                : 'custom'
+              : 'none',
+            intervalCount: 0,
+          }
         : prompt,
     ))
+  }
+
+  const updateWorkflowPromptIntervalSource = (promptId: string, source: WorkflowPrompt['intervalSource']) => {
+    sharedStateDirty.current = true
+    setWorkflowPrompts((current) => current.map((prompt) => {
+      if (prompt.id !== promptId) return prompt
+      if (source === 'none') return { ...prompt, intervalSource: 'none', interval: 0, intervalCount: 0 }
+      if (source === 'project') return { ...prompt, intervalSource: 'project', interval: selectedLoopCount, intervalCount: 0 }
+      const fallbackInterval = prompt.intervalSource === 'project' || prompt.interval <= 0 ? 1 : prompt.interval
+      return { ...prompt, intervalSource: 'custom', interval: fallbackInterval, intervalCount: 0 }
+    }))
   }
 
   const updateWorkflowPromptIntervalMode = (promptId: string, value: unknown) => {
@@ -10033,13 +10068,6 @@ function App() {
                 onChange={(event) => updateWorkflowPrompt(selectedPrompt.id, { name: event.target.value })}
               />
             </label>
-            <label>
-              {tx('Übergabeart', 'Handoff mode')}
-              <select value="full" onChange={() => undefined}>
-                <option value="full">{tx('Volltext übergeben', 'Pass full text')}</option>
-                <option value="read">{tx('Lesen lassen', 'Let read')}</option>
-              </select>
-            </label>
             <details className="forwardingNodeSection">
               <summary>{tx('Weiterleiten-Text', 'Forwarding text')}</summary>
               <label>
@@ -10056,33 +10084,30 @@ function App() {
               <label>
                 {tx('Intervall-Quelle', 'Interval source')}
                 <select
-                  value={selectedPrompt.interval > 0 ? (selectedPrompt.interval === selectedLoopCount ? 'project' : 'custom') : 'none'}
-                  onChange={(event) => {
-                    if (event.target.value === 'none') {
-                      updateWorkflowPromptInterval(selectedPrompt.id, 0)
-                    } else if (event.target.value === 'project') {
-                      updateWorkflowPromptInterval(selectedPrompt.id, selectedLoopCount)
-                    } else {
-                      updateWorkflowPromptInterval(selectedPrompt.id, selectedPrompt.interval || 1)
-                    }
-                  }}
+                  value={selectedPrompt.intervalSource}
+                  onChange={(event) =>
+                    updateWorkflowPromptIntervalSource(
+                      selectedPrompt.id,
+                      event.target.value as WorkflowPrompt['intervalSource'],
+                    )
+                  }
                 >
                   <option value="none">{tx('Kein Intervall', 'No interval')}</option>
                   <option value="custom">{tx('Eigener Intervall', 'Custom interval')}</option>
                   <option value="project">{tx('Projekt-Läufe verwenden', 'Use project runs')}</option>
                 </select>
               </label>
-              {selectedPrompt.interval > 0 && (
+              {selectedPrompt.intervalSource !== 'none' && selectedPrompt.interval > 0 && (
                 <>
                   <label>
                     {tx('Intervall', 'Interval')}
                     <input
-                      disabled={selectedPrompt.interval === selectedLoopCount}
+                      disabled={selectedPrompt.intervalSource === 'project'}
                       max={MAX_FORWARD_INTERVAL}
                       min={1}
                       onChange={(event) => updateWorkflowPromptInterval(selectedPrompt.id, event.target.value)}
-                      type={selectedPrompt.interval === selectedLoopCount ? 'text' : 'number'}
-                      value={selectedPrompt.interval === selectedLoopCount
+                      type={selectedPrompt.intervalSource === 'project' ? 'text' : 'number'}
+                      value={selectedPrompt.intervalSource === 'project'
                         ? `${selectedLoopCount} ${tx('Projekt-Läufe', 'project runs')}`
                         : selectedPrompt.interval}
                     />

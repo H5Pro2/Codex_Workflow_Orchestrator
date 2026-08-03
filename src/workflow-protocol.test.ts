@@ -58,6 +58,6 @@ test('status instructions define technical topology as authoritative', () => {
   const instruction = workflowStatusInstruction(statuses)
   assert.match(instruction, /technische Topologie entscheidet/)
   assert.match(instruction, /Mehrere Statusangaben/)
-  assert.match(instruction, /Interner Workflow-Fehler/)
-  assert.match(instruction, /kein Projektfehler/)
+  assert.match(instruction, /Kein Status/)
+  assert.doesNotMatch(instruction, /Interner Workflow-Fehler/)
 })

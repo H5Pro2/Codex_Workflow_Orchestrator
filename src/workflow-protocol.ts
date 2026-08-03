@@ -38,7 +38,7 @@ export const WORKFLOW_DECISION_AUTHORITY = [
   'Ein Agententext liefert ausschließlich ein zu validierendes Statussignal.',
   'Nur genau ein erlaubter Status kann eine konfigurierte Status-Verbindung aktivieren.',
   'Sprachliche Rollen- und Ablaufregeln dürfen keine technische Verbindung erzeugen oder umgehen.',
-  'Eine weitere Ausnahme ist der reservierte Systemstatus "Interner Workflow-Fehler": Er ist ein fest definierter Diagnosekanal zum Projekt-CEO und niemals eine fachliche Projektverbindung.',
+  'Interne technische Diagnose bleibt Aufgabe des Orchestrators und wird nicht als sichtbarer fachlicher Workflow-Status ausgegeben.',
 ] as const
 
 function normalizeStatusName(value: string) {
@@ -168,11 +168,11 @@ export function workflowStatusInstruction(statuses: readonly WorkflowStatusLike[
     '',
     'Vergleiche dein Ergebnis mit den Bedeutungen aller zugewiesenen fachlichen Statusmeldungen.',
     'Verbindliche Benutzergrenzen und Übergabebedingungen bleiben in allen Folgeschritten unverändert. Du darfst insbesondere Browserwiedergabe ohne Download oder lokale Kopie nicht in eine lokale Datei-, Download- oder Installationsvoraussetzung umdeuten.',
-    'Erfordert ein möglicher Anschlussweg eine ausdrücklich ausgeschlossene Handlung, passt dieser Status nicht. Melde stattdessen [Workflow-Status: Interner Workflow-Fehler] und benenne den Widerspruch, ohne den Benutzer zur Aufhebung seiner Grenze aufzufordern.',
+    'Erfordert ein möglicher Anschlussweg eine ausdrücklich ausgeschlossene Handlung, passt dieser Status nicht. Melde stattdessen [Workflow-Status: Kein Status] und benenne den Widerspruch, ohne den Benutzer zur Aufhebung seiner Grenze aufzufordern.',
     'Wenn genau eine fachliche Statusmeldung passt, verwende ausschließlich diesen Status.',
-    'Wenn keine fachliche Statusmeldung eindeutig passt oder mehrere gleichwertig passen, melde den reservierten Status [Workflow-Status: Interner Workflow-Fehler].',
-    'Begründe dann in deiner Antwort, welche Statusmeldungen du geprüft hast und warum keine eindeutige Auswahl möglich war. Das ist ein interner Konfigurationsfehler und kein Projektfehler.',
-    'Verwende [Workflow-Status: Kein Status] nur, wenn eine interne Systemanweisung ausdrücklich eine nicht weiterzuleitende Antwort verlangt. Erfinde keine Statusnamen.',
+    'Wenn keine fachliche Statusmeldung eindeutig passt oder mehrere gleichwertig passen, verwende [Workflow-Status: Kein Status].',
+    'Begründe dann in deiner Antwort kurz, welche Statusmeldungen du geprüft hast und warum keine eindeutige Auswahl möglich war.',
+    'Verwende [Workflow-Status: Kein Status] auch dann, wenn eine interne Systemanweisung ausdrücklich eine nicht weiterzuleitende Antwort verlangt. Erfinde keine Statusnamen.',
     'Mehrere Statusangaben, unbekannte Statusnamen und Text nach der Statuszeile werden vom Orchestrator als ungültige Antwort behandelt.',
     '',
     userInteractionInstruction(),
