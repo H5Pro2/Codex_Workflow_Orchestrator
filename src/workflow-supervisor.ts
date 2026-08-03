@@ -4,7 +4,6 @@ export type WorkflowSupervisorCause =
   | 'automation-off'
   | 'missing-route'
   | 'missing-status'
-  | 'fixed-forwarding-invalid'
   | 'duplicate-delivery'
   | 'blocked-follow-up'
   | 'unknown'
@@ -16,11 +15,11 @@ export type WorkflowSupervisorInput = {
   deliveryCount: number
   statusKind: WorkflowSignalKind
   statusNames: readonly string[]
-  fixedForwardingEnabled: boolean
-  fixedForwardingIssue?: string
   duplicateDelivery?: boolean
   blockedFollowUp?: boolean
   continuationReason?: string
+  fixedForwardingEnabled?: boolean
+  fixedForwardingIssue?: string
 }
 
 export type WorkflowSupervisorDiagnosis = {
@@ -37,14 +36,6 @@ export function diagnoseWorkflowStall(
       cause: 'automation-off',
       summary: 'Die Automatik ist ausgeschaltet.',
       nextStep: 'Automatik aktivieren; danach den offenen Kontrollpunkt erneut starten.',
-    }
-  }
-
-  if (input.fixedForwardingIssue) {
-    return {
-      cause: 'fixed-forwarding-invalid',
-      summary: `Die feste Weiterleitung ist technisch unvollständig: ${input.fixedForwardingIssue}`,
-      nextStep: 'Im Dashboard genau eine ausgehende Verbindung vom Weiterleiten-Baustein zu einem Zielagenten herstellen.',
     }
   }
 
@@ -74,14 +65,6 @@ export function diagnoseWorkflowStall(
     }
   }
 
-  if (input.fixedForwardingEnabled && input.deliveryCount === 0) {
-    return {
-      cause: 'missing-route',
-      summary: 'Der feste Status Weiterleiten ist vorhanden, aber es wurde kein Zielagent aufgelöst.',
-      nextStep: 'Die Weiterleiten-Verbindung im Dashboard prüfen und genau einen Zielagenten anschließen.',
-    }
-  }
-
   if (input.activeRouteCount === 0) {
     return {
       cause: 'missing-route',
@@ -94,7 +77,7 @@ export function diagnoseWorkflowStall(
     return {
       cause: 'missing-route',
       summary: 'Ein Status wurde erkannt, aber kein passender Zielpfad wurde aufgelöst.',
-      nextStep: 'Prüfen, ob der erkannte Statusfilter aktiv ist und mit genau einem Zielagenten verbunden wurde.',
+      nextStep: 'Pruefen, ob der erkannte Status zu einer vorhandenen Dashboard-Verbindung passt.',
     }
   }
 
@@ -106,4 +89,3 @@ export function diagnoseWorkflowStall(
       : 'Ablaufprotokoll und offenen Kontrollpunkt prüfen; keine automatische Wiederholung auslösen.',
   }
 }
-

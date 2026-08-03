@@ -7,6 +7,7 @@ import {
   beginWorkflowRun,
   ensureWorkflowRun,
   isOrphanedPendingCheckpoint,
+  latestProjectRunIsCleanlyClosed,
   shouldRecoverPendingCheckpoint,
   isRecoverableContinuationCandidate,
   normalizeWorkflowRuntime,
@@ -30,6 +31,24 @@ test('creates one active run and keeps ordered entries', () => {
   assert.equal(second.runs.length, 1)
   assert.equal(second.runs[0].id, 'run-1')
   assert.equal(second.runs[0].entries[0].detail, 'Ergebnis')
+})
+
+test('preserves configured target cycles for an implicitly continued run', () => {
+  const ensured = ensureWorkflowRun(
+    normalizeWorkflowRuntime(null),
+    'C:\\Project',
+    '2026-01-01T00:00:00Z',
+    'run-1',
+    { cycle: 1, targetCycles: 3 },
+  )
+  const paused = appendWorkflowRunEntry(
+    ensured.runtime,
+    'c:/project',
+    workflowRunEntry('handoff-pending', { detail: 'Fortsetzung vorgemerkt' }, '2026-01-01T00:01:00Z'),
+  )
+
+  assert.equal(paused.runs[0].cycle, 1)
+  assert.equal(paused.runs[0].targetCycles, 3)
 })
 
 test('advances complete workflow cycles up to the configured target', () => {
@@ -70,6 +89,103 @@ test('advances complete workflow cycles up to the configured target', () => {
 
   assert.equal(activeWorkflowRun(completed, 'C:\\Project'), null)
   assert.equal(completed.runs.filter((run) => run.status === 'completed').length, 3)
+})
+
+test('recognizes a cleanly closed latest project run', () => {
+  const completed = appendWorkflowRunEntry(
+    beginWorkflowRun(
+      normalizeWorkflowRuntime(null),
+      'C:\\Project',
+      '2026-01-01T00:00:00Z',
+      'run-1',
+      { cycle: 3, targetCycles: 3 },
+    ).runtime,
+    'C:\\Project',
+    workflowRunEntry('completed', { detail: 'Lauf 3/3 abgeschlossen' }, '2026-01-01T00:01:00Z'),
+  )
+
+  assert.equal(latestProjectRunIsCleanlyClosed(completed, 'c:/project'), true)
+
+  const restarted = beginWorkflowRun(
+    completed,
+    'C:\\Project',
+    '2026-01-01T00:02:00Z',
+    'run-2',
+    { cycle: 1, targetCycles: 3 },
+  ).runtime
+  assert.equal(latestProjectRunIsCleanlyClosed(restarted, 'c:/project'), false)
+})
+
+test('removes stale continuation recovery created after final completion', () => {
+  const runtime = normalizeWorkflowRuntime({
+    runs: [
+      {
+        id: 'ghost-run',
+        projectPath: 'C:\\Project',
+        startedAt: '2026-01-01T00:00:01Z',
+        updatedAt: '2026-01-01T00:10:00Z',
+        status: 'active',
+        cycle: 1,
+        targetCycles: 3,
+        entries: [
+          workflowRunEntry('handoff-pending', { detail: 'alte Fortsetzung' }, '2026-01-01T00:00:01Z'),
+          workflowRunEntry('agent-completed', { detail: 'Folgearbeit aus Ghost-Checkpoint' }, '2026-01-01T00:10:00Z'),
+        ],
+      },
+      {
+        id: 'final-run',
+        projectPath: 'C:\\Project',
+        startedAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        status: 'completed',
+        cycle: 3,
+        targetCycles: 3,
+        entries: [
+          workflowRunEntry('completed', { detail: 'Lauf 3/3 abgeschlossen' }, '2026-01-01T00:00:00Z'),
+        ],
+      },
+    ],
+    checkpoints: [
+      { id: 'ghost-checkpoint', runId: 'ghost-run', projectPath: 'C:\\Project' },
+    ],
+  })
+
+  assert.deepEqual(runtime.runs.map((run) => run.id), ['final-run'])
+  assert.deepEqual(runtime.checkpoints, [])
+})
+
+test('keeps deliberate runs started after final completion', () => {
+  const runtime = normalizeWorkflowRuntime({
+    runs: [
+      {
+        id: 'new-run',
+        projectPath: 'C:\\Project',
+        startedAt: '2026-01-01T00:00:01Z',
+        updatedAt: '2026-01-01T00:00:01Z',
+        status: 'active',
+        cycle: 1,
+        targetCycles: 3,
+        entries: [
+          workflowRunEntry('started', { detail: 'neuer Lauf' }, '2026-01-01T00:00:01Z'),
+        ],
+      },
+      {
+        id: 'final-run',
+        projectPath: 'C:\\Project',
+        startedAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        status: 'completed',
+        cycle: 3,
+        targetCycles: 3,
+        entries: [
+          workflowRunEntry('completed', { detail: 'Lauf 3/3 abgeschlossen' }, '2026-01-01T00:00:00Z'),
+        ],
+      },
+    ],
+    checkpoints: [],
+  })
+
+  assert.deepEqual(runtime.runs.map((run) => run.id), ['new-run', 'final-run'])
 })
 
 test('a newer manual management decision supersedes old project checkpoints', () => {
@@ -151,6 +267,28 @@ test('selects a pending result checkpoint even before a target is known', () => 
     updatedAt: '2026-01-01T00:01:00Z',
   })
   assert.equal(resumableWorkflowCheckpoint(saved, 'c:/project')?.id, 'result-1')
+})
+
+test('drops pending internal workflow error checkpoints during normalization', () => {
+  const runtime = normalizeWorkflowRuntime({
+    runs: [],
+    checkpoints: [
+      {
+        id: 'internal-error',
+        projectPath: 'C:\\Project',
+        statusIds: ['system:internal-workflow-error'],
+        state: 'pending',
+      },
+      {
+        id: 'normal',
+        projectPath: 'C:\\Project',
+        statusIds: ['status-review'],
+        state: 'pending',
+      },
+    ],
+  })
+
+  assert.deepEqual(runtime.checkpoints.map((checkpoint) => checkpoint.id), ['normal'])
 })
 
 test('recognizes a pending handoff orphaned by an application restart', () => {
@@ -290,6 +428,7 @@ test('resets only the selected project run and keeps its history', () => {
   const reset = resetProjectWorkflowRuntime(runtime, 'c:/project', '2026-01-01T01:00:00Z')
 
   assert.equal(reset.runs[0].status, 'completed')
+  assert.equal(reset.runs[0].entries.at(-1)?.kind, 'reset')
   assert.equal(reset.runs[0].entries.at(-1)?.detail, 'Arbeitslauf durch den Benutzer zurückgesetzt.')
   assert.equal(reset.runs[1].status, 'active')
   assert.deepEqual(reset.checkpoints.map((checkpoint) => checkpoint.id), ['other-checkpoint'])

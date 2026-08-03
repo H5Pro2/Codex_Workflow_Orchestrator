@@ -7,13 +7,12 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
-import { createProvisioningJournal } from './provisioning-journal.mjs'
 import { allowExplicitBrowserOrigins } from './browser-origin-permissions.mjs'
 import { createSharedStateStore } from './shared-state.mjs'
 import { applyThreadProjectAssignments, savedProjectsFromState } from './codex-project-state.mjs'
 import { readKnowledgeSources, writeKnowledgeSources } from './knowledge-sources.mjs'
 import { assertUserProjectGoalWriteSource, readProjectGoal, writeProjectGoal } from './project-goal.mjs'
-import { writeVerifiedPromptFile } from './prompt-files.mjs'
+import { deletePromptDirectory, writeVerifiedPromptFile } from './prompt-files.mjs'
 import { assignThreadToLocalProject } from './codex-project-assignment.mjs'
 import { createProgramSettingsStore } from './program-settings.mjs'
 import { captureGitWorkspace, compareGitWorkspaces } from './git-workspace-changes.mjs'
@@ -27,7 +26,6 @@ import {
 const PORT = Number(process.env.CODEX_BRIDGE_PORT || 4317)
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url))
 const STATE_FILE = join(SERVER_DIR, 'orchestrator-state.json')
-const PROVISIONING_JOURNAL_FILE = join(SERVER_DIR, 'provisioning-journal.json')
 const CODEX_HOME = process.env.CODEX_HOME || join(homedir(), '.codex')
 const CODEX_GLOBAL_STATE_FILE = join(CODEX_HOME, '.codex-global-state.json')
 const PROGRAM_SETTINGS_FILE = join(CODEX_HOME, 'codex-workflow-orchestrator-settings.json')
@@ -50,16 +48,7 @@ let nextRequestId = 1
 let nextApprovalId = 1
 let initialized = false
 let latestRateLimits = null
-let latestProvisioningRecovery = {
-  status: 'pending',
-  completedAt: null,
-  transactions: 0,
-  archived: 0,
-  preserved: 0,
-  failures: 0,
-}
 const sharedStateStore = createSharedStateStore(STATE_FILE)
-const provisioningJournal = createProvisioningJournal(PROVISIONING_JOURNAL_FILE)
 const programSettingsStore = createProgramSettingsStore(PROGRAM_SETTINGS_FILE)
 const CONVERSATION_TAIL_BYTES = 32 * 1024 * 1024
 
@@ -208,39 +197,6 @@ async function initialize() {
 }
 
 const ready = initialize()
-
-const provisioningRecoveryReady = ready.then(async () => {
-  const sharedState = (await sharedStateStore.read()).state
-  const recovered = await provisioningJournal.recover(
-    (threadId) => request('thread/archive', { threadId }),
-    (transaction) => Array.isArray(sharedState?.agents) && sharedState.agents.some((agent) =>
-      agent.id === transaction.metadata?.managerAgentId &&
-      agent.lastAppliedTeamPlanSignature === transaction.metadata?.signature,
-    ),
-  )
-  const archived = recovered.reduce((total, transaction) => total + transaction.archived, 0)
-  const failures = recovered.reduce((total, transaction) => total + transaction.failures.length, 0)
-  const preserved = recovered.filter((transaction) => transaction.preserved).length
-  latestProvisioningRecovery = {
-    status: failures > 0 ? 'attention' : 'complete',
-    completedAt: new Date().toISOString(),
-    transactions: recovered.length,
-    archived,
-    preserved,
-    failures,
-  }
-  if (archived > 0 || failures > 0) {
-    console.log(`Team-Wiederherstellung: ${archived} unvollständige Chats archiviert, ${failures} Fehler.`)
-  }
-}).catch((error) => {
-  latestProvisioningRecovery = {
-    ...latestProvisioningRecovery,
-    status: 'failed',
-    completedAt: new Date().toISOString(),
-    failures: Math.max(1, latestProvisioningRecovery.failures),
-  }
-  console.error('Team-Wiederherstellung fehlgeschlagen:', error)
-})
 
 async function listAllThreads() {
   await ready
@@ -768,6 +724,18 @@ const server = createServer(async (incoming, response) => {
       return
     }
 
+    if (incoming.method === 'GET' && url.pathname === '/api/provisioning-recovery') {
+      sendJson(response, 200, {
+        status: 'complete',
+        completedAt: null,
+        transactions: 0,
+        archived: 0,
+        preserved: 0,
+        failures: 0,
+      })
+      return
+    }
+
     if (incoming.method === 'GET' && url.pathname === '/api/program-settings') {
       sendJson(response, 200, await programSettingsStore.read())
       return
@@ -801,11 +769,6 @@ const server = createServer(async (incoming, response) => {
       return
     }
 
-    if (incoming.method === 'GET' && url.pathname === '/api/provisioning-recovery') {
-      await provisioningRecoveryReady
-      sendJson(response, 200, latestProvisioningRecovery)
-      return
-    }
 
     if (incoming.method === 'GET' && url.pathname === '/api/state') {
       sendJson(response, 200, await sharedStateStore.read())
@@ -926,44 +889,6 @@ const server = createServer(async (incoming, response) => {
       return
     }
 
-    if (incoming.method === 'POST' && url.pathname === '/api/provisioning-transactions') {
-      const body = await readJson(incoming)
-      const transaction = await provisioningJournal.create({
-        projectPath: typeof body.projectPath === 'string' ? body.projectPath : '',
-        managerAgentId: typeof body.managerAgentId === 'string' ? body.managerAgentId : '',
-        signature: typeof body.signature === 'string' ? body.signature : '',
-      })
-      sendJson(response, 201, { transaction })
-      return
-    }
-
-    const provisioningRollbackMatch = url.pathname.match(/^\/api\/provisioning-transactions\/([^/]+)\/rollback$/)
-    if (incoming.method === 'POST' && provisioningRollbackMatch) {
-      await ready
-      const result = await provisioningJournal.rollback(
-        decodeURIComponent(provisioningRollbackMatch[1]),
-        (threadId) => request('thread/archive', { threadId }),
-      )
-      if (result.failures.length > 0) {
-        sendJson(response, 500, {
-          error: `${result.failures.length} unvollständige Codex-Chats konnten nicht archiviert werden.`,
-          archived: result.archived,
-        })
-        return
-      }
-      sendJson(response, 200, { ok: true, found: result.found, archived: result.archived })
-      return
-    }
-
-    const provisioningCommitMatch = url.pathname.match(/^\/api\/provisioning-transactions\/([^/]+)$/)
-    if (incoming.method === 'DELETE' && provisioningCommitMatch) {
-      const committed = await provisioningJournal.commit(decodeURIComponent(provisioningCommitMatch[1]))
-      sendJson(response, committed ? 200 : 404, committed
-        ? { ok: true }
-        : { error: 'Team-Transaktion wurde nicht gefunden.' })
-      return
-    }
-
     if (incoming.method === 'POST' && url.pathname === '/api/threads') {
       const body = await readJson(incoming)
       if (!body.cwd || !body.projectId || !body.name) {
@@ -987,18 +912,6 @@ const server = createServer(async (incoming, response) => {
       } catch (error) {
         await request('thread/archive', { threadId: result.thread.id }).catch(() => undefined)
         throw error
-      }
-      const transactionId = typeof body.provisioningTransactionId === 'string'
-        ? body.provisioningTransactionId.trim()
-        : ''
-      if (transactionId) {
-        try {
-          const tracked = await provisioningJournal.addThread(transactionId, result.thread.id)
-          if (!tracked) throw new Error('Team-Transaktion wurde nicht gefunden.')
-        } catch (error) {
-          await request('thread/archive', { threadId: result.thread.id }).catch(() => undefined)
-          throw error
-        }
       }
       const initialTurn = body.startInitialPrompt === false
         ? null
@@ -1103,6 +1016,21 @@ const server = createServer(async (incoming, response) => {
         path: targetPath,
         relativePath: relative(resolve(projectPath), targetPath).replaceAll('\\', '/'),
       })
+      return
+    }
+
+    if (incoming.method === 'DELETE' && url.pathname === '/api/prompt-files') {
+      const body = await readJson(incoming)
+      const projectPath = typeof body.cwd === 'string' ? body.cwd.trim() : ''
+      const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : ''
+      const safeAgentId = agentId.replace(/[^a-zA-Z0-9_-]/g, '')
+      if (!projectPath || !safeAgentId || safeAgentId !== agentId) {
+        sendJson(response, 400, { error: 'Projekt und eine gültige Agenten-ID sind erforderlich.' })
+        return
+      }
+
+      const result = await deletePromptDirectory({ projectPath, agentId })
+      sendJson(response, 200, result)
       return
     }
 

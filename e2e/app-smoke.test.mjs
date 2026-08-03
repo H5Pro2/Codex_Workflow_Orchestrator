@@ -128,7 +128,10 @@ function fixtureState() {
     workflowStops: [],
     workflowTimers: [],
     workflowPositions: {},
-    workflowBoardAgentIds: { ceo: ['ceo', 'analyst'] },
+    workflowBoardAgentIds: {
+      ceo: ['ceo', 'analyst'],
+      'project:C:\\fixture-project': ['ceo', 'analyst'],
+    },
     deliveryQueue: {},
     workflowLoopCounts: { 'project-1': 3 },
     selectedProjectId: 'project-1',
@@ -208,10 +211,6 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
         { id: 'thread-ceo', name: 'CEO', cwd: 'C:\\fixture-project', status: 'idle' },
         { id: 'thread-analyst', name: 'Projektanalyst', cwd: 'C:\\fixture-project', status: 'idle' },
       ] } })
-      return
-    }
-    if (pathname === '/api/provisioning-recovery') {
-      await route.fulfill({ json: { status: 'idle', archived: 0, preserved: 0, failures: 0 } })
       return
     }
     if (pathname === '/api/models') {
@@ -422,10 +421,12 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
   await page.getByRole('button', { name: 'Workflow-Dashboard öffnen' }).click({ timeout: 5_000 })
   const workflowDashboard = page.getByRole('dialog', { name: 'Workflow-Dashboard von CEO' })
   await workflowDashboard.waitFor({ timeout: 5_000 })
+  const existingRouteCount = sharedState.routes.length
   await workflowDashboard.getByRole('button', { name: 'Agentenauswahl öffnen' }).click({ timeout: 5_000 })
   const qaOption = workflowDashboard.getByText('QA Tester').locator('..').locator('..')
   await qaOption.getByRole('checkbox').check({ timeout: 5_000 })
   await workflowDashboard.locator('.react-flow__node', { hasText: 'QA Tester' }).waitFor({ timeout: 5_000 })
+  assert.equal(sharedState.routes.length, existingRouteCount)
   assert.equal(await workflowDashboard.locator('details.dashboardAgentMenu').getAttribute('open'), null)
   assert.equal(await page.getByRole('dialog', { name: 'Agenten-Baustein bearbeiten' }).count(), 0)
 
@@ -433,9 +434,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
   await workflowDashboard.locator('.workflowCanvas').click({ position: { x: 18, y: 18 } })
   assert.equal(await workflowDashboard.locator('details.dashboardAgentMenu').getAttribute('open'), null)
 
-  assert.equal(await workflowDashboard.locator('details.dashboardStatusMenu').count(), 0)
-
-  await workflowDashboard.locator('.react-flow__edge-path').first().waitFor({ state: 'attached', timeout: 5_000 })
+  assert.equal(await workflowDashboard.locator('.react-flow__node.statusFilter').count(), 0)
 
   const visibleEdgeCount = async () => workflowDashboard.locator('.react-flow__edge-path').evaluateAll(
     (paths) => paths.filter((path) => {
@@ -443,36 +442,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
       return Boolean(path.getAttribute('d')) && Number(style.opacity) > 0 && style.display !== 'none'
     }).length,
   )
-  const waitForVisibleEdge = async () => {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      if ((await visibleEdgeCount()) > 0) return true
-      await page.waitForTimeout(100)
-    }
-    return false
-  }
-  assert.equal(await waitForVisibleEdge(), true)
-
-  const statusForwardNode = workflowDashboard.locator('.react-flow__node.statusFilter').first()
-  const statusForwardNodeBoxBeforeInterval = await statusForwardNode.boundingBox()
-  await statusForwardNode.dblclick()
-  const statusForwardDialog = page.getByRole('dialog', { name: 'Weiterleiten konfigurieren' })
-  await statusForwardDialog.getByText('Normaler Ausgang').click()
-  await statusForwardDialog.getByText('Intervall-Ausgang').click()
-  await statusForwardDialog.getByLabel('Zusatztext für den nächsten Agenten').waitFor()
-  await statusForwardDialog.getByRole('spinbutton', { name: 'Intervall' }).fill('5')
-  await statusForwardDialog.getByLabel('Intervalltext').fill('Untersuche den aktuellen Stand.')
-  await statusForwardDialog.getByLabel('Intervall-Verhalten').selectOption('both')
-  await statusForwardDialog.getByText('Stand 0/5.').waitFor()
-  await statusForwardDialog.getByRole('button', { name: 'Übernehmen' }).click()
-  await page.waitForTimeout(700)
-  assert.equal(sharedState.workflowStatusFilters[0].interval, 5)
-  assert.equal(sharedState.workflowStatusFilters[0].intervalPrompt, 'Untersuche den aktuellen Stand.')
-  assert.equal(sharedState.workflowStatusFilters[0].intervalMode, 'both')
-  assert.equal(await statusForwardNode.locator('[data-handleid="output"]').count(), 1)
-  assert.equal(await statusForwardNode.locator('[data-handleid="interval"]').count(), 1)
-  await statusForwardNode.getByText('0/5', { exact: true }).waitFor()
-  const statusForwardNodeBoxAfterInterval = await statusForwardNode.boundingBox()
-  assert.ok(statusForwardNodeBoxAfterInterval.height > statusForwardNodeBoxBeforeInterval.height)
+  assert.equal(await visibleEdgeCount(), 0)
 
   await workflowDashboard.locator('details.dashboardTools > summary').click()
   const initialSymbolBox = await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Initial' }).locator('.toolSymbol').boundingBox()
@@ -487,14 +457,16 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
   const forwardNodeBoxBeforeInterval = await forwardNode.boundingBox()
   await page.waitForTimeout(700)
   assert.equal(sharedState.workflowPrompts.some((prompt) => prompt.name === 'Weiterleiten'), true)
-  assert.equal(await waitForVisibleEdge(), true)
+  assert.equal(sharedState.routes.length, existingRouteCount)
+  assert.equal(await visibleEdgeCount(), 0)
 
   await forwardNode.dblclick()
   const forwardDialog = page.getByRole('dialog', { name: 'Weiterleiten-Baustein bearbeiten' })
+  await forwardDialog.getByText('Intervall-Ausgang').click()
+  await forwardDialog.getByLabel('Intervall-Quelle').selectOption('custom')
   await forwardDialog.getByRole('spinbutton', { name: 'Intervall' }).fill('2')
   await forwardDialog.getByLabel('Intervalltext').fill('Erstelle eine Stichprobenübersicht.')
   await forwardDialog.getByLabel('Intervall-Verhalten').selectOption('both')
-  await forwardDialog.getByText('Stand 0/2.').waitFor()
   await forwardDialog.getByRole('button', { name: 'Übernehmen' }).click()
   await page.waitForTimeout(700)
   assert.equal(sharedState.workflowPrompts.find((prompt) => prompt.name === 'Weiterleiten')?.interval, 2)
@@ -507,7 +479,17 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
   assert.ok(forwardNodeBoxAfterInterval.height > forwardNodeBoxBeforeInterval.height)
 
   await page.waitForTimeout(700)
-  assert.deepEqual(sharedState.workflowBoardAgentIds.ceo, ['ceo', 'analyst', 'qa'])
+  const persistedState = await page.evaluate(() =>
+    JSON.parse(window.localStorage.getItem('codex-workflow-orchestrator') || '{}'),
+  )
+  assert.equal(
+    Object.values(persistedState.workflowBoardAgentIds).some((agentIds) =>
+      Array.isArray(agentIds) &&
+      agentIds.includes('qa'),
+    ),
+    true,
+    JSON.stringify(persistedState.workflowBoardAgentIds),
+  )
 
   await workflowDashboard.locator('details.dashboardTools > summary').click()
   await workflowDashboard.locator('.dashboardToolMenu button', { hasText: 'Initial' }).click()

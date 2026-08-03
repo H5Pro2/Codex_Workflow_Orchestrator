@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict'
+﻿import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { auditWorkflowTopology } from './workflow-topology-audit.ts'
 
@@ -21,7 +21,7 @@ test('accepts complete agent to status to target paths', () => {
   }), [])
 })
 
-test('reports missing statuses and incomplete status connections without repairing them', () => {
+test('reports incomplete status connections without requiring every agent to have an outgoing path', () => {
   const issues = auditWorkflowTopology({
     agents,
     activeAgentIds: new Set(['ceo', 'research']),
@@ -34,8 +34,11 @@ test('reports missing statuses and incomplete status connections without repairi
   assert.deepEqual(issues.map((issue) => issue.code), [
     'unreachable-status',
     'missing-target',
-    'missing-status',
   ])
+  assert.equal(
+    issues.some((issue) => issue.detail.includes('kein ausgehender Workflow-Pfad')),
+    false,
+  )
 })
 
 test('reports routes whose endpoint no longer exists', () => {
@@ -71,4 +74,86 @@ test('requires both outputs for an enabled forwarding interval', () => {
 
   assert.equal(issues.some((issue) => issue.detail.includes('keinen Intervall-Ausgang')), true)
   assert.equal(issues.some((issue) => issue.detail.includes('keinen normalen Ausgang')), false)
+})
+
+test('accepts a direct forwarding node without a fachlicher status', () => {
+  assert.deepEqual(auditWorkflowTopology({
+    agents,
+    activeAgentIds: new Set(['research']),
+    statuses: [{ id: 'delegate' }],
+    filters: [],
+    routes: [
+      { ownerAgentId: 'research', sourceId: 'research', targetId: 'forward-node' },
+      { ownerAgentId: 'research', sourceId: 'forward-node', targetId: 'ceo' },
+    ],
+    terminals: [],
+    forwardingNodes: [{ id: 'forward-node', ownerAgentId: 'research' }],
+  }), [])
+})
+
+test('accepts a project dashboard forwarding path even when the forwarding node owner differs', () => {
+  assert.deepEqual(auditWorkflowTopology({
+    agents,
+    activeAgentIds: new Set(['research']),
+    statuses: [{ id: 'delegate' }],
+    filters: [],
+    routes: [
+      { ownerAgentId: 'research', sourceId: 'research', targetId: 'forward-node' },
+      { ownerAgentId: 'research', sourceId: 'forward-node', targetId: 'ceo' },
+    ],
+    terminals: [],
+    forwardingNodes: [{ id: 'forward-node', ownerAgentId: 'ceo' }],
+  }), [])
+})
+
+test('accepts a loop node with a configured target agent', () => {
+  assert.deepEqual(auditWorkflowTopology({
+    agents,
+    activeAgentIds: new Set(['research']),
+    statuses: [{ id: 'delegate' }],
+    filters: [],
+    routes: [
+      { ownerAgentId: 'research', sourceId: 'research', targetId: 'return-loop' },
+    ],
+    terminals: [],
+    loopNodes: [{ id: 'return-loop', ownerAgentId: 'research', targetAgentId: 'ceo' }],
+  }), [])
+})
+
+test('accepts a loop node with multiple configured target agents', () => {
+  assert.deepEqual(auditWorkflowTopology({
+    agents,
+    activeAgentIds: new Set(['research']),
+    statuses: [{ id: 'delegate' }],
+    filters: [],
+    routes: [
+      { ownerAgentId: 'research', sourceId: 'research', targetId: 'return-loop' },
+    ],
+    terminals: [],
+    loopNodes: [{
+      id: 'return-loop',
+      ownerAgentId: 'research',
+      targetAgentId: 'ceo',
+      targetAgentIds: ['ceo', 'research'],
+    }],
+  }), [])
+})
+
+test('reports a loop node without a configured target agent', () => {
+  const issues = auditWorkflowTopology({
+    agents,
+    activeAgentIds: new Set(['research']),
+    statuses: [{ id: 'delegate' }],
+    filters: [],
+    routes: [
+      { ownerAgentId: 'research', sourceId: 'research', targetId: 'return-loop' },
+    ],
+    terminals: [],
+    loopNodes: [{ id: 'return-loop', ownerAgentId: 'research', targetAgentId: '' }],
+  })
+
+  assert.equal(issues.some((issue) =>
+    issue.code === 'missing-target' &&
+    issue.detail.includes('Rücksprung-Baustein'),
+  ), true)
 })

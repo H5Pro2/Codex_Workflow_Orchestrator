@@ -9,18 +9,16 @@ const base = {
   deliveryCount: 0,
   statusKind: 'valid' as const,
   statusNames: ['Weiterleiten'],
-  fixedForwardingEnabled: false,
 }
 
-test('diagnoses a missing fixed-forwarding target', () => {
+test('diagnoses a missing target route', () => {
   const diagnosis = diagnoseWorkflowStall({
     ...base,
-    fixedForwardingEnabled: true,
   })
 
   assert.equal(diagnosis.cause, 'missing-route')
-  assert.match(diagnosis.summary, /kein Zielagent/)
-  assert.match(diagnosis.nextStep, /genau einen Zielagenten/)
+  assert.match(diagnosis.summary, /kein passender Zielpfad/)
+  assert.match(diagnosis.nextStep, /Dashboard-Verbindung/)
 })
 
 test('diagnoses an invalid status before treating it as a route problem', () => {
@@ -48,7 +46,6 @@ test('does not suggest a workflow repair when automation is off', () => {
   const diagnosis = diagnoseWorkflowStall({
     ...base,
     automationEnabled: false,
-    fixedForwardingIssue: 'invalid target',
   })
 
   assert.equal(diagnosis.cause, 'automation-off')

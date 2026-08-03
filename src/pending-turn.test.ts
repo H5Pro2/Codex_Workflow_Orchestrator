@@ -75,6 +75,23 @@ test('waits for both terminal confirmation and the normal startup grace period',
   }), true)
 })
 
+test('waits longer before accepting a missing turn as terminal', () => {
+  const now = Date.now()
+
+  assert.equal(hasStableTerminalResult({
+    runStartedAt: new Date(now - 10_000).toISOString(),
+    observations: 2,
+    now,
+    status: 'missing',
+  }), false)
+  assert.equal(hasStableTerminalResult({
+    runStartedAt: new Date(now - 61_000).toISOString(),
+    observations: 2,
+    now,
+    status: 'missing',
+  }), true)
+})
+
 test('falls back to the persisted agent update time when the run start is missing', () => {
   const updatedAt = '2026-07-24T00:18:12.667Z'
 

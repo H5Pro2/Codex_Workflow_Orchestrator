@@ -86,7 +86,6 @@ test('rejects an accidental empty topology snapshot over existing workflow data'
     agents: [{ id: 'ceo' }],
     routes: [{ id: 'route-1' }],
     workflowInitials: [{ id: 'initial-1' }],
-    workflowStatusFilters: [{ id: 'filter-1' }],
     workflowLoopCounts: {
       'project-one': 3,
     },
@@ -95,7 +94,6 @@ test('rejects an accidental empty topology snapshot over existing workflow data'
     agents: [],
     routes: [],
     workflowInitials: [],
-    workflowStatusFilters: [],
     workflowLoopCounts: {},
   }, { expectedUpdatedAt: initial.updatedAt })
 
@@ -152,4 +150,60 @@ test('merges project loop counts when an older tab writes a full snapshot', asyn
   assert.deepEqual((await store.read()).state.workflowLoopCounts, {
     'project-one': 3,
   })
+})
+
+test('strips disabled team provisioning metadata from shared snapshots', async () => {
+  const { store } = await createStore()
+  await store.update({
+    agents: [{
+      id: 'ceo',
+      teamProvisioningEnabled: true,
+      lastAppliedTeamPlanSignature: 'legacy-signature',
+    }],
+  }, { force: true })
+
+  assert.deepEqual((await store.read()).state.agents, [{ id: 'ceo' }])
+})
+
+test('removes legacy generated team topology from stale snapshots', async () => {
+  const { store } = await createStore()
+  await store.update({
+    agents: [
+      { id: 'reviewer', projectPath: 'C:\\Project' },
+      { id: 'developer', projectPath: 'C:\\Project' },
+    ],
+    workflowPrompts: [{ id: 'prompt', ownerAgentId: 'reviewer', projectPath: 'C:\\Project', name: 'Weiterleiten' }],
+    workflowInitials: [{ id: 'initial', ownerAgentId: 'reviewer', projectPath: 'C:\\Project', name: 'Start' }],
+    workflowStatusFilters: [{
+      id: 'filter',
+      ownerAgentId: 'legacy-agent',
+      projectPath: 'C:\\Project',
+      name: 'Weiterleitung: Game Designer → Frontend Entwickler',
+      statusId: 'forward',
+    }],
+    workflowStops: [{ id: 'stop', ownerAgentId: 'legacy-agent', projectPath: 'C:\\Project', name: 'Projekt abgeschlossen' }],
+    routes: [{ id: 'route', projectPath: 'C:\\Project', sourceId: 'prompt', targetId: 'developer' }],
+    workflowPositions: {
+      'reviewer:prompt': { x: 1, y: 1 },
+      'project:C:\\Project:reviewer': { x: 2, y: 2 },
+    },
+    workflowBoardAgentIds: {
+      reviewer: ['developer'],
+    },
+    workflowBoardNodeIds: {
+      reviewer: ['prompt'],
+      'project:C:\\Project': ['prompt'],
+    },
+  }, { force: true })
+
+  const state = (await store.read()).state
+  assert.deepEqual(state.workflowPrompts, [])
+  assert.deepEqual(state.workflowInitials, [])
+  assert.equal(state.workflowStatusFilters, undefined)
+  assert.deepEqual(state.workflowStops, [])
+  assert.deepEqual(state.routes, [])
+  assert.deepEqual(state.workflowPositions, {})
+  assert.deepEqual(state.workflowBoardAgentIds['project:C:\\Project'], ['reviewer', 'developer'])
+  assert.equal(state.workflowBoardAgentIds.reviewer, undefined)
+  assert.equal(state.workflowBoardNodeIds.reviewer, undefined)
 })

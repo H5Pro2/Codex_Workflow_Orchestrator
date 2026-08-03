@@ -44,6 +44,133 @@ function mergeWorkflowLoopCounts(previousState, nextState) {
   }
 }
 
+function mergeWorkflowLoops(previousState, nextState) {
+  if (!nextState || typeof nextState !== 'object' || Array.isArray(nextState)) {
+    return nextState
+  }
+  const previousLoops = Array.isArray(previousState?.workflowLoops) ? previousState.workflowLoops : []
+  const nextLoops = Array.isArray(nextState.workflowLoops) ? nextState.workflowLoops : []
+  if (previousLoops.length === 0 || nextLoops.length > 0) {
+    return nextState
+  }
+  const nextRoutes = Array.isArray(nextState.routes) ? nextState.routes : []
+  const referencedNodeIds = new Set(nextRoutes.flatMap((route) => [route?.sourceId, route?.targetId]).filter(Boolean))
+  const retainedLoops = previousLoops.filter((loop) => referencedNodeIds.has(loop?.id))
+  return retainedLoops.length > 0
+    ? { ...nextState, workflowLoops: retainedLoops }
+    : nextState
+}
+
+function sameProjectPath(left, right) {
+  return String(left || '').toLocaleLowerCase() === String(right || '').toLocaleLowerCase()
+}
+
+function isLegacyTeamTopologyFilter(filter) {
+  const name = String(filter?.name || '').trim()
+  return (
+    /^Weiterleitung:\s.+\s(?:→|->)\s.+$/u.test(name) ||
+    /^Fehler:\s.+\s->\s.+$/u.test(name) ||
+    /^Projekt abgeschlossen:\s.+\s->\s.+$/u.test(name) ||
+    name === 'Status: Weiterleitung'
+  )
+}
+
+function sanitizeManualState(nextState) {
+  if (!nextState || typeof nextState !== 'object' || Array.isArray(nextState)) {
+    return nextState
+  }
+  const sanitized = { ...nextState }
+  if (Array.isArray(sanitized.agents)) {
+    sanitized.agents = sanitized.agents.map((agent) => {
+      if (!agent || typeof agent !== 'object' || Array.isArray(agent)) return agent
+      if (!('teamProvisioningEnabled' in agent) && !('lastAppliedTeamPlanSignature' in agent)) {
+        return agent
+      }
+      const {
+        lastAppliedTeamPlanSignature: _removedSignature,
+        teamProvisioningEnabled: _removedFlag,
+        ...rest
+      } = agent
+      return rest
+    })
+  }
+  if (sanitized.workflowBoardAgentIds && typeof sanitized.workflowBoardAgentIds === 'object') {
+    sanitized.workflowBoardAgentIds = Object.fromEntries(
+      Object.entries(sanitized.workflowBoardAgentIds).filter(([key, value]) =>
+        key.startsWith('project:') && Array.isArray(value),
+      ),
+    )
+  }
+  if (sanitized.workflowBoardNodeIds && typeof sanitized.workflowBoardNodeIds === 'object') {
+    sanitized.workflowBoardNodeIds = Object.fromEntries(
+      Object.entries(sanitized.workflowBoardNodeIds).filter(([key, value]) =>
+        key.startsWith('project:') && Array.isArray(value),
+      ),
+    )
+  }
+  if (sanitized.workflowPositions && typeof sanitized.workflowPositions === 'object') {
+    sanitized.workflowPositions = Object.fromEntries(
+      Object.entries(sanitized.workflowPositions).filter(([key]) => key.startsWith('project:')),
+    )
+  }
+
+  const legacyProjectPaths = new Set(
+    (Array.isArray(sanitized.workflowStatusFilters) ? sanitized.workflowStatusFilters : [])
+      .filter(isLegacyTeamTopologyFilter)
+      .map((filter) => filter.projectPath)
+      .filter(Boolean),
+  )
+  delete sanitized.workflowStatusFilters
+  if (legacyProjectPaths.size === 0) {
+    return sanitized
+  }
+
+  const isLegacyProjectItem = (item) =>
+    [...legacyProjectPaths].some((projectPath) => sameProjectPath(item?.projectPath, projectPath))
+  const projectAgentIds = new Set(
+    (Array.isArray(sanitized.agents) ? sanitized.agents : [])
+      .filter(isLegacyProjectItem)
+      .map((agent) => agent.id)
+      .filter(Boolean),
+  )
+  const removedNodeIds = new Set()
+  ;['workflowPrompts', 'workflowInitials', 'workflowStops', 'workflowLoops', 'workflowTimers'].forEach((key) => {
+    const collection = Array.isArray(sanitized[key]) ? sanitized[key] : []
+    collection.filter(isLegacyProjectItem).forEach((item) => {
+      if (item?.id) removedNodeIds.add(item.id)
+    })
+    sanitized[key] = collection.filter((item) => !isLegacyProjectItem(item))
+  })
+  sanitized.routes = (Array.isArray(sanitized.routes) ? sanitized.routes : []).filter((route) =>
+    !isLegacyProjectItem(route) &&
+    !removedNodeIds.has(route?.sourceId) &&
+    !removedNodeIds.has(route?.targetId)
+  )
+  sanitized.workflowPositions = Object.fromEntries(
+    Object.entries(sanitized.workflowPositions || {}).filter(([key]) => {
+      const separator = key.indexOf(':')
+      const ownerId = separator > 0 ? key.slice(0, separator) : ''
+      const nodeId = separator > 0 ? key.slice(separator + 1) : ''
+      if (removedNodeIds.has(nodeId) || projectAgentIds.has(ownerId)) return false
+      return ![...legacyProjectPaths].some((projectPath) => key.startsWith(`project:${projectPath}:`))
+    }),
+  )
+  sanitized.workflowBoardNodeIds = Object.fromEntries(
+    Object.entries(sanitized.workflowBoardNodeIds || {}).flatMap(([key, value]) => {
+      if (!Array.isArray(value)) return []
+      const nodeIds = value.filter((id) => !removedNodeIds.has(id))
+      return nodeIds.length > 0 ? [[key, nodeIds]] : []
+    }),
+  )
+  ;[...legacyProjectPaths].forEach((projectPath) => {
+    sanitized.workflowBoardAgentIds[`project:${projectPath}`] = (Array.isArray(sanitized.agents) ? sanitized.agents : [])
+      .filter((agent) => sameProjectPath(agent?.projectPath, projectPath))
+      .map((agent) => agent.id)
+      .filter(Boolean)
+  })
+  return sanitized
+}
+
 function collectionSize(state, key) {
   const value = state?.[key]
   return Array.isArray(value) ? value.length : 0
@@ -57,12 +184,12 @@ function rejectsDestructiveEmptySnapshot(previousState, nextState) {
     collectionSize(previousState, 'agents') +
     collectionSize(previousState, 'routes') +
     collectionSize(previousState, 'workflowInitials') +
-    collectionSize(previousState, 'workflowStatusFilters')
+    collectionSize(previousState, 'workflowLoops')
   const nextTopologySize =
     collectionSize(nextState, 'agents') +
     collectionSize(nextState, 'routes') +
     collectionSize(nextState, 'workflowInitials') +
-    collectionSize(nextState, 'workflowStatusFilters')
+    collectionSize(nextState, 'workflowLoops')
   return previousTopologySize > 0 && nextTopologySize === 0
 }
 
@@ -110,7 +237,7 @@ export function createSharedStateStore(stateFile, { now = () => new Date() } = {
         return { ok: false, state, updatedAt }
       }
 
-      const mergedNextState = mergeWorkflowLoopCounts(state, nextState)
+      const mergedNextState = sanitizeManualState(mergeWorkflowLoops(state, mergeWorkflowLoopCounts(state, nextState)))
       if (!force && rejectsDestructiveEmptySnapshot(state, mergedNextState)) {
         return { ok: false, state, updatedAt }
       }

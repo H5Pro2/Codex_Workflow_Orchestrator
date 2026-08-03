@@ -1,4 +1,4 @@
-export const INACTIVE_TURN_CONFIRMATION_MS = 20_000
+export const INACTIVE_TURN_CONFIRMATION_MS = 60_000
 
 export function confirmInactiveTurn({
   observations,

@@ -45,3 +45,13 @@ export async function writeVerifiedPromptFile({ projectPath, agentId, fileName, 
     sha256: promptContentSha256(persistedContent),
   }
 }
+
+export async function deletePromptDirectory({ projectPath, agentId }) {
+  const root = resolve(projectPath)
+  const directory = join(root, '.codex-orchestrator', 'prompts', safePromptAgentId(agentId))
+  await rm(directory, { recursive: true, force: true })
+  return {
+    path: directory,
+    relativePath: relative(root, directory).replaceAll('\\', '/'),
+  }
+}

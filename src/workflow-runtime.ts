@@ -8,6 +8,7 @@ export type WorkflowRunEntryKind =
   | 'handoff-delivered'
   | 'paused'
   | 'completed'
+  | 'reset'
 
 export type WorkflowRunEntry = {
   id: string
@@ -62,6 +63,7 @@ const MAX_RUNS = 12
 const MAX_ENTRIES_PER_RUN = 80
 const MAX_ENTRY_DETAIL_LENGTH = 1_500
 const MAX_CHECKPOINT_RESULT_LENGTH = 12_000
+const INTERNAL_WORKFLOW_ERROR_STATUS_ID = 'system:internal-workflow-error'
 
 function normalizeCycle(value: unknown) {
   const parsed = Number(value)
@@ -73,10 +75,10 @@ function samePath(left: string, right: string) {
     right.trim().replaceAll('\\', '/').replace(/\/$/, '').toLocaleLowerCase('de-DE')
 }
 
-export function normalizeWorkflowRuntime(value: unknown): WorkflowRuntime {
+export function normalizeWorkflowRuntime(value: unknown, ..._legacyArgs: unknown[]): WorkflowRuntime {
   if (!value || typeof value !== 'object') return EMPTY_RUNTIME
   const candidate = value as Partial<WorkflowRuntime>
-  return {
+  return pruneStaleContinuationRunsAfterCleanClose({
     runs: Array.isArray(candidate.runs)
       ? candidate.runs.slice(0, MAX_RUNS).map((run) => ({
           ...run,
@@ -92,8 +94,15 @@ export function normalizeWorkflowRuntime(value: unknown): WorkflowRuntime {
             : [],
         }))
       : [],
-    checkpoints: Array.isArray(candidate.checkpoints) ? candidate.checkpoints : [],
-  }
+    checkpoints: Array.isArray(candidate.checkpoints)
+      ? candidate.checkpoints.filter((checkpoint) =>
+          !(Array.isArray(checkpoint.statusIds) &&
+            checkpoint.statusIds.length === 1 &&
+            checkpoint.statusIds[0] === INTERNAL_WORKFLOW_ERROR_STATUS_ID &&
+            checkpoint.state === 'pending'),
+        )
+      : [],
+  })
 }
 
 export function activeWorkflowRun(runtime: WorkflowRuntime, projectPath: string) {
@@ -166,6 +175,39 @@ export function workflowRunCycleProgress(runtime: WorkflowRuntime, projectPath: 
   const cycle = normalizeCycle(run?.cycle)
   const targetCycles = Math.max(cycle, normalizeCycle(run?.targetCycles))
   return { cycle, targetCycles, shouldContinue: cycle < targetCycles }
+}
+
+export function latestProjectRunIsCleanlyClosed(runtime: WorkflowRuntime, projectPath: string) {
+  const latest = runtime.runs
+    .filter((run) => samePath(run.projectPath, projectPath))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+  if (!latest || latest.status !== 'completed') return false
+  const lastEntry = latest.entries.at(-1)
+  return lastEntry?.kind === 'completed' || lastEntry?.kind === 'reset'
+}
+
+function pruneStaleContinuationRunsAfterCleanClose(runtime: WorkflowRuntime): WorkflowRuntime {
+  const staleRunIds = new Set<string>()
+  runtime.runs.forEach((run) => {
+    if (run.status === 'completed') return
+    if (run.cycle !== 1 || run.entries.at(0)?.kind !== 'handoff-pending') return
+    const firstEntryAt = Date.parse(run.entries[0]?.at ?? '')
+    if (!Number.isFinite(firstEntryAt)) return
+    const cleanClose = runtime.runs.find((candidate) => {
+      if (!samePath(candidate.projectPath, run.projectPath)) return false
+      if (candidate.status !== 'completed') return false
+      if (candidate.cycle < candidate.targetCycles) return false
+      if (candidate.entries.at(-1)?.kind !== 'completed') return false
+      const closedAt = Date.parse(candidate.updatedAt)
+      return Number.isFinite(closedAt) && firstEntryAt >= closedAt && firstEntryAt - closedAt < 10_000
+    })
+    if (cleanClose) staleRunIds.add(run.id)
+  })
+  if (staleRunIds.size === 0) return runtime
+  return {
+    runs: runtime.runs.filter((run) => !staleRunIds.has(run.id)),
+    checkpoints: runtime.checkpoints.filter((checkpoint) => !staleRunIds.has(checkpoint.runId)),
+  }
 }
 
 export function advanceWorkflowRunCycle(
@@ -302,7 +344,7 @@ export function resetProjectWorkflowRuntime(
   projectPath: string,
   at = new Date().toISOString(),
 ) {
-  const resetEntry = workflowRunEntry('completed', {
+  const resetEntry = workflowRunEntry('reset', {
     detail: 'Arbeitslauf durch den Benutzer zurückgesetzt.',
   }, at)
   return {

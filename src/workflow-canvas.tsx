@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import type { CSSProperties } from 'react'
 import {
   BaseEdge,
   Handle,
@@ -14,7 +15,7 @@ import {
 
 export type WorkflowNodeData = {
   label: string
-  kind: 'agent' | 'prompt' | 'initial' | 'status' | 'stop' | 'timer'
+  kind: 'agent' | 'prompt' | 'initial' | 'status' | 'stop' | 'timer' | 'loop'
   status?: string
   kindLabel?: string
   hasInstruction?: boolean
@@ -31,9 +32,9 @@ export function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
   const hasInterval = (data.kind === 'prompt' || data.kind === 'status') && Boolean(data.interval)
   return (
     <div className={`workflowNodeContent ${data.kind} ${hasInterval ? 'intervalEnabled' : ''}`}>
-      {isInitial && data.hasInstruction && (
+      {data.hasInstruction && (
         <span
-          className="initialInstructionIndicator nodrag"
+          className="nodeInstructionIndicator nodrag"
           role="img"
           aria-label={data.instructionIndicatorLabel}
           title={data.instructionIndicatorLabel}
@@ -70,6 +71,14 @@ export function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
 const WORKFLOW_NODE_WIDTH = 190
 const WORKFLOW_EDGE_CURVATURE = 0.35
 const WORKFLOW_EDGE_BORDER_RADIUS = 18
+const WORKFLOW_HANDLE_EDGE_Y_OFFSET: Record<string, number> = {
+  input: 0,
+  output: 0,
+  interval: 2,
+}
+
+const workflowHandleEdgeYOffset = (handleId?: string | null) =>
+  handleId ? WORKFLOW_HANDLE_EDGE_Y_OFFSET[handleId] ?? 0 : 0
 
 const getWorkflowEdgeGeometry = ({
   sourceX,
@@ -78,28 +87,32 @@ const getWorkflowEdgeGeometry = ({
   targetX,
   targetY,
   targetPosition,
-}: Pick<EdgeProps, 'sourceX' | 'sourceY' | 'sourcePosition' | 'targetX' | 'targetY' | 'targetPosition'>) => {
+  sourceHandleId,
+  targetHandleId,
+}: Pick<EdgeProps, 'sourceX' | 'sourceY' | 'sourcePosition' | 'targetX' | 'targetY' | 'targetPosition' | 'sourceHandleId' | 'targetHandleId'>) => {
+  const adjustedSourceY = sourceY + workflowHandleEdgeYOffset(sourceHandleId)
+  const adjustedTargetY = targetY + workflowHandleEdgeYOffset(targetHandleId)
   const horizontalNodeOffset = targetX - sourceX + WORKFLOW_NODE_WIDTH
   const horizontalNodeDistance = Math.abs(horizontalNodeOffset)
-  const orientationRatio = Math.abs(targetY - sourceY) / Math.max(horizontalNodeDistance, 1)
+  const orientationRatio = Math.abs(adjustedTargetY - adjustedSourceY) / Math.max(horizontalNodeDistance, 1)
   const routesBackward = horizontalNodeOffset <= 0
   const verticalBlend = routesBackward || orientationRatio > 0.58 ? 1 : 0
   return {
     bezierPath: getBezierPath({
       sourceX,
-      sourceY,
+      sourceY: adjustedSourceY,
       sourcePosition,
       targetX,
-      targetY,
+      targetY: adjustedTargetY,
       targetPosition,
       curvature: WORKFLOW_EDGE_CURVATURE,
     })[0],
     smoothStepPath: getSmoothStepPath({
       sourceX,
-      sourceY,
+      sourceY: adjustedSourceY,
       sourcePosition,
       targetX,
-      targetY,
+      targetY: adjustedTargetY,
       targetPosition,
       borderRadius: WORKFLOW_EDGE_BORDER_RADIUS,
     })[0],
@@ -115,11 +128,17 @@ export function WorkflowEdge({
   targetX,
   targetY,
   targetPosition,
+  sourceHandleId,
+  targetHandleId,
   markerEnd,
   markerStart,
   style,
   interactionWidth,
 }: EdgeProps) {
+  const adjustedStyle: CSSProperties = {
+    ...style,
+    vectorEffect: 'non-scaling-stroke',
+  }
   const { bezierPath, smoothStepPath, verticalBlend } = getWorkflowEdgeGeometry({
     sourceX,
     sourceY,
@@ -127,6 +146,8 @@ export function WorkflowEdge({
     targetX,
     targetY,
     targetPosition,
+    sourceHandleId,
+    targetHandleId,
   })
   return (
     <>
@@ -135,7 +156,7 @@ export function WorkflowEdge({
         path={bezierPath}
         markerEnd={markerEnd}
         markerStart={markerStart}
-        style={{ ...style, opacity: 1 - verticalBlend, transition: 'opacity 160ms ease' }}
+        style={{ ...adjustedStyle, opacity: 1 - verticalBlend, transition: 'opacity 160ms ease' }}
         interactionWidth={interactionWidth}
       />
       <BaseEdge
@@ -143,7 +164,7 @@ export function WorkflowEdge({
         path={smoothStepPath}
         markerEnd={markerEnd}
         markerStart={markerStart}
-        style={{ ...style, opacity: verticalBlend, transition: 'opacity 160ms ease' }}
+        style={{ ...adjustedStyle, opacity: verticalBlend, transition: 'opacity 160ms ease' }}
         interactionWidth={interactionWidth}
       />
     </>
@@ -179,21 +200,22 @@ export function WorkflowConnectionLine({
       (handle.dataset.handleid ?? '') === geometry.fromHandleId,
     )
     const sourceBounds = sourceHandle?.getBoundingClientRect()
-    const handleScale = sourceBounds ? sourceBounds.width / 14 : 1
     const source = sourceBounds
       ? {
           x: sourceBounds.left + sourceBounds.width / 2,
-          y: sourceBounds.top + sourceBounds.height / 2 - 2.5 * handleScale,
+          y: sourceBounds.top + sourceBounds.height / 2,
         }
       : { x: geometry.fromX, y: geometry.fromY }
     const syncConnection = (clientX: number, clientY: number) => {
       const { bezierPath, smoothStepPath, verticalBlend } = getWorkflowEdgeGeometry({
         sourceX: source.x,
-        sourceY: source.y,
+        sourceY: source.y + workflowHandleEdgeYOffset(geometry.fromHandleId),
         sourcePosition: geometry.fromPosition,
         targetX: clientX,
         targetY: clientY,
         targetPosition: geometry.toPosition,
+        sourceHandleId: '',
+        targetHandleId: '',
       })
       bezierPathRef.current?.setAttribute('d', bezierPath)
       smoothStepPathRef.current?.setAttribute('d', smoothStepPath)

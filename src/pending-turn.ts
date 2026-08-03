@@ -37,7 +37,10 @@ type StableTerminalResultInput = {
   runStartedAt: string
   observations: number
   now: number
+  status?: string
 }
+
+const MISSING_TURN_GRACE_MS = 60_000
 
 export function resolvePendingTurnStartedAt(
   runStartedAt: string,
@@ -58,10 +61,12 @@ export function hasStableTerminalResult({
   runStartedAt,
   observations,
   now,
+  status = '',
 }: StableTerminalResultInput) {
   if (observations < 2) return false
   if (!runStartedAt) return true
 
   const startedAt = new Date(runStartedAt).getTime()
-  return !Number.isFinite(startedAt) || now - startedAt >= 6000
+  const graceMs = status === 'missing' ? MISSING_TURN_GRACE_MS : 6000
+  return !Number.isFinite(startedAt) || now - startedAt >= graceMs
 }

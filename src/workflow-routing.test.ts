@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  isTerminalIntervalSideBranch,
   resolveConfiguredDeliveries,
-  resolveUnconditionalForwarding,
-  wouldCreateUnsupportedUnconditionalForwardCycle,
 } from './workflow-routing.ts'
 
 const route = (id: string, sourceId: string, targetId: string) => ({
@@ -14,57 +13,41 @@ const route = (id: string, sourceId: string, targetId: string) => ({
   prompt: '',
 })
 
-test('routes only the status selected by the validated protocol signal', () => {
+test('routes a direct agent connection without hidden forwarding nodes', () => {
   const deliveries = resolveConfiguredDeliveries({
-    sourceId: 'ceo',
-    result: 'Weiter an Frontend',
-    resultStatusIds: ['forward'],
+    sourceId: 'developer',
+    result: 'Umsetzung fertig.',
+    routes: [route('developer-reviewer', 'developer', 'reviewer')],
+    promptNodes: [],
+    targetIds: new Set(['reviewer']),
+    stopIds: new Set(),
+  })
+
+  assert.deepEqual(deliveries.map((delivery) => delivery.targetId), ['reviewer'])
+})
+
+test('routes a forwarding prompt without a workflow status signal', () => {
+  const deliveries = resolveConfiguredDeliveries({
+    sourceId: 'analyst',
+    result: 'Analyse abgeschlossen.',
     routes: [
-      route('ceo-filter', 'ceo', 'forward-filter'),
-      route('filter-frontend', 'forward-filter', 'frontend'),
-      route('ceo-error', 'ceo', 'error-filter'),
-      route('error-diagnostics', 'error-filter', 'diagnostics'),
+      route('analyst-forward', 'analyst', 'forward-node'),
+      { ...route('forward-researcher', 'forward-node', 'researcher'), sourceHandle: 'output' },
+      { ...route('forward-helper', 'forward-node', 'helper'), sourceHandle: 'output' },
     ],
-    statusFilters: [
-      { id: 'forward-filter', statusId: 'forward' },
-      { id: 'error-filter', statusId: 'error' },
-    ],
-    promptNodes: [],
-    targetIds: new Set(['frontend', 'diagnostics']),
+    promptNodes: [{
+      id: 'forward-node',
+      condition: 'Immer',
+      prompt: 'Bearbeite die vorherige Antwort gemaess deiner Rolle weiter.',
+    }],
+    targetIds: new Set(['researcher', 'helper']),
     stopIds: new Set(),
   })
-  assert.deepEqual(deliveries.map((delivery) => delivery.targetId), ['frontend'])
+
+  assert.deepEqual(deliveries.map((delivery) => delivery.targetId), ['researcher', 'helper'])
 })
 
-test('does not infer a route from prose or an unvalidated status', () => {
-  const deliveries = resolveConfiguredDeliveries({
-    sourceId: 'ceo',
-    result: 'Bitte an Frontend weitergeben.',
-    resultStatusIds: [],
-    routes: [route('ceo-filter', 'ceo', 'forward-filter'), route('filter-frontend', 'forward-filter', 'frontend')],
-    statusFilters: [{ id: 'forward-filter', statusId: 'forward' }],
-    promptNodes: [],
-    targetIds: new Set(['frontend']),
-    stopIds: new Set(),
-  })
-  assert.deepEqual(deliveries, [])
-})
-
-test('resolves configured stop paths', () => {
-  const deliveries = resolveConfiguredDeliveries({
-    sourceId: 'qa',
-    result: 'Abgeschlossen',
-    resultStatusIds: ['done'],
-    routes: [route('qa-filter', 'qa', 'done-filter'), route('filter-stop', 'done-filter', 'project-stop')],
-    statusFilters: [{ id: 'done-filter', statusId: 'done' }],
-    promptNodes: [],
-    targetIds: new Set(),
-    stopIds: new Set(['project-stop']),
-  })
-  assert.deepEqual(deliveries.map((delivery) => delivery.stopId), ['project-stop'])
-})
-
-test('routes an interval forwarding node through normal and interval outputs', () => {
+test('routes a forwarding interval through normal and interval outputs', () => {
   const routes = [
     route('agent-forward', 'agent', 'forward-node'),
     { ...route('forward-normal', 'forward-node', 'reviewer'), sourceHandle: 'output' },
@@ -73,9 +56,7 @@ test('routes an interval forwarding node through normal and interval outputs', (
   const resolveAt = (intervalCount: number) => resolveConfiguredDeliveries({
     sourceId: 'agent',
     result: 'Ergebnis',
-    resultStatusIds: [],
     routes,
-    statusFilters: [],
     promptNodes: [{ id: 'forward-node', condition: '', prompt: 'Weiter', interval: 5, intervalCount }],
     targetIds: new Set(['reviewer', 'auditor']),
     stopIds: new Set(),
@@ -93,42 +74,15 @@ test('routes an interval forwarding node through normal and interval outputs', (
   })), [{ targetId: 'auditor', branch: 'interval', nextCount: 0 }])
 })
 
-test('routes a status filter through its configured interval output', () => {
-  const routes = [
-    route('agent-filter', 'agent', 'review-filter'),
-    { ...route('filter-normal', 'review-filter', 'reviewer'), sourceHandle: 'output' },
-    { ...route('filter-interval', 'review-filter', 'auditor'), sourceHandle: 'interval' },
-  ]
-  const deliveries = resolveConfiguredDeliveries({
-    sourceId: 'agent',
-    result: 'Prüfbereit',
-    resultStatusIds: ['review'],
-    routes,
-    statusFilters: [{ id: 'review-filter', statusId: 'review', interval: 3, intervalCount: 2 }],
-    promptNodes: [],
-    targetIds: new Set(['reviewer', 'auditor']),
-    stopIds: new Set(),
-  })
-
-  assert.deepEqual(deliveries.map((delivery) => ({
-    targetId: delivery.targetId,
-    branch: delivery.promptBranch,
-    nextCount: delivery.promptNextCount,
-  })), [{ targetId: 'auditor', branch: 'interval', nextCount: 0 }])
-})
-
 test('routes a forwarding interval through both outputs when configured', () => {
-  const routes = [
-    route('agent-forward', 'agent', 'forward-node'),
-    { ...route('forward-normal', 'forward-node', 'reviewer'), sourceHandle: 'output' },
-    { ...route('forward-interval', 'forward-node', 'auditor'), sourceHandle: 'interval' },
-  ]
   const deliveries = resolveConfiguredDeliveries({
     sourceId: 'agent',
     result: 'Ergebnis',
-    resultStatusIds: [],
-    routes,
-    statusFilters: [],
+    routes: [
+      route('agent-forward', 'agent', 'forward-node'),
+      { ...route('forward-normal', 'forward-node', 'reviewer'), sourceHandle: 'output' },
+      { ...route('forward-interval', 'forward-node', 'auditor'), sourceHandle: 'interval' },
+    ],
     promptNodes: [{
       id: 'forward-node',
       condition: '',
@@ -136,7 +90,7 @@ test('routes a forwarding interval through both outputs when configured', () => 
       interval: 5,
       intervalCount: 4,
       intervalMode: 'both',
-      intervalPrompt: 'Prüfe als Stichprobe.',
+      intervalPrompt: 'Pruefe als Stichprobe.',
     }],
     targetIds: new Set(['reviewer', 'auditor']),
     stopIds: new Set(),
@@ -149,154 +103,153 @@ test('routes a forwarding interval through both outputs when configured', () => 
     nextCount: delivery.promptNextCount,
   })), [
     { targetId: 'reviewer', prompt: 'Weiter', branch: 'interval', nextCount: 0 },
-    { targetId: 'auditor', prompt: 'Prüfe als Stichprobe.', branch: 'interval', nextCount: 0 },
+    { targetId: 'auditor', prompt: 'Pruefe als Stichprobe.', branch: 'interval', nextCount: 0 },
   ])
+})
+
+test('routes a loop node to its configured target agent without a visible return edge', () => {
+  const deliveries = resolveConfiguredDeliveries({
+    sourceId: 'programmer',
+    result: 'Implementierung abgeschlossen.',
+    routes: [route('programmer-loop', 'programmer', 'return-loop')],
+    promptNodes: [],
+    loopNodes: [{ id: 'return-loop', targetAgentId: 'developer' }],
+    targetIds: new Set(['developer']),
+    stopIds: new Set(),
+  })
+
+  assert.deepEqual(deliveries.map((delivery) => ({
+    targetId: delivery.targetId,
+    loopNodeId: delivery.loopNodeId,
+  })), [{ targetId: 'developer', loopNodeId: 'return-loop' }])
+})
+
+test('routes a loop node to all configured target agents', () => {
+  const deliveries = resolveConfiguredDeliveries({
+    sourceId: 'programmer',
+    result: 'Implementierung abgeschlossen.',
+    routes: [route('programmer-loop', 'programmer', 'return-loop')],
+    promptNodes: [],
+    loopNodes: [{
+      id: 'return-loop',
+      targetAgentId: 'developer',
+      targetAgentIds: ['developer', 'reviewer'],
+    }],
+    targetIds: new Set(['developer', 'reviewer']),
+    stopIds: new Set(),
+  })
+
+  assert.deepEqual(deliveries.map((delivery) => ({
+    targetId: delivery.targetId,
+    loopNodeId: delivery.loopNodeId,
+  })), [
+    { targetId: 'developer', loopNodeId: 'return-loop' },
+    { targetId: 'reviewer', loopNodeId: 'return-loop' },
+  ])
+})
+
+test('routes a loop node to target agents and an explicit stop output', () => {
+  const deliveries = resolveConfiguredDeliveries({
+    sourceId: 'programmer',
+    result: 'Implementierung abgeschlossen.',
+    routes: [
+      route('programmer-loop', 'programmer', 'return-loop'),
+      { ...route('loop-stop', 'return-loop', 'project-stop'), sourceHandle: 'output' },
+    ],
+    promptNodes: [],
+    loopNodes: [{ id: 'return-loop', targetAgentId: 'developer' }],
+    targetIds: new Set(['developer']),
+    stopIds: new Set(['project-stop']),
+  })
+
+  assert.deepEqual(deliveries.map((delivery) => ({
+    targetId: delivery.targetId,
+    stopId: delivery.stopId,
+    loopNodeId: delivery.loopNodeId,
+  })), [
+    { targetId: 'developer', stopId: undefined, loopNodeId: 'return-loop' },
+    { targetId: undefined, stopId: 'project-stop', loopNodeId: 'return-loop' },
+  ])
+})
+
+test('routes a loop output through an explicit forwarding node', () => {
+  const deliveries = resolveConfiguredDeliveries({
+    sourceId: 'programmer',
+    result: 'Implementierung abgeschlossen.',
+    routes: [
+      route('programmer-loop', 'programmer', 'return-loop'),
+      { ...route('loop-forward', 'return-loop', 'forward-node'), sourceHandle: 'output' },
+      { ...route('forward-analyst', 'forward-node', 'analyst'), sourceHandle: 'output' },
+    ],
+    promptNodes: [{ id: 'forward-node', condition: '', prompt: 'Abschluss prüfen.' }],
+    loopNodes: [{ id: 'return-loop', targetAgentId: 'developer' }],
+    targetIds: new Set(['developer', 'analyst']),
+    stopIds: new Set(),
+  })
+
+  assert.deepEqual(deliveries.map((delivery) => ({
+    targetId: delivery.targetId,
+    promptNodeId: delivery.promptNodeId,
+    loopNodeId: delivery.loopNodeId,
+  })), [
+    { targetId: 'developer', promptNodeId: undefined, loopNodeId: 'return-loop' },
+    { targetId: 'analyst', promptNodeId: 'forward-node', loopNodeId: 'return-loop' },
+  ])
+})
+
+test('routes configured stop paths', () => {
+  const deliveries = resolveConfiguredDeliveries({
+    sourceId: 'qa',
+    result: 'Abgeschlossen',
+    routes: [route('qa-stop', 'qa', 'project-stop')],
+    promptNodes: [],
+    targetIds: new Set(),
+    stopIds: new Set(['project-stop']),
+  })
+
+  assert.deepEqual(deliveries.map((delivery) => delivery.stopId), ['project-stop'])
 })
 
 test('deduplicates multiple matching routes to the same target', () => {
   const deliveries = resolveConfiguredDeliveries({
     sourceId: 'researcher',
-    result: 'Prüfung und Weitergabe',
-    resultStatusIds: ['review', 'forward'],
+    result: 'Pruefung und Weitergabe',
     routes: [
-      route('researcher-review', 'researcher', 'review-filter'),
-      route('review-reviewer', 'review-filter', 'reviewer'),
-      route('researcher-forward', 'researcher', 'forward-filter'),
-      route('forward-reviewer', 'forward-filter', 'reviewer'),
+      route('researcher-forward-a', 'researcher', 'forward-a'),
+      route('forward-a-reviewer', 'forward-a', 'reviewer'),
+      route('researcher-forward-b', 'researcher', 'forward-b'),
+      route('forward-b-reviewer', 'forward-b', 'reviewer'),
     ],
-    statusFilters: [
-      { id: 'review-filter', statusId: 'review' },
-      { id: 'forward-filter', statusId: 'forward' },
+    promptNodes: [
+      { id: 'forward-a', condition: '', prompt: 'Weiter' },
+      { id: 'forward-b', condition: '', prompt: 'Weiter' },
     ],
-    promptNodes: [],
     targetIds: new Set(['reviewer']),
     stopIds: new Set(),
   })
+
   assert.deepEqual(deliveries.map((delivery) => delivery.targetId), ['reviewer'])
 })
 
-test('fixed forwarding resolves exactly one connected target without a text status', () => {
-  const resolved = resolveUnconditionalForwarding({
-    sourceId: 'developer',
-    statusId: 'system-forward',
-    routes: [
-      route('developer-filter', 'developer', 'forward-filter'),
-      route('filter-reviewer', 'forward-filter', 'reviewer'),
-    ],
-    statusFilters: [{ id: 'forward-filter', statusId: 'system-forward' }],
-    targetIds: new Set(['reviewer']),
-  })
-  assert.equal(resolved.enabled, true)
-  assert.equal(resolved.delivery?.targetId, 'reviewer')
-  assert.equal(resolved.issue, '')
-})
+test('terminal interval branch is non-blocking only for interval targets without outgoing routes', () => {
+  const routes = [
+    route('forward-normal', 'forward-node', 'reviewer'),
+    { ...route('forward-interval', 'forward-node', 'auditor'), sourceHandle: 'interval' },
+  ]
 
-test('fixed forwarding selects its interval branch on the configured hit', () => {
-  const resolved = resolveUnconditionalForwarding({
-    sourceId: 'developer',
-    statusId: 'system-forward',
-    routes: [
-      route('developer-filter', 'developer', 'forward-filter'),
-      { ...route('filter-reviewer', 'forward-filter', 'reviewer'), sourceHandle: 'output' },
-      { ...route('filter-auditor', 'forward-filter', 'auditor'), sourceHandle: 'interval', prompt: 'Untersuche den Stand.' },
-    ],
-    statusFilters: [{
-      id: 'forward-filter',
-      statusId: 'system-forward',
-      interval: 5,
-      intervalCount: 4,
-    }],
-    targetIds: new Set(['reviewer', 'auditor']),
-  })
-
-  assert.equal(resolved.delivery?.targetId, 'auditor')
-  assert.equal(resolved.delivery?.promptBranch, 'interval')
-  assert.equal(resolved.delivery?.promptNextCount, 0)
-  assert.equal(resolved.issue, '')
-})
-
-test('fixed forwarding can deliver through normal and interval outputs on the configured hit', () => {
-  const resolved = resolveUnconditionalForwarding({
-    sourceId: 'developer',
-    statusId: 'system-forward',
-    routes: [
-      route('developer-filter', 'developer', 'forward-filter'),
-      { ...route('filter-reviewer', 'forward-filter', 'reviewer'), sourceHandle: 'output' },
-      { ...route('filter-auditor', 'forward-filter', 'auditor'), sourceHandle: 'interval' },
-    ],
-    statusFilters: [{
-      id: 'forward-filter',
-      statusId: 'system-forward',
-      interval: 5,
-      intervalCount: 4,
-      intervalMode: 'both',
-      intervalPrompt: 'Untersuche den Stand.',
-    }],
-    targetIds: new Set(['reviewer', 'auditor']),
-  })
-
-  assert.deepEqual(resolved.deliveries.map((delivery) => ({
-    targetId: delivery.targetId,
-    prompt: delivery.route.prompt,
-    branch: delivery.promptBranch,
-    nextCount: delivery.promptNextCount,
-  })), [
-    { targetId: 'reviewer', prompt: '', branch: 'interval', nextCount: 0 },
-    { targetId: 'auditor', prompt: 'Untersuche den Stand.', branch: 'interval', nextCount: 0 },
-  ])
-  assert.equal(resolved.issue, '')
-})
-
-test('fixed forwarding rejects multiple target agents', () => {
-  const resolved = resolveUnconditionalForwarding({
-    sourceId: 'developer',
-    statusId: 'system-forward',
-    routes: [
-      route('developer-filter', 'developer', 'forward-filter'),
-      route('filter-reviewer', 'forward-filter', 'reviewer'),
-      route('filter-qa', 'forward-filter', 'qa'),
-    ],
-    statusFilters: [{ id: 'forward-filter', statusId: 'system-forward' }],
-    targetIds: new Set(['reviewer', 'qa']),
-  })
-  assert.equal(resolved.enabled, true)
-  assert.equal(resolved.delivery, null)
-  assert.match(resolved.issue, /genau einem Zielagenten/u)
-})
-
-test('fixed forwarding allows a deliberate two-agent cycle', () => {
-  assert.equal(wouldCreateUnsupportedUnconditionalForwardCycle({
-    sourceAgentId: 'reviewer',
-    targetAgentId: 'researcher',
-    statusId: 'system-forward',
-    routes: [
-      route('researcher-filter', 'researcher', 'researcher-forward'),
-      route('researcher-reviewer', 'researcher-forward', 'reviewer'),
-      route('reviewer-filter', 'reviewer', 'reviewer-forward'),
-    ],
-    statusFilters: [
-      { id: 'researcher-forward', ownerAgentId: 'researcher', statusId: 'system-forward' },
-      { id: 'reviewer-forward', ownerAgentId: 'reviewer', statusId: 'system-forward' },
-    ],
-  }), false)
-})
-
-test('fixed forwarding rejects a cycle with three agents', () => {
-  assert.equal(wouldCreateUnsupportedUnconditionalForwardCycle({
-    sourceAgentId: 'reviewer',
-    targetAgentId: 'ceo',
-    statusId: 'system-forward',
-    routes: [
-      route('ceo-filter', 'ceo', 'ceo-forward'),
-      route('ceo-developer', 'ceo-forward', 'developer'),
-      route('developer-filter', 'developer', 'developer-forward'),
-      route('developer-reviewer', 'developer-forward', 'reviewer'),
-      route('reviewer-filter', 'reviewer', 'reviewer-forward'),
-    ],
-    statusFilters: [
-      { id: 'ceo-forward', ownerAgentId: 'ceo', statusId: 'system-forward' },
-      { id: 'developer-forward', ownerAgentId: 'developer', statusId: 'system-forward' },
-      { id: 'reviewer-forward', ownerAgentId: 'reviewer', statusId: 'system-forward' },
-    ],
+  assert.equal(isTerminalIntervalSideBranch({
+    agentId: 'auditor',
+    activeRouteCount: 0,
+    routes,
   }), true)
+  assert.equal(isTerminalIntervalSideBranch({
+    agentId: 'reviewer',
+    activeRouteCount: 0,
+    routes,
+  }), false)
+  assert.equal(isTerminalIntervalSideBranch({
+    agentId: 'auditor',
+    activeRouteCount: 1,
+    routes,
+  }), false)
 })

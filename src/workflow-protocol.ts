@@ -1,5 +1,15 @@
-import { fixedForwardingHandoffInstruction } from './fixed-forwarding-policy.ts'
 import { userInteractionInstruction } from './user-confirmation.ts'
+
+export const UNCONDITIONAL_FORWARD_STATUS_ID = 'system-forward'
+export const UNCONDITIONAL_FORWARD_STATUS_NAME = 'Weiterleiten'
+export function unconditionalForwardStatus(projectPath = '') {
+  return {
+  id: UNCONDITIONAL_FORWARD_STATUS_ID,
+  projectPath,
+  name: UNCONDITIONAL_FORWARD_STATUS_NAME,
+  description: 'Legacy-Kompatibilität; erzeugt keine automatische Weiterleitung.',
+  }
+}
 
 export type WorkflowStatusLike = {
   id: string
@@ -23,26 +33,11 @@ export type WorkflowSignal = {
   source: 'marker' | 'legacy-json' | 'none'
 }
 
-export const UNCONDITIONAL_FORWARD_STATUS_ID = 'system:forward-every-response'
-export const UNCONDITIONAL_FORWARD_STATUS_NAME = 'Weiterleiten'
-export const UNCONDITIONAL_FORWARD_STATUS_DESCRIPTION =
-  'Fester Systemstatus: Leitet jede abgeschlossene Antwort ohne Statusauswahl unverändert an genau einen verbundenen Agenten weiter.'
-
-export function unconditionalForwardStatus(projectPath: string) {
-  return {
-    id: UNCONDITIONAL_FORWARD_STATUS_ID,
-    projectPath,
-    name: UNCONDITIONAL_FORWARD_STATUS_NAME,
-    description: UNCONDITIONAL_FORWARD_STATUS_DESCRIPTION,
-  }
-}
-
 export const WORKFLOW_DECISION_AUTHORITY = [
   'Die technische Workflow-Topologie entscheidet, welche Übergänge existieren.',
   'Ein Agententext liefert ausschließlich ein zu validierendes Statussignal.',
-  'Nur genau ein erlaubter Status kann einen Statusfilter aktivieren.',
+  'Nur genau ein erlaubter Status kann eine konfigurierte Status-Verbindung aktivieren.',
   'Sprachliche Rollen- und Ablaufregeln dürfen keine technische Verbindung erzeugen oder umgehen.',
-  'Der feste Systemstatus "Weiterleiten" ist eine technische Eins-zu-eins-Verbindung: Ist er vollständig verbunden, wird jede abgeschlossene Antwort ohne Textstatus an genau den Zielagenten übergeben.',
   'Eine weitere Ausnahme ist der reservierte Systemstatus "Interner Workflow-Fehler": Er ist ein fest definierter Diagnosekanal zum Projekt-CEO und niemals eine fachliche Projektverbindung.',
 ] as const
 
@@ -160,20 +155,6 @@ export function workflowSignalIssue(signal: WorkflowSignal) {
 }
 
 export function workflowStatusInstruction(statuses: readonly WorkflowStatusLike[]) {
-  if (statuses.some((status) => status.id === UNCONDITIONAL_FORWARD_STATUS_ID)) {
-    return [
-      fixedForwardingHandoffInstruction(),
-      '',
-      'Workflow-Abschlussformat (verbindlich):',
-      `Dein Dashboard verwendet den festen Systemstatus "${UNCONDITIONAL_FORWARD_STATUS_NAME}".`,
-      'Antworte normal und verständlich mit deinem vollständigen Ergebnis.',
-      'Setze keinen Workflow-Status und erfinde keinen Statusnamen.',
-      'Der Orchestrator leitet jede abgeschlossene Antwort automatisch und unverändert an genau den verbundenen Zielagenten weiter.',
-      'Die technische Verbindung entscheidet über das Ziel.',
-      '',
-      userInteractionInstruction(),
-    ].join('\n')
-  }
   return [
     'Workflow-Abschlussformat (verbindlich):',
     'Antworte zuerst normal und verständlich mit Zusammenfassung und nächstem Schritt. Verwende kein JSON.',

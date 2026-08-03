@@ -3,7 +3,7 @@ import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { promptContentSha256, writeVerifiedPromptFile } from './prompt-files.mjs'
+import { deletePromptDirectory, promptContentSha256, writeVerifiedPromptFile } from './prompt-files.mjs'
 
 test('writes a prompt atomically and verifies its content', async () => {
   const projectPath = await mkdtemp(join(tmpdir(), 'codex-prompt-'))
@@ -40,4 +40,27 @@ test('rejects unsafe prompt paths', async () => {
     }),
     /gültiger Dateiname/,
   )
+})
+
+test('deletes one agent prompt directory and allows missing directories', async () => {
+  const projectPath = await mkdtemp(join(tmpdir(), 'codex-prompt-'))
+  const first = await writeVerifiedPromptFile({
+    projectPath,
+    agentId: 'agent-1',
+    fileName: 'Anweisung.md',
+    content: 'Agent 1',
+  })
+  const second = await writeVerifiedPromptFile({
+    projectPath,
+    agentId: 'agent-2',
+    fileName: 'Anweisung.md',
+    content: 'Agent 2',
+  })
+
+  const result = await deletePromptDirectory({ projectPath, agentId: 'agent-1' })
+  assert.equal(result.relativePath, '.codex-orchestrator/prompts/agent-1')
+  await assert.rejects(readFile(first.path, 'utf8'), /ENOENT/)
+  assert.equal(await readFile(second.path, 'utf8'), 'Agent 2')
+
+  await deletePromptDirectory({ projectPath, agentId: 'agent-1' })
 })

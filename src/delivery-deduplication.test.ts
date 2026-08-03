@@ -39,7 +39,7 @@ test('allows an explicitly resumed checkpoint through duplicate protection once'
   }), true)
 })
 
-test('allows fixed forwarding to repeat the same text from a new turn', () => {
+test('allows statusless forwarding to repeat the same text from a new turn', () => {
   const firstTurn = deliveryDeduplicationSignature('same task', 'turn-1', true)
   const secondTurn = deliveryDeduplicationSignature('same task', 'turn-2', true)
 

@@ -1,329 +1,202 @@
 # Codex Workflow Orchestrator
 
-![Hauptansicht des Codex Workflow Orchestrators](bilder/Gui_Overlay.PNG)
+Lokale Weboberfläche zur Organisation von Codex-Chats als projektbezogene Agenten. Der Orchestrator verbindet vorhandene Codex-Tasks, verwaltet Rollen und Prompt-Dateien, zeigt die Agentenkommunikation und führt sichtbare Workflow-Dashboards aus.
 
-Der Codex Workflow Orchestrator ist eine lokale Weboberfläche, mit der Codex-Chats als spezialisierte Agenten organisiert, verbunden und automatisiert ausgeführt werden können. Projekte, Chats, Rollen, Arbeitsanweisungen, Statusregeln und Workflow-Verbindungen werden an einer Stelle verwaltet.
+Die Anwendung läuft lokal im Browser und spricht über eine lokale Bridge mit der Codex-App. Fachliche Arbeit bleibt in den Codex-Chats; der Orchestrator steuert Sichtbarkeit, Status, Übergaben, Laufzustand und Persistenz.
 
-## Funktionsumfang
+## Aktueller Schwerpunkt
 
-- die in Codex gespeicherten Projekte und ihre zugehörigen Chats über den lokalen Connector einlesen
-- nachträglich in Codex einem Projekt zugewiesene Chats automatisch dem richtigen Projekt zuordnen
-- Chats als Agenten übernehmen, erstellen, umbenennen, ausblenden und archivieren
-- Rollen, Modelle und erlaubte Statusbefehle pro Agent konfigurieren
-- Agenten als Fach- oder Verwaltungsagenten einteilen
-- kontrollierte Team-Vorschläge eines Verwaltungsagenten prüfen und übernehmen
-- mehrere Prompt-Dateien pro Agent verwalten
-- projektweite Wissensquellen als Ordner, Repository, Datei oder Weblink verwalten
-- ein übergeordnetes Projektziel als gemeinsame, nicht ausführbare Orientierung verwalten
-- direkte Nachrichten an einzelne Codex-Chats senden
-- individuelle Workflows visuell aus Agenten und Werkzeugen aufbauen
-- Ergebnisse anhand frei definierbarer Statusbefehle weiterleiten
-- zeitgesteuerte Aufgaben einmalig oder wiederkehrend auslösen
-- pro Projekt festlegen, wie viele vollständige Workflow-Läufe ein `Auto Start` nacheinander ausführt
-- Laufstatus, Dauer, Chatverlauf und Ereignisprotokoll verfolgen
-- die Bedienoberfläche zwischen Deutsch und Englisch umschalten
-- globale Programmeinstellungen über den Profilbereich öffnen
-- Designmodus, Oberflächenfarben, Schriftarten und Kontrast anpassen
+Das Projekt ist ein Arbeitswerkzeug für manuell verdrahtete Agenten-Workflows. Automatisch erzeugte Topologien wurden bewusst zurückgefahren: Agenten, Bausteine und Verbindungen sollen sichtbar im Dashboard angelegt und kontrolliert werden.
 
-## Oberfläche
+Wichtige Prinzipien:
 
-### Profil und Programmeinstellungen
+- Der Benutzer baut die Workflow-Logik im Dashboard.
+- Textantworten von Agenten erzeugen keine neuen Verbindungen.
+- Automatische Übergaben folgen nur gespeicherten Dashboard-Verbindungen.
+- Stopp-Pfade sollen sichtbar über den `Stop`-Baustein modelliert werden.
+- Status wie `Fertig` bleiben fachliche Agentensignale und sind getrennt vom technischen `Stop`-Baustein.
+- Projektzustand, Layouts und offene Workflow-Kontrollpunkte werden lokal gespeichert.
 
-Am unteren Ende der Agentenleiste befindet sich der globale Profilzugang. Wenn der lokale Codex-Connector einen Kontohinweis bereitstellt, verwendet die Oberfläche dessen vorgeschlagenen Anzeigenamen; andernfalls wird neutral `Codex` angezeigt. Ein eigener Anzeigename und die Darstellungseinstellungen werden über die Bridge im lokalen Codex-Profil gespeichert und dadurch von allen Browseransichten des Orchestrators gemeinsam verwendet. Die vollständige E-Mail-Adresse oder andere Kontodaten werden nicht an die Weboberfläche übertragen.
+## Hauptfunktionen
 
-Ein Klick auf das Profil öffnet eine eigenständige Einstellungsansicht mit einem direkten Rücksprung über `Zurück zur App`. Diese Einstellungen gelten für die gesamte Anwendung und sind von den Setups einzelner Agenten getrennt.
+- Codex-Projekte und zugehörige Codex-Tasks über den lokalen Connector einlesen
+- vorhandene Codex-Chats als Agenten übernehmen
+- Agenten erstellen, umbenennen, archivieren und aus Dashboards entfernen
+- Rollen, Arbeitsanweisungen, Webzugriff und Workflow-Status pro Agent verwalten
+- mehrere Prompt-Dateien pro Agent speichern und gezielt an den Codex-Chat übergeben
+- projektweite Wissensquellen und ein Projektziel verwalten
+- direkte Benutzernachrichten an einzelne Agenten senden
+- visuelle Workflows mit React Flow aufbauen
+- Agenten, Start, Weiterleiten, Rücksprung, Stop und Zeitplan als Bausteine verbinden
+- Workflow-Positionen und Layout-Muster speichern
+- laufende Agenten im Dashboard farblich markieren
+- Ereignisprotokoll, Arbeitslauf und offene Fortsetzungen anzeigen
+- Deutsch/Englisch sowie Darstellungseinstellungen umschalten
 
-Die kompakte Einstellungsansicht trennt Navigation und Inhalt klar voneinander und verwendet in allen Bereichen einheitliche Abstände, Feldhöhen und Bediengrößen.
+## Bedienoberfläche
 
-Unter `Aussehen` stehen zur Verfügung:
+Die Oberfläche besteht aus drei Hauptbereichen:
 
-- Design nach Systemeinstellung sowie ein heller und ein dunkler Modus
-- kontrastoptimierte Oberflächen für Chat, Agentenliste, Protokoll und Workflow-Dashboard in beiden Modi
-- durchgängige semantische Flächenfarben für Statusmenüs, Setup-Bereiche, Workflow-Werkzeuge, Fortschrittsanzeigen und Fehlermeldungen sowie klar erkennbare Gefahrenaktionen
-- frei wählbare Akzent-, Hintergrund- und Vordergrundfarben
-- getrennte Farben für normale Schaltflächen und deren Beschriftung
-- Auswahl der UI- und Code-Schriftart
-- regelbarer Oberflächenkontrast
-- Rücksetzen auf das Standarddesign
+- links: Projekt- und Agentenauswahl
+- mitte: Kommunikationsbrücke zum ausgewählten Agenten
+- rechts: Rollenfluss, Arbeitslauf und Ablaufprotokoll
 
-Die gewählten Programmeinstellungen werden über die lokale Bridge global im Codex-Profil gespeichert. Dadurch verwenden normale Browserfenster und der Codex-interne Browser denselben Anzeigenamen und dieselben Farben. Eine Browserkopie dient nur als Offline-Rückfall.
+Jeder Agent kann über `D` sein Workflow-Dashboard öffnen. Dort werden die für diesen Agenten oder das Projekt sichtbaren Bausteine angeordnet und verbunden.
 
-### Agenten-Chat
+Kompakte Dashboard-Aktionen:
 
-Die Hauptansicht kombiniert Projektauswahl, Agentenliste, laufenden Codex-Chat und Ablaufprotokoll. Eingaben können direkt an den ausgewählten Agenten gesendet werden. Im Chat scrollt ausschließlich der Nachrichtenverlauf; die Eingabezeile bleibt als feste Bedienleiste erreichbar. Auch der globale Profilzugang bleibt am unteren Rand der Agentenleiste fixiert. Aktivität, Laufzeit und letzter Zustand bleiben dabei sichtbar. Bei neuen Projekten ohne Agenten bleibt die Aufteilung mit einem neutralen leeren Chat-Bereich stabil.
+- `+`: Agenten im Dashboard ein- oder ausblenden
+- `A`: gespeichertes Layout-Muster anwenden, sonst automatisch anordnen
+- `M`: aktuelles Layout-Muster speichern
+- `T`: Werkzeugpalette öffnen
+- `x`: Dashboard schließen
 
-Nach einem Connector-Neustart werden unterbrochene Team-Erstellungen anhand eines dauerhaften Transaktionsjournals bereinigt. Bereits vollständig gespeicherte Teams bleiben erhalten. Die Connector-Anzeige meldet relevante Bereinigungen oder Fehler kompakt, damit ein technischer Neustart nicht unbemerkt lokale Codex-Chats zurücklässt.
+Beim Speichern eines Layout-Musters erscheint kurz `Gespeichert` im Dashboard-Feld. Es gibt keine dauerhafte Textanzeige im Header.
 
-### Agenten-Setup
+## Workflow-Bausteine
 
-Neue und aus Codex übernommene Agenten erhalten automatisch die Rolle `du bist <Name>`. Solange diese Vorgabe nicht individuell bearbeitet wurde, folgt sie einer Umbenennung des Agenten.
+### Agent
 
-Im Setup werden Name, Rolle, Modell und die für den Agenten erlaubten Statusbefehle festgelegt. Die automatische Weitergabe kann pro Agent aktiviert oder deaktiviert werden. Über die Agenten-Zuweisung wird zusätzlich festgelegt, ob ein Agent normale Fachaufgaben übernimmt oder eine Verwaltungs-Erweiterung erhält.
+Ein Agent entspricht einem Codex-Chat. Der Baustein besitzt `IN` und `OUT`.
 
-![Agenten-Setup](bilder/Agenten_Setup.PNG)
+Wenn ein Agent arbeitet, wird er im Dashboard als aktiver Schritt hervorgehoben. Das passiert auf Basis des echten Laufzustands: Ein Agent gilt als aktiv, wenn er läuft und ein offener Codex-Turn überwacht wird.
 
-### Verwaltungs-Erweiterung
+### Start
 
-Ein Verwaltungsagent übernimmt Organisation, Aufgabenvergabe und Entscheidungen über die ausdrücklich verbundenen Workflow-Pfade. Es gibt keine periodische Agentenüberwachung und keine automatisch erzeugten Kontrollaufträge. Dadurch kann eine zusätzliche CEO-Prüfung keinen bereits laufenden Fachprozess unterbrechen.
+Der Start-Baustein sendet ein neutrales Startsignal an den Agenten des Dashboards. Pro Dashboard ist nur ein Start-Baustein vorgesehen.
 
-![Verwaltungs-Setup mit CEO-Anweisungen und Team-Aufbau](bilder/verwaltung_setup.PNG)
+Optional kann eine reine Ablaufanweisung hinterlegt werden. Fachliche Projektziele und Rollen-Prompts gehören nicht in den Start-Baustein.
 
-#### Kontrollierter Team-Aufbau
+### Weiterleiten
 
-Ist der Team-Aufbau im Verwaltungs-Setup erlaubt, kann der Benutzer den Verwaltungsagenten im Chat ausdrücklich mit der vollständigen Vorbereitung oder Umstrukturierung eines Teams beauftragen. Normale Produktänderungen, Reparaturen und Weiterentwicklungen autorisieren keinen Team-Vorschlag und verwenden das bestehende Team. Selbst wenn eine CEO-Antwort dabei irrtümlich Teamdaten enthält, bietet die Oberfläche diese ohne vorherige ausdrückliche Team-Anforderung nicht zur Übernahme an. Bei einem berechtigten Team-Aufbau erhält der Agent die vorhandene projektweite Statusliste, verwendet passende Statusbefehle unverändert wieder und ergänzt nur tatsächlich fehlende Befehle. Er plant Namen, Rollen, vollständige Arbeitsanweisungen, Statuszuweisungen, den benötigten Zugriff auf das Projektwissen und das Web, alle Verbindungen und mindestens einen eindeutigen Abschlussweg. Für jeden vorgeschlagenen Agenten ist eine ausdrückliche Entscheidung zum Projektwissen und Webzugriff verpflichtend und wird im sichtbaren Team-Vorschlag ausgewiesen. Die Oberfläche zeigt diesen validierbaren Team-Vorschlag direkt im Agenten-Chat zur Prüfung und kontrollierten Übernahme an.
+Der Weiterleiten-Baustein gibt ein Ergebnis sichtbar an den nächsten verbundenen Baustein oder Agenten weiter.
 
-Es gibt keine feste Teamgröße von fünf Agenten. Ein maschinenlesbarer Teamvorschlag darf zwischen einem und zwölf Fachagenten enthalten; der bereits vorhandene CEO wird dabei nicht mitgezählt. Damit sind insgesamt bis zu zwölf vorgeschlagene Spezialisten plus CEO möglich. Die Zahl fünf im Beispielprojekt entsteht ausschließlich aus dem dort gewählten CEO und vier Fachrollen. Projektweite Statusbefehle sind unabhängig davon auf maximal zwanzig Einträge pro Teamvorschlag begrenzt.
+Der Baustein besitzt:
 
-#### CEO-Regelbuch
+- `IN`
+- normalen `OUT`
+- optionalen Intervall-Ausgang
+- Zusatzprompt für die nächste Übergabe
+- Übergabeart
+- Intervall-Quelle: kein Intervall, eigener Intervall oder Projekt-Läufe verwenden
 
-Der CEO ist ausschließlich Teamleiter. Er verwaltet, organisiert, vergibt Aufgaben, bewertet übergebene Ergebnisse und trifft Entscheidungen. Er programmiert nicht, verändert keine fachlichen Projektdateien, führt keine Implementierungsarbeit aus und übernimmt keine Spezialistenrolle. Diese Grenze wird bei direkten CEO-Nachrichten, Initial-Starts und Rückgaben aus dem Workflow erneut als vorrangige Laufzeitregel übermittelt. Die CEO-Optionen zeigen eine kompakte Zusammenfassung der internen Anweisungsliste. Über ein eigenes Popup lassen sich einzelne organisatorische Anweisungen dauerhaft hinzufügen, bearbeiten und löschen. Neue Verwaltungsagenten beginnen mit den empfohlenen Team- und Weiterleitungsregeln; anschließend ist die Liste vollständig benutzerverwaltet und darf auch leer sein.
+Es gibt nur einen Weiterleiten-Baustein mit erweiterten Funktionen. Doppelte Varianten sollen nicht mehr existieren.
 
-Bei ausgeschalteter Automatik bereitet der CEO aus einer normalen Änderungsanweisung ein eindeutiges Delegationspaket für das vorhandene Team vor. Seine Rückmeldung nennt, dass der Auftrag vorbereitet ist und der Benutzer `Auto Start` drücken kann. Erst mit aktiver Automatik gibt der CEO dieses Paket über einen vorhandenen Statusweg an den passenden Fachagenten weiter. Ein Delegationspaket enthält Ziel, Ist-Stand, konkrete Änderung und prüfbare Akzeptanzkriterien. Neue Agenten oder Verbindungen darf der CEO weiterhin nur nach einem ausdrücklichen Teamumbau-Auftrag als freizugebenden Teamplan vorschlagen.
+### Rücksprung
 
-Besitzt der CEO neben den reservierten Diagnosekanälen genau einen fachlichen Ausgang, ist dieser Weg für jede vorbereitete Delegation verbindlich. Der CEO darf diesen einzigen verbundenen Ausgang nicht wegen einer zu allgemeinen oder unvollständigen Statusbezeichnung ablehnen und stattdessen einen internen Workflowfehler erzeugen. Für lineare Teams sollte der feste Baustein `Weiterleiten` verwendet werden; dadurch entscheidet die sichtbare Dashboard-Verbindung deterministisch über den Zielagenten und nicht die sprachliche Interpretation eines Statusnamens.
+Der Rücksprung-Baustein bildet eine kurze sichtbare Verbindung für Schleifen ab, ohne lange Rückkanten über das ganze Dashboard ziehen zu müssen.
 
-`Team übernehmen` führt ausschließlich bei `Auto Stop` folgende Schritte im aktuell ausgewählten Projekt aus:
+Der Baustein besitzt:
 
-- fehlende Codex-Chats mit einem neutralen Setup-Turn dauerhaft registrieren
-- noch nicht vorhandene Statusbefehle projektweit anlegen
-- Rollen und Statusbefehle zuweisen
-- Arbeitsanweisungen als `Anweisung.md` speichern, ohne sie als Aufgabe zu starten
-- einen neutralen Initial-Baustein ohne fachliche Aufgabe anlegen und ausschließlich mit dem CEO verbinden
-- den CEO über einen normalen Statusfilter mit dem vorgesehenen ersten Fachagenten verbinden
-- den Startpfad beim Verwaltungsagenten und die Folgepfade bei den jeweils sendenden Agenten anordnen
-- jede geplante Übergabe über einen passenden Statusfilter mit dem nächsten Agenten verbinden
-- jeden geplanten Gesamtabschluss über einen eigenen Statusfilter mit einem Stopp-Baustein verbinden
-- den verpflichtenden Statusbefehl `Fehler` jedem Fachagenten zuweisen und als sichtbaren Rückweg zum Verwaltungsagenten verdrahten
+- `IN`
+- `OUT`
+- eine Zielagenten-Auswahl
 
-Die Verdrahtung wird agentenbezogen gespeichert: Das Dashboard des Verwaltungsagenten enthält den kontrollierten Startpfad. Jeder weitere Agent sieht in seinem eigenen Dashboard seine ausgehenden Statusfilter und die damit verbundenen Zielagenten. Dadurch bleibt die Darstellung übersichtlich und die Übergaben werden nicht als doppelte Ausführungswege angelegt.
+Die ausgewählten Zielagenten lesen die Rücksprung-Nachricht. Zusätzlich kann der `OUT`-Ausgang sichtbar weiter verbunden werden, zum Beispiel zu `Stop` oder zu einem weiteren `Weiterleiten`-Baustein.
 
-Der Verwaltungsagent besitzt damit eine systemgestützte Koordinationsfähigkeit: Er plant strukturierte Teamdaten, während der Orchestrator Agenten, Prompt-Dateien, Statusbefehle, Dashboard-Verbindungen und Abschlusswege validiert und erst nach Benutzerfreigabe anlegt. Ein Team-Vorschlag ohne Stopp-Pfad wird nicht übernommen. Ebenso wird eine Übernahme abgelehnt, wenn ein vorgeschlagener Statusname bereits mit einer anderen Bedeutung existiert. Ein nicht abgeschlossener oder nicht mehr auffindbarer Codex-Lauf wird als Status `Fehler` erfasst. Bei aktiver Automatik läuft dieses Ergebnis über den sichtbaren Fehlerpfad zurück zum Verwaltungsagenten, der die Ursache bewertet und den nächsten Schritt festlegt.
+Damit sind beide Modelle möglich:
 
-Scheitert derselbe Agent zweimal hintereinander, behandelt der Orchestrator dies als mögliche Überlastung oder als zu großen Arbeitsumfang. Der CEO erhält den letzten verfügbaren Arbeitsstand und den konkreten Fehlerkontext. Er muss die Restarbeit in begrenzte, prüfbare Pakete zerlegen und bei Bedarf einen zusätzlichen Spezialagenten samt Rolle, Prompt, benötigten Statusbefehlen und Dashboard-Verbindungen vorschlagen. Sobald dieser maschinenlesbare Team-Vorschlag vorliegt, wechselt die Automatik auf `Auto Stop`. Erst der Benutzer prüft und übernimmt den Vorschlag; neue Agenten werden weder heimlich angelegt noch automatisch gestartet.
+- Rücksprung nur zu Zielagenten
+- Rücksprung plus expliziter weiterer Pfad
 
-Bei Zeitplänen, Agentenübergaben und Verwaltungsprüfungen wird die vollständige aktive Prompt-Datei des jeweiligen Zielagenten als verbindliche Arbeitsanweisung mitgesendet. Der Initial-Baustein ist davon getrennt: Er enthält ausschließlich Ablaufanweisungen und niemals eine fachliche Aufgabe, ein Projektziel oder Prompt-Inhalte. Sichtbar sendet er nur `Start` an den CEO. Die internen CEO-Anweisungen werden technisch angewendet, aber weder in der sichtbaren Startnachricht noch in der CEO-Antwort wiederholt. Der CEO liest die jüngste Benutzeranweisung in seinem Chat, prüft zuerst Eignung und Vollständigkeit des vorhandenen Teams und entscheidet anschließend mit einem normalen Statusbefehl über die Weitergabe an einen bestehenden Fachagenten. Ein Teamaufbau ist nur zulässig, wenn noch kein Team vorhanden ist oder für eine bestimmte Aufgabe tatsächlich ein geeigneter Fachagent fehlt.
+### Stop
 
-Mehrere gleichzeitige Übergaben an denselben Zielagenten werden in einer zielbezogenen Warteschlange serialisiert. Ein CEO, Integrator oder anderer Sammelpunkt erhält dadurch erst die nächste Nachricht, wenn sein aktueller Codex-Turn abgeschlossen ist; parallele Rückmeldungen können den laufenden Turn nicht überschreiben.
+Der Stop-Baustein beendet einen verbundenen Workflow-Pfad explizit. Er ist der sichtbare technische Stopp im Dashboard.
 
-Die Warteschlange gehört zum gemeinsam gespeicherten Orchestrator-Zustand. Ein Browser-Neuladen oder Prozessneustart verliert deshalb keine bereits wartende Parallelübergabe. Nach Abschluss des noch laufenden Ziel-Turns wird die gespeicherte Reihenfolge fortgesetzt.
+Fachliche Agentensignale wie `Fertig` bleiben davon getrennt. `Fertig` beschreibt das Ergebnis eines Agenten; `Stop` beschreibt das Ende eines verdrahteten Workflow-Pfads.
 
-Der Vorschlagsbereich unterscheidet sichtbar zwischen Warten auf Freigabe, laufender Verarbeitung und einer angehaltenen Übernahme. Während der Verarbeitung zeigt er den aktuellen Arbeitsschritt und einen rotierenden Fortschrittsindikator. Der Vorschlag verschwindet erst, wenn Agenten, Statusbefehle, Statuszuweisungen, Initial-Baustein, Statusfilter, Dashboard-Verbindungen und Stopp-Pfade vollständig vorhanden sind. Der Abschluss wird aus diesen tatsächlich gespeicherten Daten geprüft und nicht nur aus einer flüchtigen Erfolgsmeldung abgeleitet. Danach bestätigt ein Dialog, dass das Projekt startbereit ist. Eine zuvor unterbrochene Übernahme kann ohne doppelte Agenten über `Einrichtung vervollständigen` repariert werden.
+### Zeitplan
 
-Die vollständige Team-Konfiguration wird nach erfolgreicher Einrichtung als ein gemeinsamer Zustand gespeichert. Dabei verwendet der Connector eine Versionsprüfung: Ein älterer Browser-Tab kann eine zwischenzeitlich geänderte Agenten-, Status- oder Dashboard-Konfiguration nicht mehr mit seinem veralteten Stand überschreiben. Bei einem Konflikt lädt die Oberfläche stattdessen den neueren Connector-Zustand.
+Ein Zeitplan startet eine Aufgabe zeitgesteuert, wenn die Automatik aktiv ist. Ziel, Aufgabe und Intervall werden im Zeitplan-Baustein konfiguriert.
 
-Der neutrale Setup-Turn bestätigt ausschließlich die dauerhafte Registrierung eines neuen Codex-Chats und löst keine Workflow-Weitergabe aus. Der Orchestrator startet danach weder die Automatik noch eine fachliche Aufgabe. `Auto Start` bleibt eine bewusste Benutzeraktion. Ein neues Projektverzeichnis wird nicht automatisch erzeugt, weil dessen Speicherort vom Benutzer beziehungsweise von Codex festgelegt werden muss.
+Unterstützt werden:
 
-Projektagenten starten mit einem expliziten, auf `workspace` innerhalb ihres Projektordners begrenzten Schreibbereich. Der Orchestrator legt diesen Unterordner automatisch an. Fachliche Dateien und Anwendungscode entstehen dadurch getrennt von `.codex-orchestrator`, Git-Metadaten und der übrigen Agentenkonfiguration. Diese Ausführungsregel wird bei jeder Chat-Nachricht, Prompt-Übergabe und automatischen Workflow-Aufgabe erneut gesetzt, sodass auch bereits vorhandene Codex-Chats korrekt im gemeinsamen Arbeitsordner arbeiten.
+- einmalige Ausführung
+- wiederkehrende Intervalle
+- wiederkehrende Ausführung zu einer festen Uhrzeit
+- einmalige Termine mit Datum und Uhrzeit
 
-Der Webzugriff wird pro Agent im Setup festgelegt. `Aus` sperrt externe Netzwerkzugriffe, `Nach Freigabe` zeigt bei Bedarf einen Dialog zum einmaligen Erlauben oder Ablehnen und `Erlaubt` gestattet erforderliche Netzwerkzugriffe ohne Rückfrage. Bestehende und manuell angelegte Agenten starten sicherheitshalber mit `Aus`; beim kontrollierten Team-Aufbau muss der CEO den Modus für jeden Agenten ausdrücklich bestimmen. Die Einstellung gilt für direkte Nachrichten, Prompt-Übergaben, automatische Weiterleitungen, Zeitpläne und Verwaltungsprüfungen. Sie erweitert niemals den schreibbaren Dateibereich außerhalb des Projekt-Workspace und umgeht keine separate Domain- oder Browser-Sicherheitsrichtlinie.
+## Workflow-Ausführung
 
-Während ein Agent erstellt wird, bleibt der Dialog geöffnet und zeigt einen deutlich sichtbaren, rotierenden Einrichtungsstatus. Eingabe und Schaltflächen sind bis zur Bestätigung des neuen Codex-Chats gesperrt, damit keine doppelten Erstellungsaufträge entstehen. Neue Einzelagenten und automatisch aufgebaute Teamagenten werden zusätzlich dauerhaft der ausgewählten lokalen Codex-Projekt-ID zugeordnet. Dadurch erscheinen sie unmittelbar in der richtigen Codex-Projektgruppe und besitzen nicht nur den passenden Arbeitsordner.
+`Auto Start` startet die Ausführung des sichtbaren Workflows. `Auto Stop` verhindert neue automatische Aktionen.
 
-Beim Löschen bestätigt der Benutzer den Vorgang in einem anwendungseigenen Dialog. Ein verknüpfter Codex-Chat wird anschließend archiviert und aus der aktiven Projektansicht entfernt.
+Bei aktivem Workflow:
 
-### Prompt-Dateien
+- Start-Bausteine senden ihr Startsignal.
+- Agentenergebnisse werden vom Connector überwacht.
+- passende Ergebnisse werden über sichtbare Dashboard-Verbindungen weitergegeben.
+- offene Übergaben werden als Kontrollpunkte gespeichert.
+- parallele Übergaben an denselben Zielagenten werden serialisiert.
+- Stop-Bausteine schließen den verbundenen Pfad eindeutig ab.
 
-Jeder Agent kann mehrere Arbeitsanweisungen als Markdown-Dateien besitzen. Dateien lassen sich erstellen, auswählen, umbenennen und bearbeiten. `Speichern und übergeben` schreibt die Datei atomar, liest sie serverseitig zurück und prüft den Inhalt per SHA-256. Erst danach werden der vollständige Prompt, der absolute Dateipfad und der Prüfwert an den zugeordneten Codex-Chat gesendet. Der absolute Pfad bleibt auch dann korrekt, wenn ein Agent in einem untergeordneten Arbeitsverzeichnis wie `workspace` arbeitet. Der eingebettete Prompt ist die Ausführungsgrundlage; die Datei bleibt die persistente Prüffassung. Ein fehlgeschlagener Dateizugriff blockiert deshalb nicht die fachliche Bearbeitung und darf den Agenten weder zum Erzeugen einer Ersatzkopie noch zu einem fachlichen Fehlerstatus veranlassen.
+Bei ausgeschalteter Automatik:
 
-![Editor für Prompt-Dateien](bilder/Prompt_Overlay.PNG)
+- keine neuen Initial-Anfragen
+- keine automatische Agenten-zu-Agenten-Übergabe
+- keine faelligen Zeitplaene
+- keine neue automatische Fortsetzung
+- direkte Chat-Nachrichten bleiben möglich
 
-Die Dateien liegen projektbezogen unter:
+Ein bereits laufender Codex-Turn darf nach `Auto Stop` noch fertig werden. Danach startet der Orchestrator keine neue automatische Route.
+
+## Projekt-Läufe
+
+Das Feld `Läufe` legt projektbezogen fest, wie viele komplette Workflow-Läufe ausgeführt werden sollen. Der Fortschritt wird als aktueller Lauf von Gesamtzahl angezeigt.
+
+Layout, Laufjournal und Kontrollpunkte werden projektbezogen gespeichert. Dadurch sollen Browser-Neuladen und Connector-Neustarts nicht bei Lauf eins oder an falschen Positionen starten.
+
+## Layout und Positionen
+
+Bausteine können frei positioniert werden.
+
+Positionen werden pro Dashboard und Node gespeichert. Das gilt auch für Rücksprung-Bausteine. Ein Cleanup entfernt nur noch Positionen wirklich nicht mehr vorhandener Bausteine.
+
+`M` speichert das aktuelle Muster. `A` wendet ein vorhandenes Muster an; falls kein Muster vorhanden ist, wird automatisch angeordnet.
+
+## Prompt-Dateien
+
+Jeder Agent kann mehrere Markdown-Prompt-Dateien besitzen. Die Dateien liegen im Projekt unter:
 
 ```text
 .codex-orchestrator/prompts/<agent-id>/<dateiname>.md
 ```
 
-Unveränderte Inhalte werden nicht erneut versendet.
+Beim Speichern und Übergeben wird die Datei serverseitig geschrieben, wieder gelesen und per SHA-256 geprüft. Der Codex-Chat erhält den vollständigen Prompt, den absoluten Pfad und den Prüfwert.
 
-### Workflow-Dashboard
+Beim Löschen eines Agenten können zugehörige Prompt-Verzeichnisse entfernt werden.
 
-Jeder Agent besitzt eine eigene gespeicherte Verdrahtung. Verbindungen verlaufen immer vom Ausgang `Out` zum Eingang `In`. Die Agentenauswahl `+` zeigt alle Agenten des aktuellen Projekts und fügt sie direkt in das geöffnete Dashboard ein. Bereits enthaltene Agenten lassen sich dort wieder entfernen; der Eigentümer des Dashboards bleibt fest sichtbar. Drag-and-drop aus der Seitenleiste steht zusätzlich zur Verfügung. Bausteine lassen sich frei und ohne Raster positionieren; nur die Aktion `A` ordnet sie automatisch an.
+## Connector
 
-![Workflow-Dashboard mit mehreren Statusrouten](bilder/Workflow_Dashboard.PNG)
+Die Bridge läuft lokal auf Port `4317`. Sie verbindet die Weboberfläche mit dem Codex-App-Server.
 
-Die kompakten Aktionen im Dashboard sind:
+Aufgaben der Bridge:
 
-- `+`: Projektagenten im Dashboard ein- oder ausblenden
-- `A`: Bausteine automatisch anordnen
-- `S`: Statusbefehle des Agenten bearbeiten
-- `T`: Werkzeugpalette öffnen
+- Projekte und Tasks lesen
+- Nachrichten an Codex-Chats senden
+- laufende Turns überwachen
+- Ergebnisse abrufen
+- Prompt-Dateien schreiben und pruefen
+- gemeinsamen Orchestrator-Zustand speichern
+- lokale Programm- und Projektinformationen bereitstellen
 
-### Statusauswahl
-
-Über `S` werden die Statusbefehle festgelegt, die der jeweilige Agent verwenden darf. Name und Bedeutung stammen aus den projektweiten Statusbefehlen.
-
-Der feste Status `Weiterleiten` bildet eine einfache, statuslose Übergabe: Jede abgeschlossene Antwort wird an genau einen verbundenen Zielagenten weitergegeben. Die Übergabe ist ein autorisierter Workflow-Auftrag. Ein konkret benannter Folgeschritt benötigt deshalb keine zweite Benutzerfreigabe. Ein Prüfer muss einen akzeptierten Schritt als ausführbaren Auftrag freigeben oder ihn begründet ablehnen und einen korrigierten Auftrag formulieren; ein ausführender Agent setzt den freigegebenen Auftrag direkt um. Nur tatsächlich notwendige Benutzerhandlungen oder Benutzerinformationen dürfen den Ablauf anhalten. Damit darf gezielt ein direkter Zwei-Agenten-Kreis aufgebaut werden, beispielsweise `Forschungsagent -> Prüfer -> Forschungsagent`. Selbstverbindungen, mehrere Ziele und Kreise mit drei oder mehr Agenten bleiben gesperrt. `Auto Stop` hält die Weitergabe an; `Arbeitslauf zurücksetzen` entfernt zusätzlich vorgemerkte Übergaben und den gespeicherten Laufzustand.
-
-Sowohl der feste Status `Weiterleiten` als auch der frei platzierbare `Weiterleiten`-Baustein unterstützen ein optionales lokales Intervall. Ohne Intervall besitzt der jeweilige Baustein einen normalen Ausgang. Mit einem Wert wie `5` zeigt er den Stand `0/5` und einen zweiten Ausgang `Intervall`: Treffer eins bis vier verwenden `Normal`, der fünfte Treffer verwendet `Intervall` und setzt den Stand nach einer erfolgreich angenommenen Übergabe auf null zurück. Fehlgeschlagene oder nur wiederaufgenommene Zustellversuche erhöhen den Stand nicht. Konfiguration und Stand werden im gemeinsamen Projektzustand gespeichert und überstehen Neuladen sowie Programmneustarts; `Arbeitslauf zurücksetzen` setzt die lokalen Stände des Projekts ebenfalls auf null.
-
-Explizite Benutzergrenzen bleiben bei jeder Statusübergabe verbindlich. Ein Auftrag wie Browserwiedergabe ohne Download oder lokale Kopie darf von einem Folgeagenten nicht in eine lokale Datei-, Download- oder Installationsvoraussetzung umgedeutet werden. Erkennt der Orchestrator diesen Widerspruch, wird der normale Fachpfad unterbrochen und als interner Workflowfehler an die zuständige Verwaltung gemeldet.
-
-![Statusauswahl eines Agenten](bilder/Statusliste.PNG)
-
-### Workflow-Werkzeuge
-
-![Werkzeugpalette des Workflow-Dashboards](bilder/Tools.PNG)
-
-| Werkzeug | Aufgabe |
-| --- | --- |
-| Initial | Sendet sichtbar nur `Start` und intern ausschließlich Ablaufanweisungen an den CEO. |
-| Status | Lässt nur Ergebnisse mit dem ausgewählten Statusbefehl passieren. |
-| Stop | Beendet den Workflow-Pfad an dieser Stelle. |
-| Zeitplan | Sendet eine Aufgabe einmalig, in einem Intervall oder zu einer festen Uhrzeit. |
-
-Enthält der Initial-Baustein eine optionale Benutzeranweisung, zeigt er im Dashboard oben links einen kleinen Sprechblasen-Indikator. Ohne gespeicherten Benutzertext bleibt der Knoten unverändert.
-
-Bausteine werden per Doppelklick konfiguriert. Ein einfacher Klick wählt einen Baustein oder eine Verbindung aus. Konfigurationsdialoge enthalten auch die jeweilige Löschfunktion.
-
-## Projektziel
-
-`Projektziel` neben `Statusbefehle` und `Datenbank` verwaltet genau ein übergeordnetes Ziel für das ausgewählte Projekt. Ausschließlich der Benutzer kann es über diesen Dialog erstellen, bearbeiten oder entfernen. Eingefügter Text wird einschließlich Leerzeichen und Zeilenumbrüchen unverändert gespeichert. Agenten, CEO, Teampläne, Stopp-Bausteine und automatische Abläufe besitzen keinen Schreibpfad für das Projektziel. Es wird projektlokal unter `.codex-orchestrator/project-goal.json` gespeichert und nicht mit Zielen anderer Projekte vermischt.
-
-Das Projektziel wird allen Agenten bei direkten Nachrichten, Prompt-Übergaben, Initial-Starts, Workflow-Übergaben, Zeitplänen und Verwaltungsprüfungen als interne Orientierung und Qualitätskontrolle mitgegeben. Es ist ausdrücklich keine eigenständig auszuführende Aufgabe, kein Initialauftrag und kein Ersatz für Rollen-Prompts oder konkrete Übergaben. Ein Agent bearbeitet weiterhin ausschließlich seinen aktuellen Auftrag und meldet erkennbare Abweichungen vom Projektziel in seinem Ergebnis.
-
-Beim kontrollierten Team-Aufbau ist das Feld `projectGoal` unzulässig. Ein entsprechender Agentenvorschlag wird abgelehnt und muss ohne Projektziel erneut ausgegeben werden. `Team übernehmen` verändert ausschließlich Agenten, Rollen, Statusbefehle und Workflow-Topologie; ein vorhandenes Projektziel bleibt unverändert.
-
-## Statusbefehle
-
-Jeder Agent erhält zusätzlich zu seinen auswählbaren fachlichen Statusbefehlen den nicht abwählbaren Systemstatus `Interner Workflow-Fehler`. Er wird ausschließlich verwendet, wenn keine zugewiesene Statusmeldung eindeutig zum Arbeitsergebnis passt oder mehrere Statusmeldungen gleichwertig passen. Der Agent muss die geprüften Statusmeldungen und die erkannte Lücke begründen. Dieser Zustand ist kein fachlicher Projektfehler.
-
-Der Orchestrator übergibt den internen Workflow-Fehler eines Fachagenten unabhängig von normalen Projektverbindungen direkt an den Verwaltungsagenten beziehungsweise CEO desselben Projekts. Der CEO entscheidet anschließend, ob eine Statusbeschreibung, Statuszuweisung oder Dashboard-Verbindung korrigiert beziehungsweise ein neuer Status ergänzt werden muss. Der meldende Fachagent darf die Workflow-Konfiguration nicht selbst verändern. Meldet der CEO selbst diesen Systemstatus, blockiert der Ablauf kontrolliert für eine Benutzerentscheidung; eine Selbstweiterleitung wird nicht erzeugt. Formal ungültige Statussignale erhalten weiterhin genau einen Korrekturversuch; bleibt das Signal danach ungültig, wird es ebenfalls als interner Workflow-Fehler eskaliert.
-
-Statusbefehle werden projektweit unter `Statusbefehle` angelegt. Jeder Eintrag besteht aus einem Namen und einer eindeutigen Bedeutung. Im Agenten-Setup und über `S` im Workflow-Dashboard wird ausdrücklich ausgewählt, welche Statusbefehle der Agent verwenden darf. Dadurch erhält der Agent ausschließlich diese erlaubten Statusbefehle samt Beschreibung als Arbeitskontext. Neu angelegte Agenten starten ohne Statusfreigabe; eine globale Statusdefinition bedeutet niemals automatisch eine globale Verwendung.
-
-Der frühere Kompatibilitätswert `null = alle Projektstatus` wird nicht mehr verwendet. Beim Laden eines älteren Zustands leitet der Orchestrator die einmalige explizite Zuweisung ausschließlich aus vollständig verbundenen Pfaden `Agent → Statusfilter → Ziel/Stopp` ab. Nicht verbundene oder fremde Statusfilter werden nicht übernommen. Bei einem kontrollierten Team-Aufbau erhält der CEO ausschließlich den freigegebenen `startStatus`; fachliche Verteilungsstatus bleiben dem jeweils zuständigen Agenten zugewiesen.
-
-![Projektweite Statusbefehle](bilder/Status_Setup.PNG)
-
-Beispiel:
-
-| Status | Bedeutung |
-| --- | --- |
-| `Weiterleitung` | Das Ergebnis soll an den nächsten Agenten übergeben werden. |
-| `Überarbeiten` | Das Ergebnis muss erneut geprüft oder korrigiert werden. |
-
-Der Agent gibt am Ende seiner Antwort einen passenden `workflow_status` aus. Ein Statusfilter vergleicht dieses Signal mit seiner Konfiguration und aktiviert nur den passenden Ausgangspfad. Der Orchestrator stellt dabei sicher, dass jeder in einer Verbindung oder einem Stopp verwendete Status dem sendenden Agenten zugewiesen ist.
-
-```text
-Agent -> Statusfilter "Weiterleitung" -> nächster Agent
-      -> Statusfilter "Überarbeiten"  -> Prüfung oder Rückgabe
-```
-
-Statusbefehle beschreiben die Route des Ergebnisses. Der technische Abschluss eines einzelnen Codex-Laufs wird davon getrennt behandelt.
-
-## Wissensdatenbank
-
-Neben `Statusbefehle` öffnet `Datenbank` die Wissensquellen des aktuell ausgewählten Projekts. Ein Eintrag besteht aus Name, Quellentyp, lokalem Pfad beziehungsweise URL und einer optionalen Beschreibung. Das Quellentyp-Menü dient gleichzeitig als Kategorienfilter: Die Liste zeigt ausschließlich Repository-, Ordner-, Datei- oder Weblink-Einträge des ausgewählten Typs. Quellen lassen sich einzeln aktivieren, deaktivieren und löschen.
-
-Die Datenbank wird projektlokal unter `.codex-orchestrator/knowledge-sources.json` gespeichert. Andere Projekte besitzen davon unabhängige Einträge. Aktive Quellen werden bei direkten Nachrichten, Prompt-Übergaben, Initial-Starts, Workflow-Übergaben, Zeitplänen und Verwaltungsprüfungen automatisch als interner Orientierungskatalog bereitgestellt. Die Quellen sind technisch schreibgeschützt; fachliche Ergebnisse und Änderungen bleiben auf den `workspace` des Projekts begrenzt. Lokale Quellen müssen absolute Pfade außerhalb des `workspace` verwenden. Pfade im `workspace` sowie Elternpfade, die den `workspace` einschließen, werden abgelehnt, damit keine Wissensquelle ganz oder teilweise beschreibbar ist.
-
-Im Setup jedes Agenten steuert `Projektwissen verwenden`, ob dieser Agent den aktivierten Quellenkatalog erhält. Für bestehende und manuell angelegte Agenten ist der Schalter standardmäßig aktiv. Beim kontrollierten Team-Aufbau muss der CEO dagegen für jeden Agenten ausdrücklich entscheiden, ob dessen Rolle Projektwissen benötigt; diese Entscheidung wird bei der Übernahme auch auf bereits vorhandene Agenten angewendet. Ist der Schalter ausgeschaltet, werden dem Agenten bei keiner direkten Nachricht und keiner automatischen Workflow-Übergabe Wissensquellen mitgegeben. Eine separate Datenbankauswahl ist nicht erforderlich, weil immer die Datenbank des zugehörigen Projekts gilt.
-
-Ein fachlicher Abschlussstatus kann zu einem Stopp-Baustein führen. Sobald dieser Pfad erreicht wird, beendet der Orchestrator die Automatik und startet keine weiteren Übergaben. Ein normaler Weiterleitungsstatus gilt dagegen ausdrücklich nicht als Projektabschluss.
-
-Enthält eine Agentenantwort trotz vorhandener Route keinen gültigen Status, mehrere Statusangaben, einen unbekannten Namen oder Text nach der Statuszeile, fordert der Orchestrator einmalig im selben Agenten-Chat eine reine Protokollkorrektur an. Der Agent darf dabei weder die Facharbeit wiederholen noch seine bereits getroffene Entscheidung ändern. Er wählt ausschließlich einen exakten Namen aus seiner zugewiesenen Statusliste. Ist auch der Korrekturversuch ungültig oder fehlt die technische Route, pausiert der Lauf kontrolliert und speichert einen blockierten Kontrollpunkt; eine Route wird niemals aus freiem Antworttext geraten.
-
-Der Status `Fehler` ist für kontrolliert aufgebaute Teams reserviert. Er signalisiert keinen fachlichen Projektstatus, sondern einen technisch unterbrochenen Codex-Lauf. Der zugehörige Statusfilter führt zurück zum Verwaltungsagenten, statt den betroffenen Agenten dauerhaft als aktiv erscheinen zu lassen. Meldet der Verwaltungsagent selbst `Fehler` oder scheitert sein Lauf technisch, stoppt die Automatik kontrolliert und wartet sichtbar auf eine Benutzerentscheidung. Eine Selbstverknüpfung des Verwaltungsagenten wird dabei nicht erzeugt. Bereits gespeicherte Selbstverknüpfungen aus älteren Zuständen werden beim Laden entfernt; eine dabei noch aktive Automatik wird sicherheitshalber gestoppt.
-
-## Automatik
-
-Fordert ein Agent ausdrücklich eine menschliche beziehungsweise benutzerseitige Bestätigung an und nennt den exakten Bestätigungstext in einem `text`-Codeblock, hält der Orchestrator den gesamten automatischen Ablauf an. Die Anforderung erscheint als dauerhaftes Popup und geht nicht im Chatverlauf unter. `Bestätigen und fortsetzen` sendet den unveränderten Bestätigungstext an denselben Agenten zurück und setzt eine zuvor aktive Automatik fort. `Abbrechen` sendet keine Nachricht, schließt die Abfrage und lässt den Agenten sichtbar auf eine neue direkte Benutzernachricht warten. Dieser Wartezustand blockiert auch neue automatische Übergaben an denselben Agenten. Normale Rückfragen und Unterhaltungen im Agenten-Chat heben ihn nicht auf und bleiben lokal. Erst eine ausdrückliche Weiterleitungsanweisung oder eine eindeutige kurze Bestätigung wie `Okay`, `Bestätigt` oder `So machen wir weiter` setzt den wartenden Auftrag fort. Bis zu dieser Entscheidung startet keine Statusweiterleitung und der wartende Agent kann keinen parallelen Auftrag erhalten. Die offene Bestätigung wird projektbezogen gespeichert und erscheint deshalb auch nach einem Neuladen erneut. Ein Workflow-Reset verwirft sie bewusst zusammen mit dem übrigen Arbeitslauf.
-
-Benötigt ein Agent statt eines festen Bestätigungstexts eine konkrete Information, Entscheidung oder Handlung des Benutzers, kennzeichnet er genau eine blockierende Frage mit `<orchestrator_user_question>…</orchestrator_user_question>`. Der Orchestrator zeigt dann das Popup `Der Agent hat eine Frage` mit einem Antwortfeld, pausiert die Automatik und wartet. `Antwort senden und fortsetzen` übermittelt die Antwort ausschließlich an den fragenden Agenten und nimmt den vorherigen Workflow-Pfad wieder auf. Als Rückwärtskompatibilität werden außerdem klar an den Benutzer gerichtete Fragen wie `Kannst du …?` erkannt. Rhetorische, berichtete oder rein fachliche Fragen lösen kein Popup aus.
-
-Direkte Benutzernachrichten und normale Unterhaltungen gehören ausschließlich zum jeweils geöffneten Agenten-Chat. Ihre Antworten werden auch bei laufender Automatik nicht als Workflow-Ergebnis ausgewertet, nicht als Fortsetzung vorgemerkt und nicht an andere Agenten weitergeleitet. Eine Weitergabe erfolgt nur, wenn der Benutzer sie in derselben Nachricht ausdrücklich verlangt, beispielsweise mit `Leite das Ergebnis weiter` oder durch die ausdrückliche Anforderung eines Workflow-Status. Erst dann erhält der Agent die erlaubten Statusbefehle und seine Antwort darf den konfigurierten Dashboard-Pfad auslösen.
-
-`Auto Start` aktiviert die Ausführung des verbundenen Workflows. Vor einem neuen Initial prüft der Orchestrator, ob für das ausgewählte Projekt ein offener Kontrollpunkt existiert. Ist eine gültige Übergabe vorgemerkt, setzt er den vorhandenen Lauf mit dem gespeicherten Quellresultat, Status und Zielagenten fort. Eine danach abgeschlossene manuelle CEO-Entscheidung ersetzt ältere Kontrollpunkte desselben Projekts; dadurch kann eine reparierte oder bewusst neu vorbereitete Delegation wieder neutral über `Start → CEO` beginnen. Nur ohne offenen Kontrollpunkt beginnt ein neuer Lauf; dabei werden die Duplikat-Sperren des vorherigen Laufs zurückgesetzt. Ein nicht durch eine neuere CEO-Entscheidung abgelöster blockierter Kontrollpunkt startet nicht unbemerkt neu, sondern bleibt sichtbar und verlangt zuerst eine korrigierte Agentenantwort oder Workflow-Konfiguration.
-
-Direkt neben `Auto Start` legt das Feld `Läufe` projektbezogen fest, wie viele vollständige Durchläufe ausgeführt werden. Der Wert ist während einer aktiven Automatik gesperrt und zeigt dann den Fortschritt als `aktueller Lauf/Gesamtzahl`. Erreicht ein Lauf seinen konfigurierten Stopp-Pfad, startet der Orchestrator bei verbleibenden Läufen kontrolliert wieder am Initial-Baustein. Führt der konfigurierte Zyklus dagegen vom Prüfagenten zum Initial-Agenten zurück, eröffnet diese konkrete Rückgabe direkt den nächsten Lauf; sie wird nicht durch ein neutrales Initialsignal ersetzt. Nach dem letzten Lauf wechselt die Anwendung automatisch auf `Auto Stop`. Laufnummer und Zielzahl werden im gemeinsamen Laufjournal gespeichert, damit ein Neuladen oder eine Wiederaufnahme nicht bei Lauf eins beginnt.
-
-Die lokale Workflow-Historie ist auf die jüngsten zwölf Läufe mit jeweils achtzig kompakten Protokolleinträgen begrenzt. Vollständige fachliche Ergebnisse verbleiben in den zugehörigen Codex-Chats; Kontrollpunkte behalten den für eine Wiederaufnahme benötigten Ergebnistext. Kann der Browser-Fallback wegen einer Speichergrenze nicht geschrieben werden, bleibt die serverseitige Projektablage maßgeblich und die Oberfläche stürzt nicht ab.
-
-Die Agenten-Chatansicht lädt für eine flüssige Bedienung nur die neuesten 120 Nachrichten. Gesprächsabfragen überlappen nicht und unveränderte Antworten lösen kein erneutes Rendern aus. Das Eingabefeld verwaltet seinen Entwurf unabhängig von der großen Orchestrator-Oberfläche, sodass Tastatureingaben nicht mehr den gesamten Arbeitsbereich aktualisieren. Die vollständige Unterhaltung bleibt unverändert im jeweiligen Codex-Task gespeichert.
-
-Jeder Lauf wird projektbezogen mit Lauf-ID und geordneten Schritten gespeichert. Das Journal hält Agentenergebnisse, Statusentscheidungen, vorbereitete und ausgeführte Übergaben, Pausen, Wiederaufnahmen und Abschlüsse fest. Der aktuelle Kontrollpunkt erscheint im rechten Bereich `Arbeitslauf`. Auch eine bei `Auto Stop` fertiggestellte direkte Agentenantwort wird als Fortsetzung vorgemerkt, wenn sie exakt einen erlaubten Status und einen vorhandenen Zielpfad enthält. Bleibt bei aktiver Automatik nach einem Browser-Neuladen oder Programmneustart eine Übergabe mindestens 15 Sekunden ohne laufenden Quell- oder Ziel-Turn stehen, setzt der Orchestrator genau diesen Kontrollpunkt automatisch fort. Frisch angelegte Übergaben werden während dieser Karenzzeit nicht als unterbrochen bewertet. Meldet das Codex-Inventar einen neu gestarteten Turn kurzzeitig als inaktiv, bestätigt die Bridge diesen Zustand außerdem 20 Sekunden lang, bevor sie den Turn als fehlend einstuft.
-
-Pro Agenten-Dashboard darf höchstens ein Initial-Baustein existieren. Der Benutzer kann ihn frei im Dashboard eines Verwaltungs- oder Fachagenten anlegen; er sendet sein Startsignal ausschließlich an den Agenten, dem dieses Dashboard gehört. Die automatische Teamerstellung erzeugt weiterhin nur den neutralen Start des CEO und baut daraus `Start → CEO → Status-Filter → Fachagent`. Der Benutzer kann im Initial optional eine zusätzliche reine Ablaufanweisung speichern; fachliche Aufgaben, Projektziele und Prompt-Angaben sind dort nicht zulässig. Nur ausdrücklich als Benutzertext markierte Inhalte werden intern beim Auto-Start ergänzt. Teamaufbau, CEO und Orchestrator dürfen dieses Feld nicht automatisch befüllen. Rollen-Prompts, automatisch erzeugte Aufgaben und alte unmarkierte Inhalte werden daraus nicht ausgeführt. Ein Teamplan überschreibt eine vorhandene Benutzeranweisung nicht und speichert seine `startInstruction` niemals im Initial. Ohne Benutzertext liest der gestartete Agent ausschließlich die aktuelle Benutzeranweisung aus seinem Chat. Der Connector überwacht laufende Agenten und passende Ergebnisse werden entlang der Verdrahtung weitergegeben.
-
-Eine Übergabe gilt erst als erfolgreich, wenn der Connector für den Ziel-Chat eine konkrete Turn-ID bestätigt hat. Erst danach wird der Zielagent als aktiv und der Quellagent als `Weitergegeben` markiert. Fehlende Chat-Verknüpfungen, Connector-Fehler oder Antworten ohne Turn-ID führen sichtbar zu `Rückfrage`. Bei mehreren Zielen werden nur die tatsächlich angenommenen Übergaben als erfolgreich protokolliert.
-
-`Auto Stop` blockiert neue automatische Aktionen:
-
-- keine neuen Initial-Anfragen
-- keine neue Kommunikation zwischen Agenten
-- keine Ausführung fälliger Zeitpläne
-- keine neue automatische Weitergabe
-- ruhende Verbindungsanimationen
-- keine manuelle oder verwaltete Erstellung neuer Agenten
-
-Ein Agent, der beim Stoppen bereits arbeitet, darf seinen laufenden Codex-Turn noch abschließen. Danach wird keine weitere Route gestartet und sein Laufstatus auf `Warten` zurückgesetzt. Auch alle bereits abgeschlossenen Agentenstatus werden bei `Auto Stop` auf `Warten` gesetzt; nur wirklich laufende Turns bleiben bis zu ihrem Abschluss aktiv sichtbar. Direkte Chat-Nachrichten und manuelle Prompt-Übergaben bleiben auch bei ausgeschalteter Automatik verfügbar. Ihr tatsächlicher Laufstatus wird unabhängig von `Auto Start` in der Agentenliste, im Chatkopf und am Codex-Chat als sichtbare Arbeitsanimation angezeigt.
-
-Der Connector gleicht laufende Turn-IDs zusätzlich mit dem aktuellen Codex-Taskstatus ab. Fehlt der angeforderte Turn in der Historie und ist der Codex-Task bereits inaktiv, bestätigt eine kurze Nachlaufzeit zuerst, dass es sich nicht nur um eine verzögerte Aktualisierung der lokalen Historie handelt. Erst danach wird der Agent auf `Rückfrage` gesetzt. Dadurch werden parallele, bereits abgeschlossene Turns nicht fälschlich abgebrochen und tatsächlich verwaiste Turns bleiben trotzdem nicht dauerhaft aktiv.
-
-Nach `turn/start` gleicht der Connector die zunächst gemeldete Turn-ID mit der tatsächlich gespeicherten Codex-Historie ab. Falls Codex intern eine abweichende endgültige ID vergibt, überwacht der Orchestrator automatisch diese persistierte ID. Dadurch werden fertiggestellte Antworten nicht mehr fälschlich als fehlender oder unterbrochener Turn behandelt.
-
-Bleibt eine zunächst gemeldete Turn-ID trotz einer bereits abgeschlossenen Codex-Antwort aktiv, ordnet die Oberfläche die Antwort zusätzlich über den exakt gesendeten Auftrag zu und übernimmt die tatsächlich gespeicherte Turn-ID. Bei mehreren geöffneten Browser-Tabs hält außerdem nur ein Tab eine kurzlebige Automatik-Sperre. Damit werden Übergaben und Zeitpläne nicht doppelt ausgeführt; beim Schließen des führenden Tabs kann ein anderer Tab den Lauf automatisch übernehmen.
-
-Verhindert der Duplikatschutz die einzige mögliche Folgeübergabe, bleibt die Automatik nicht mehr scheinbar aktiv. Der Orchestrator pausiert den Arbeitslauf, setzt den auslösenden Agenten sichtbar auf `Rückfrage` und wartet auf eine neue Benutzerentscheidung. Der allgemeine Auto-Stop-Reset bewahrt diesen Rückfragestatus; nur abgeschlossene oder weitergegebene Agenten wechseln zurück auf `Warten`.
-
-### Systemüberwachung
-
-Eine deterministische Systemüberwachung beobachtet den tatsächlich gespeicherten Codex-Turn. Bleibt dessen sichtbarer Fortschritt drei Minuten unverändert oder überschreitet ein Lauf 45 Minuten, unterbricht der Connector genau diesen Turn kontrolliert. Der Agent erhält den Status `Fehler`; ein vorhandener Fehlerpfad führt die Diagnose an den Verwaltungsagenten beziehungsweise CEO zurück. Technische Fehler werden pro Codex-Turn erneut gemeldet. Die normale Duplikat-Sperre verhindert weiterhin identische fachliche Endlosschleifen, blockiert aber keine neue Abbruchmeldung.
-
-Der Orchestrator merkt sich bei einer Übergabe zusätzlich den unmittelbar sendenden Agenten. Meldet ein Verwaltungsagent nach einer Fehleranalyse eine konkrete, begrenzte Wiederaufnahme- oder Überarbeitungsaufgabe und existiert dafür kein eigener Dashboard-Pfad, wird diese Antwort gezielt an den betroffenen Agenten zurückgegeben. Ein vollständiger Team-Vorschlag bleibt dagegen bei `Auto Stop` und wartet auf die Freigabe des Benutzers. Meldet der Verwaltungsagent selbst einen technischen Fehler oder gibt es keinen gültigen Fortsetzungsweg, stoppt die Automatik sichtbar, anstatt ohne aktive Arbeit eingeschaltet zu bleiben. Der Watchdog greift pro Codex-Turn höchstens einmal ein.
-
-Connector-, Turn- und Routingfehler werden ohne zusätzlichen Diagnoseagenten direkt im Ablaufprotokoll angezeigt. Ein Watchdog-Abbruch erscheint außerdem als kompakter Hinweis mit Agent und Laufzeit. Der Orchestrator erzeugt daraus weder einen neuen Codex-Task noch eine automatische CEO-Übergabe. Fachliche Fehlerpfade, explizite Statusverbindungen und gespeicherte Wiederaufnahmen bleiben davon unberührt.
-
-## Zeitpläne
-
-Ein Zeitplan enthält eine Aufgabe und wird mit dem Zielagenten verbunden.
-
-```text
-Zeitplan -> Agent
-```
-
-Unterstützt werden:
-
-- einmalige Ausführung
-- wiederkehrende Intervalle in Minuten, Stunden, Tagen oder Wochen
-- wiederkehrende Ausführung zu einer festen Uhrzeit
-- einmalige Kalendertermine mit Datum und Uhrzeit
-
-Zeitpläne werden nur ausgeführt, wenn der Baustein aktiviert ist und die Automatik läuft. Ist der Zielagent beschäftigt, wartet die Ausführung auf einen freien Zustand.
-
-## Typischer Ablauf
-
-1. Ein Codex-Projekt auswählen.
-2. Vorhandene Chats in der Agenten-Übersicht aktivieren oder einen Agenten erstellen.
-3. Rolle, Modell und erlaubte Statusbefehle im Agenten-Setup festlegen.
-4. Über `P` eine oder mehrere Prompt-Dateien einrichten und übergeben.
-5. Über `D` das Dashboard öffnen.
-6. Agenten und Werkzeuge von `Out` nach `In` verbinden.
-7. Bausteine konfigurieren und den Ablauf mit `Auto Start` auslösen.
-8. Ergebnisse im Agenten-Chat und im einklappbaren Ereignisprotokoll verfolgen.
+Der gemeinsame Zustand schuetzt vor veralteten Browser-Tabs, die neuere Dashboard- oder Workflow-Daten überschreiben koennten.
 
 ## Installation und Start
 
-### Voraussetzungen
+Voraussetzungen:
 
 - Windows
 - Node.js mit `npm`
-- lokal angemeldete Codex-Installation
-- Zugriff des Connectors auf den lokalen Codex-App-Server
+- lokal angemeldete Codex-App
+- Zugriff auf den lokalen Codex-App-Server
 
-Am einfachsten startet die Anwendung per Doppelklick auf:
+Einfacher Start:
 
 ```text
 start.bat
 ```
 
-Das Skript installiert fehlende Abhängigkeiten, startet den überwachten Connector auf Port `4317`, startet die Weboberfläche auf Port `5173` und öffnet anschließend:
-
-```text
-http://127.0.0.1:5173/
-```
-
-Alternativ:
+Manueller Start:
 
 ```powershell
 npm install
@@ -331,9 +204,35 @@ npm run bridge
 npm run dev -- --host 127.0.0.1
 ```
 
-`npm run bridge` startet einen lokalen Supervisor. Er prüft den Connector regelmäßig über `/api/health`, protokolliert Prozessfehler unter `server/logs/bridge-supervisor.log` und startet die Bridge nach einem Absturz oder mehreren fehlgeschlagenen Gesundheitsprüfungen automatisch neu. Für eine gezielte Diagnose ohne automatische Wiederherstellung steht `npm run bridge:direct` zur Verfügung.
+Danach im Browser öffnen:
 
-Bei `Webzugriff: Erlaubt` gibt der Connector ausschließlich die HTTP(S)-Ursprünge frei, die im konkreten Arbeitsauftrag ausdrücklich als URL genannt werden. Eine ältere Ablehnung desselben Ursprungs wird für diesen Agenten-Task dabei aufgehoben. Andere Domains und Agenten ohne Webfreigabe bleiben unverändert geschützt.
+```text
+http://127.0.0.1:5173/
+```
+
+Direkter Bridge-Start ohne Supervisor:
+
+```powershell
+npm run bridge:direct
+```
+
+## Entwicklung
+
+Wichtige Befehle:
+
+```powershell
+npm run build
+npm run lint
+npm test
+```
+
+Fokussierte Tests können direkt über Node gestartet werden, zum Beispiel:
+
+```powershell
+node --test src/workflow-routing.test.ts src/workflow-topology-audit.test.ts src/workflow-state.test.ts
+```
+
+Die Produktionsausgabe wird unter `dist/` erzeugt.
 
 ## Architektur
 
@@ -341,7 +240,7 @@ Bei `Webzugriff: Erlaubt` gibt der Connector ausschließlich die HTTP(S)-Ursprü
 React/Vite-Weboberfläche
         |
         v
-Lokaler Connector auf Port 4317
+Lokale Bridge auf Port 4317
         |
         v
 Codex-App-Server
@@ -350,64 +249,40 @@ Codex-App-Server
 Codex-Projekte und Codex-Chats
 ```
 
-Wichtige Bereiche:
+Wichtige Dateien:
 
 ```text
-src/App.tsx                   React-Anwendungszustand und UI-Komposition
-src/workflow-canvas.tsx       React-Flow-Knoten, Kanten und Ziehvorschau
-src/workflow-protocol.ts      Strikte Auswertung der Workflow-Statussignale
-src/workflow-routing.ts       Technische Auflösung von Statusfiltern und Zielpfaden
-src/workflow-decision.ts      Fortsetzen-, Beobachten- oder Stoppen-Entscheidung
-src/workflow-runtime.ts       Persistentes Laufjournal und Wiederaufnahme-Kontrollpunkte
-src/delivery-queue.ts         Persistierbare Warteschlange paralleler Übergaben
-src/workflow-state.ts         Bereinigung verwaister Dashboard- und Positionsreferenzen
-server/bridge.mjs             Lokaler Connector zum Codex-App-Server
-server/prompt-files.mjs       Atomares Schreiben und SHA-256-Prüfung von Prompt-Dateien
-server/bridge-supervisor.mjs  Health-Check, Fehlerprotokoll und automatischer Neustart
+src/App.tsx                   zentrale UI, Zustand und Workflow-Steuerung
+src/App.css                   Layout und visuelle Darstellung
+src/workflow-canvas.tsx       React-Flow-Knoten, Kanten und Verbindungslogik
+src/workflow-routing.ts       technische Aufloesung von Zielpfaden
+src/workflow-runtime.ts       Laufjournal und Kontrollpunkte
+src/workflow-state.ts         Bereinigung gespeicherter Dashboard-Positionen
+src/workflow-topology-audit.ts Validierung der sichtbaren Workflow-Topologie
+src/pending-turn.ts           Erkennung laufender Agenten-Turns
+server/bridge.mjs             lokaler Connector zur Codex-App
+server/shared-state.mjs       persistenter gemeinsamer Orchestrator-Zustand
+server/prompt-files.mjs       Schreiben und Prüfen von Prompt-Dateien
 start.bat                     Windows-Startskript
 ```
 
-Der Orchestrator-Zustand wird lokal gespeichert. Prompt-Dateien werden im jeweiligen Projekt unter `.codex-orchestrator/prompts/` verwaltet. Lokale Zustände, Zugangsdaten und Chatdaten werden nicht versioniert.
+## Testabdeckung
 
-Gemeinsame Zustandsänderungen werden pro Browserfenster serialisiert. Veraltete, noch wartende Snapshots werden verworfen, damit beispielsweise ein bereits ausgelöster `Auto Stop` nicht durch eine verspätete ältere `Auto Start`-Speicherung zurückgesetzt wird.
+Die Tests pruefen unter anderem:
 
-### Entscheidungshierarchie
-
-Die technische Workflow-Topologie ist die maßgebliche Entscheidungsebene. Ein Agententext darf keine Verbindung erzeugen, verändern oder umgehen. Er liefert ausschließlich genau ein Statussignal in der letzten Zeile. Das Protokoll akzeptiert nur einen exakten, für den Agenten erlaubten Statusnamen. Fehlende, unbekannte, mehrfach gesetzte oder nicht abschließend platzierte Statusangaben stoppen den betroffenen Fach- oder Initialpfad kontrolliert, statt aus dem Fließtext ein Ziel zu erraten. Erst ein gültiges Signal darf einen vorhandenen Statusfilter aktivieren; der Statusfilter und seine gespeicherte Verbindung bestimmen anschließend das tatsächliche Ziel.
-
-Sprachliche CEO-, Rollen- und Initialanweisungen erklären dieses Verhalten, besitzen aber keine eigene technische Routingmacht. So bleibt eindeutig: Code und gespeicherte Topologie entscheiden, Text liefert nur validierte Eingabedaten.
-
-## Entwicklung und Prüfung
-
-```powershell
-npm run lint
-npm run build
-npm test
-```
-
-`npm test` startet zusätzlich einen isolierten Chromium-Smoke-Test der echten React-Oberfläche. Er verwendet einen kontrollierten Testzustand und prüft das Öffnen des CEO-Setups sowie Hinzufügen und Löschen interner CEO-Anweisungen, ohne reale Codex-Projekte oder Chats zu verändern. Ist lokal kein unterstützter Chromium-Browser vorhanden, wird ausschließlich dieser UI-Test übersprungen.
-
-Die übrige Suite prüft die atomare Zustandsspeicherung, monotone Versionsstände und den
-Schutz vor überschreibenden Änderungen aus veralteten Browser-Tabs. Die Tests
-prüfen außerdem einen vollständigen Team-Aufbau mit Rollen-Prompts, Statusbefehlen,
-Start-, Fehler-, Arbeits- und Abschlusswegen sowie individuellen Dashboard-Zuordnungen.
-Eine vollständige Workflow-Simulation führt eine validierte CEO-Delegation über einen
-Fachagenten bis zum Stopp. Weitere Szenarien prüfen fehlende, unbekannte, mehrfache und
-falsch platzierte Statusangaben, unvollständige CEO-Antworten, parallele Übergaben und
-die Wiederaufnahme ihrer gespeicherten Warteschlange nach einem simulierten Neustart.
-Ein simulierter Connector-Abbruch prüft, dass bereits erstellte Codex-Chats wieder
-archiviert werden und keine unvollständige Teamkonfiguration sichtbar wird.
-Der Connector führt dafür ein lokales Transaktionsjournal. Nach einem Browser- oder
-Connector-Neustart werden unterbrochene Team-Erstellungen automatisch bereinigt;
-bereits atomar gespeicherte Teams werden anhand ihrer Team-Signatur beibehalten.
-Sie verwenden ausschließlich temporäre Dateien und verändern keine Projekte oder Chats.
-
-Die Produktionsausgabe wird unter `dist/` erzeugt.
-
-Im Workflow-Dashboard verwenden alle Knoten eine stabile Geometrie mit vergrößerten Anschlussflächen. React Flow misst diese Anschlüsse nach jedem Dashboardaufbau neu, damit Verbindungen exakt mittig an den sichtbaren Ein- und Ausgängen andocken. Beim Ziehen folgen der neutrale weiße Griffpunkt und der Kopf der Vorschau-Linie über dasselbe native Zeigerereignis unmittelbar dem Mauszeiger. Der Linienanfang wird über die von React Flow gemeldete Knoten- und Handle-ID direkt am sichtbaren Mittelpunkt des tatsächlich gegriffenen DOM-Anschlusses verankert. Dadurch beeinflussen Zoom, Verschiebung und Modalposition den Ausgangspunkt nicht. Die Linienführung passt sich der Anordnung an: Vorwärts seitlich versetzte Kästen verbindet eine durchgehend fließende Bézier-Kurve, deutlich untereinander angeordnete Kästen behalten die gut lesbare gerundete Schrittführung. Liegt das Ziel hinter dem Ausgangsknoten, bleibt diese Umleitungsführung unabhängig von der Entfernung aktiv. Beim Wechsel werden beide Formen weich überblendet; gespeicherte Verbindung und Ziehvorschau verwenden dieselbe Berechnung. Doppelte Verbindungen werden nicht gespeichert und vorhandene doppelte Initial-Routen automatisch bereinigt. Die höhere Ziehschwelle reduziert unbeabsichtigte Sprünge beim Verschieben und Verbinden.
+- Routing direkter Agentenverbindungen
+- Weiterleiten mit und ohne Intervall
+- Rücksprung zu einem oder mehreren Zielagenten
+- Rücksprung mit explizitem `OUT` zu `Stop` oder `Weiterleiten`
+- Stop-Pfade
+- Topologiefehler und fehlende Ziele
+- gespeicherte Dashboard-Positionen, inklusive Rücksprung-Bausteinen
+- Workflow-Laufjournal und Kontrollpunkte
+- Prompt-Dateien und Connector-Verhalten
 
 ## Bekannte Grenzen
 
-- Bereits geöffnete Codex-Ansichten können eine eigene Aktualisierung benötigen, obwohl der Connector eine Änderung bereits verarbeitet hat.
-- Automatische Statusrouten benötigen genau einen erlaubten Workflow-Status als letzte Antwortzeile und eine dafür gespeicherte Verbindung.
-- Rollen, Arbeitsanweisungen und Statusbedeutungen müssen für den jeweiligen Ablauf eindeutig formuliert sein.
+- Die Oberfläche ist ein lokales Arbeitswerkzeug und kein Mehrbenutzer-System.
+- Bereits geöffnete Codex-Ansichten können eine eigene Aktualisierung benoetigen.
+- Agentenantworten müssen für automatische Weitergabe weiterhin zur sichtbaren Topologie passen.
+- Alte Screenshots sind entfernt und müssen nach dem nächsten stabilen UI-Stand neu erstellt werden.

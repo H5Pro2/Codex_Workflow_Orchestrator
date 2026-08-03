@@ -10,15 +10,6 @@ export type WorkflowRouteLike = {
   [key: string]: unknown
 }
 
-export type WorkflowStatusFilterLike = {
-  id: string
-  statusId: string
-  interval?: number
-  intervalCount?: number
-  intervalMode?: string
-  intervalPrompt?: string
-}
-
 export type WorkflowPromptLike = {
   id: string
   condition: string
@@ -29,113 +20,41 @@ export type WorkflowPromptLike = {
   intervalPrompt?: string
 }
 
+export type WorkflowStatusFilterLike = {
+  id: string
+  statusId: string
+  interval?: number
+  intervalCount?: number
+  intervalMode?: string
+  intervalPrompt?: string
+}
+
+export type WorkflowLoopLike = {
+  id: string
+  targetAgentId: string
+  targetAgentIds?: readonly string[]
+}
+
 export type ResolvedWorkflowDelivery = {
   route: WorkflowRouteLike
   targetId?: string
   stopId?: string
   promptNodeId?: string
+  loopNodeId?: string
   promptBranch?: 'normal' | 'interval'
   promptNextCount?: number
 }
 
-export function resolveUnconditionalForwarding({
-  sourceId,
-  statusId,
-  routes,
-  statusFilters,
-  targetIds,
-}: {
-  sourceId: string
-  statusId: string
-  routes: readonly WorkflowRouteLike[]
-  statusFilters: readonly WorkflowStatusFilterLike[]
-  targetIds: ReadonlySet<string>
-}) {
-  const filterIds = new Set(
-    statusFilters.filter((filter) => filter.statusId === statusId).map((filter) => filter.id),
-  )
-  const connectedFilterIds = new Set(
-    routes
-      .filter((route) => route.sourceId === sourceId && filterIds.has(route.targetId))
-      .map((route) => route.targetId),
-  )
-  if (connectedFilterIds.size === 0) {
-    return { enabled: false, delivery: null, deliveries: [], issue: '' }
-  }
-  const connectedFilter = statusFilters.find((filter) => connectedFilterIds.has(filter.id))
-  const intervalHit = nextForwardIntervalHit(connectedFilter?.interval, connectedFilter?.intervalCount)
-  const expectedHandles = new Set(forwardIntervalSourceHandles(intervalHit.branch, connectedFilter?.intervalMode))
-  const deliveries = routes
-    .filter((route) =>
-      connectedFilterIds.has(route.sourceId) &&
-      expectedHandles.has((route.sourceHandle || 'output') as 'output' | 'interval') &&
-      targetIds.has(route.targetId),
-    )
-    .map((route) => ({
-      targetId: route.targetId,
-      stopId: undefined,
-      route: (route.sourceHandle || 'output') === 'interval' && connectedFilter?.intervalPrompt
-        ? { ...route, prompt: connectedFilter.intervalPrompt }
-        : route,
-      promptNodeId: connectedFilter?.id,
-      promptBranch: intervalHit.branch,
-      promptNextCount: intervalHit.nextCount,
-    }))
-  if (connectedFilterIds.size !== 1 || deliveries.length !== expectedHandles.size) {
-    return {
-      enabled: true,
-      delivery: null,
-      deliveries: [],
-      issue: 'Der feste Status „Weiterleiten“ muss mit genau einem Zielagenten verbunden sein.',
-    }
-  }
-  return { enabled: true, delivery: deliveries[0], deliveries, issue: '' }
+export function resolveUnconditionalForwarding(_input?: unknown): {
+  enabled: boolean
+  delivery: ResolvedWorkflowDelivery | null
+  deliveries: ResolvedWorkflowDelivery[]
+  issue: string
+} {
+  return { enabled: false, delivery: null, deliveries: [], issue: '' }
 }
 
-export function wouldCreateUnsupportedUnconditionalForwardCycle({
-  sourceAgentId,
-  targetAgentId,
-  statusId,
-  routes,
-  statusFilters,
-}: {
-  sourceAgentId: string
-  targetAgentId: string
-  statusId: string
-  routes: readonly WorkflowRouteLike[]
-  statusFilters: readonly (WorkflowStatusFilterLike & { ownerAgentId?: string })[]
-}) {
-  const forwardFilters = statusFilters.filter((filter) => filter.statusId === statusId)
-  const adjacency = new Map<string, Set<string>>()
-  forwardFilters.forEach((filter) => {
-    const ownerId = filter.ownerAgentId
-    if (!ownerId) return
-    const connectedFromOwner = routes.some((route) =>
-      route.sourceId === ownerId && route.targetId === filter.id,
-    )
-    if (!connectedFromOwner) return
-    routes.filter((route) => route.sourceId === filter.id).forEach((route) => {
-      adjacency.set(ownerId, new Set([...(adjacency.get(ownerId) ?? []), route.targetId]))
-    })
-  })
-  adjacency.set(
-    sourceAgentId,
-    new Set([...(adjacency.get(sourceAgentId) ?? []), targetAgentId]),
-  )
-  const pending = [{ agentId: targetAgentId, distance: 0 }]
-  const visited = new Set<string>()
-  while (pending.length > 0) {
-    const current = pending.pop()
-    if (!current || visited.has(current.agentId)) continue
-    if (current.agentId === sourceAgentId) {
-      return current.distance !== 1
-    }
-    visited.add(current.agentId)
-    pending.push(...[...(adjacency.get(current.agentId) ?? [])].map((agentId) => ({
-      agentId,
-      distance: current.distance + 1,
-    })))
-  }
+export function wouldCreateUnsupportedUnconditionalForwardCycle(_input?: unknown) {
   return false
 }
 
@@ -148,53 +67,109 @@ export function routeConditionMatches(condition: string, result: string) {
   )
 }
 
+export function isTerminalIntervalSideBranch({
+  agentId,
+  activeRouteCount,
+  routes,
+}: {
+  agentId: string
+  activeRouteCount: number
+  routes: readonly WorkflowRouteLike[]
+}) {
+  if (activeRouteCount > 0) return false
+  return routes.some((route) =>
+    route.targetId === agentId &&
+    (route.sourceHandle || 'output') === 'interval',
+  )
+}
+
 export function resolveConfiguredDeliveries({
   sourceId,
   result,
-  resultStatusIds,
   routes,
-  statusFilters,
   promptNodes,
+  loopNodes = [],
   targetIds,
   stopIds,
 }: {
   sourceId: string
   result: string
-  resultStatusIds: readonly string[]
   routes: readonly WorkflowRouteLike[]
-  statusFilters: readonly WorkflowStatusFilterLike[]
+  resultStatusIds?: readonly string[]
+  statusFilters?: readonly WorkflowStatusFilterLike[]
   promptNodes: readonly WorkflowPromptLike[]
+  loopNodes?: readonly WorkflowLoopLike[]
   targetIds: ReadonlySet<string>
   stopIds: ReadonlySet<string>
 }) {
+  const resolveRouteTarget = (
+    route: WorkflowRouteLike,
+    metadata: Partial<ResolvedWorkflowDelivery> = {},
+    visitedLoopIds = new Set<string>(),
+  ): ResolvedWorkflowDelivery[] => {
+    if (targetIds.has(route.targetId)) return [{ targetId: route.targetId, route, ...metadata }]
+    if (stopIds.has(route.targetId)) return [{ stopId: route.targetId, route, ...metadata }]
+    const loopNode = loopNodes.find((loop) => loop.id === route.targetId)
+    const loopTargetIds = loopNode
+      ? [...new Set([...(loopNode.targetAgentIds ?? []), loopNode.targetAgentId].filter(Boolean))]
+      : []
+    if (loopNode && !visitedLoopIds.has(loopNode.id)) {
+      const nextVisitedLoopIds = new Set([...visitedLoopIds, loopNode.id])
+      const loopDeliveries = loopTargetIds
+        .filter((targetId) => targetIds.has(targetId))
+        .map((targetId) => ({ targetId, route, loopNodeId: loopNode!.id, ...metadata }))
+      const outgoingDeliveries = routes
+        .filter((outgoing) =>
+          outgoing.sourceId === loopNode.id &&
+          (outgoing.sourceHandle || 'output') === 'output' &&
+          routeConditionMatches(outgoing.condition, result),
+        )
+        .flatMap((outgoing) => resolveRouteTarget(
+          outgoing,
+          { loopNodeId: loopNode.id, ...metadata },
+          nextVisitedLoopIds,
+        ))
+      return [...loopDeliveries, ...outgoingDeliveries]
+    }
+    const promptNode = promptNodes.find((prompt) => prompt.id === route.targetId)
+    if (promptNode) {
+      const intervalHit = nextForwardIntervalHit(promptNode.interval, promptNode.intervalCount)
+      const expectedHandles = new Set(forwardIntervalSourceHandles(intervalHit.branch, promptNode.intervalMode))
+      return routes
+        .filter(
+          (outgoing) =>
+            outgoing.sourceId === promptNode.id &&
+            expectedHandles.has((outgoing.sourceHandle || 'output') as 'output' | 'interval') &&
+            routeConditionMatches(outgoing.condition, result),
+        )
+        .flatMap<ResolvedWorkflowDelivery>((outgoing) => {
+          const resolvedRoute = {
+            ...outgoing,
+            condition: promptNode.condition,
+            prompt: (outgoing.sourceHandle || 'output') === 'interval'
+              ? (promptNode.intervalPrompt ?? promptNode.prompt)
+              : promptNode.prompt,
+          }
+          return resolveRouteTarget(
+            resolvedRoute,
+            {
+              ...metadata,
+              promptNodeId: promptNode.id,
+              promptBranch: intervalHit.branch,
+              promptNextCount: intervalHit.nextCount,
+            },
+            visitedLoopIds,
+          )
+        })
+    }
+    return []
+  }
+
   const deliveries = routes
     .filter((route) => route.sourceId === sourceId)
     .flatMap<ResolvedWorkflowDelivery>((route) => {
-      if (targetIds.has(route.targetId)) return [{ targetId: route.targetId, route }]
-      if (stopIds.has(route.targetId)) return [{ stopId: route.targetId, route }]
-
-      const statusFilter = statusFilters.find((filter) => filter.id === route.targetId)
-      if (statusFilter) {
-        if (!resultStatusIds.includes(statusFilter.statusId)) return []
-        const intervalHit = nextForwardIntervalHit(statusFilter.interval, statusFilter.intervalCount)
-        const expectedHandles = new Set(forwardIntervalSourceHandles(intervalHit.branch, statusFilter.intervalMode))
-        return routes
-          .filter((outgoing) =>
-            outgoing.sourceId === statusFilter.id &&
-            expectedHandles.has((outgoing.sourceHandle || 'output') as 'output' | 'interval'),
-          )
-          .flatMap<ResolvedWorkflowDelivery>((outgoing) => {
-            const intervalMetadata = {
-              promptNodeId: statusFilter.id,
-              promptBranch: intervalHit.branch,
-              promptNextCount: intervalHit.nextCount,
-            }
-            if (targetIds.has(outgoing.targetId)) return [{ targetId: outgoing.targetId, route: outgoing, ...intervalMetadata }]
-            if (stopIds.has(outgoing.targetId)) return [{ stopId: outgoing.targetId, route: outgoing, ...intervalMetadata }]
-            return []
-          })
-      }
-
+      const directDelivery = resolveRouteTarget(route)
+      if (directDelivery.length > 0) return directDelivery
       const promptNode = promptNodes.find((prompt) => prompt.id === route.targetId)
       if (!promptNode) return []
       const intervalHit = nextForwardIntervalHit(promptNode.interval, promptNode.intervalCount)
@@ -219,9 +194,7 @@ export function resolveConfiguredDeliveries({
             promptBranch: intervalHit.branch,
             promptNextCount: intervalHit.nextCount,
           }
-          if (targetIds.has(outgoing.targetId)) return [{ targetId: outgoing.targetId, route: resolvedRoute, ...intervalMetadata }]
-          if (stopIds.has(outgoing.targetId)) return [{ stopId: outgoing.targetId, route: resolvedRoute, ...intervalMetadata }]
-          return []
+          return resolveRouteTarget(resolvedRoute, intervalMetadata)
         })
     })
 

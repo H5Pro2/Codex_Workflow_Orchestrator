@@ -27,6 +27,13 @@ type AuditForwardingNode = {
   interval?: number
 }
 
+type AuditLoopNode = {
+  id: string
+  ownerAgentId: string
+  targetAgentId: string
+  targetAgentIds?: readonly string[]
+}
+
 type AuditTerminal = {
   id: string
   ownerAgentId: string
@@ -46,6 +53,7 @@ export function auditWorkflowTopology({
   routes,
   terminals,
   forwardingNodes = [],
+  loopNodes = [],
 }: {
   agents: readonly AuditAgent[]
   activeAgentIds: ReadonlySet<string>
@@ -54,25 +62,25 @@ export function auditWorkflowTopology({
   routes: readonly AuditRoute[]
   terminals: readonly AuditTerminal[]
   forwardingNodes?: readonly AuditForwardingNode[]
+  loopNodes?: readonly AuditLoopNode[]
 }) {
   const issues: WorkflowTopologyIssue[] = []
   const agentById = new Map(agents.map((agent) => [agent.id, agent]))
   const statusIds = new Set(statuses.map((status) => status.id))
   const filterById = new Map(filters.map((filter) => [filter.id, filter]))
+  const forwardingNodeById = new Map(forwardingNodes.map((node) => [node.id, node]))
+  const loopNodeById = new Map(loopNodes.map((node) => [node.id, node]))
   const terminalIds = new Set(terminals.map((terminal) => terminal.id))
-  const knownNodeIds = new Set([...agentById.keys(), ...filterById.keys(), ...terminalIds])
+  const knownNodeIds = new Set([
+    ...agentById.keys(),
+    ...filterById.keys(),
+    ...forwardingNodeById.keys(),
+    ...loopNodeById.keys(),
+    ...terminalIds,
+  ])
 
   agents.filter((agent) => activeAgentIds.has(agent.id)).forEach((agent) => {
     const ownedFilters = filters.filter((filter) => filter.ownerAgentId === agent.id)
-    if (ownedFilters.length === 0) {
-      issues.push({
-        agentId: agent.id,
-        code: 'missing-status',
-        detail: `${agent.name}: Im Dashboard ist kein fachlicher Status konfiguriert.`,
-      })
-      return
-    }
-
     ownedFilters.forEach((filter) => {
       if (!statusIds.has(filter.statusId)) {
         issues.push({
@@ -98,6 +106,20 @@ export function auditWorkflowTopology({
         })
       }
     })
+  })
+
+  loopNodes.forEach((node) => {
+    if (!activeAgentIds.has(node.ownerAgentId)) return
+    const owner = agentById.get(node.ownerAgentId)
+    if (!owner) return
+    const targetAgentIds = [...new Set([...(node.targetAgentIds ?? []), node.targetAgentId].filter(Boolean))]
+    if (targetAgentIds.length === 0 || !targetAgentIds.every((targetId) => agentById.has(targetId))) {
+      issues.push({
+        agentId: node.ownerAgentId,
+        code: 'missing-target',
+        detail: `${owner.name}: Ein Rücksprung-Baustein besitzt keinen gültigen Zielagenten.`,
+      })
+    }
   })
 
   forwardingNodes.forEach((node) => {

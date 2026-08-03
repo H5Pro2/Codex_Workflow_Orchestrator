@@ -6,18 +6,15 @@ import { parseWorkflowSignal } from './workflow-protocol.ts'
 import { resolveConfiguredDeliveries } from './workflow-routing.ts'
 
 const statuses = [
-  { id: 'forward', name: 'Weiterleitung' },
   { id: 'done', name: 'Projekt abgeschlossen' },
 ]
 const routes = [
-  { id: 'ceo-filter', sourceId: 'ceo', targetId: 'forward-filter', condition: '', prompt: '' },
-  { id: 'filter-frontend', sourceId: 'forward-filter', targetId: 'frontend', condition: '', prompt: '' },
-  { id: 'frontend-filter', sourceId: 'frontend', targetId: 'done-filter', condition: '', prompt: '' },
-  { id: 'filter-stop', sourceId: 'done-filter', targetId: 'project-stop', condition: '', prompt: '' },
+  { id: 'ceo-forward', sourceId: 'ceo', targetId: 'forward-node', condition: '', prompt: '' },
+  { id: 'forward-frontend', sourceId: 'forward-node', targetId: 'frontend', condition: '', prompt: '' },
+  { id: 'frontend-stop', sourceId: 'frontend', targetId: 'project-stop', condition: '', prompt: '' },
 ]
-const statusFilters = [
-  { id: 'forward-filter', statusId: 'forward' },
-  { id: 'done-filter', statusId: 'done' },
+const promptNodes = [
+  { id: 'forward-node', condition: '', prompt: 'Weiter bearbeiten.' },
 ]
 
 function resolve(sourceId: string, result: string) {
@@ -25,18 +22,16 @@ function resolve(sourceId: string, result: string) {
   const deliveries = resolveConfiguredDeliveries({
     sourceId,
     result,
-    resultStatusIds: signal.statusIds,
     routes,
-    statusFilters,
-    promptNodes: [],
+    promptNodes,
     targetIds: new Set(['ceo', 'frontend']),
     stopIds: new Set(['project-stop']),
   })
   return { signal, deliveries }
 }
 
-test('runs a validated CEO delegation through a specialist to the configured stop', () => {
-  const delegated = resolve('ceo', 'Arbeitsauftrag vorbereitet.\n[Workflow-Status: Weiterleitung]')
+test('runs a statusless forwarding handoff through a specialist to the configured stop', () => {
+  const delegated = resolve('ceo', 'Arbeitsauftrag vorbereitet.')
   assert.equal(decideWorkflowContinuation({
     signal: delegated.signal,
     deliveryCount: delegated.deliveries.length,
@@ -44,19 +39,19 @@ test('runs a validated CEO delegation through a specialist to the configured sto
   }).action, 'continue')
   assert.deepEqual(delegated.deliveries.map((delivery) => delivery.targetId), ['frontend'])
 
-  const completed = resolve('frontend', 'Umsetzung geprüft.\n[Workflow-Status: Projekt abgeschlossen]')
+  const completed = resolve('frontend', 'Umsetzung geprueft.\n[Workflow-Status: Projekt abgeschlossen]')
   assert.deepEqual(completed.deliveries.map((delivery) => delivery.stopId), ['project-stop'])
 })
 
-test('stops safely on an incomplete CEO answer instead of guessing a target', () => {
-  const incomplete = resolve('ceo', 'Ich würde den Frontend-Agenten einsetzen.')
+test('stops safely on an incomplete CEO answer without a forwarding route', () => {
+  const signal = parseWorkflowSignal('Ich wuerde den Frontend-Agenten einsetzen.', statuses)
   const decision = decideWorkflowContinuation({
-    signal: incomplete.signal,
-    deliveryCount: incomplete.deliveries.length,
-    activeRouteCount: 1,
+    signal,
+    deliveryCount: 0,
+    activeRouteCount: 0,
   })
   assert.equal(decision.action, 'stop')
-  assert.match(decision.reason, /keinen Workflow-Status/)
+  assert.match(decision.reason, /keine ausgehende Workflow-Verbindung/)
 })
 
 test('continues parallel handoffs in order after queue serialization and restart', () => {

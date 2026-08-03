@@ -420,6 +420,28 @@ type WorkflowTimer = {
   lastRunAt: string
 }
 
+type WorkflowLoop = {
+  id: string
+  ownerAgentId: string
+  projectPath: string
+  name: string
+  targetAgentId: string
+  targetAgentIds?: string[]
+}
+
+type WorkflowLayoutPattern = {
+  id: string
+  projectPath: string
+  dashboardId: string
+  savedAt: string
+  nodes: Array<{
+    id: string
+    kind: 'agent' | 'prompt' | 'initial' | 'status' | 'stop' | 'timer' | 'loop'
+    x: number
+    y: number
+  }>
+}
+
 type WorkflowDelivery = {
   route: WorkflowRoute
   target?: Agent
@@ -995,6 +1017,8 @@ function loadStoredState() {
       workflowStatusFilters: [] as WorkflowStatusFilter[],
       workflowStops: [] as WorkflowStop[],
       workflowTimers: [] as WorkflowTimer[],
+      workflowLoops: [] as WorkflowLoop[],
+      workflowLayoutPatterns: [] as WorkflowLayoutPattern[],
       workflowPositions: {} as Record<string, { x: number; y: number }>,
       workflowBoardAgentIds: {} as Record<string, string[]>,
       deliveryQueue: {} as DeliveryQueue,
@@ -1022,6 +1046,8 @@ function loadStoredState() {
       workflowStatusFilters: parsedStatusFilters,
       workflowStops: Array.isArray(parsed.workflowStops) ? parsed.workflowStops : [],
       workflowTimers: Array.isArray(parsed.workflowTimers) ? parsed.workflowTimers : [],
+      workflowLoops: Array.isArray(parsed.workflowLoops) ? parsed.workflowLoops : [],
+      workflowLayoutPatterns: Array.isArray(parsed.workflowLayoutPatterns) ? parsed.workflowLayoutPatterns : [],
       workflowPositions:
         parsed.workflowPositions && typeof parsed.workflowPositions === 'object'
           ? parsed.workflowPositions
@@ -1049,6 +1075,8 @@ function loadStoredState() {
       workflowStatusFilters: [] as WorkflowStatusFilter[],
       workflowStops: [] as WorkflowStop[],
       workflowTimers: [] as WorkflowTimer[],
+      workflowLoops: [] as WorkflowLoop[],
+      workflowLayoutPatterns: [] as WorkflowLayoutPattern[],
       workflowPositions: {} as Record<string, { x: number; y: number }>,
       workflowBoardAgentIds: {} as Record<string, string[]>,
       deliveryQueue: {} as DeliveryQueue,
@@ -1365,6 +1393,7 @@ function WorkflowDashboard({
   statusFilters,
   stops,
   timers,
+  loops,
   statuses,
   positions,
   dashboardId,
@@ -1380,6 +1409,7 @@ function WorkflowDashboard({
   onSelectStatusFilter,
   onSelectStop,
   onSelectTimer,
+  onSelectLoop,
   onNodePositionChange,
   onAgentDrop,
   draggedAgentId,
@@ -1392,6 +1422,7 @@ function WorkflowDashboard({
   statusFilters: WorkflowStatusFilter[]
   stops: WorkflowStop[]
   timers: WorkflowTimer[]
+  loops: WorkflowLoop[]
   statuses: WorkflowStatusDefinition[]
   positions: Record<string, { x: number; y: number }>
   dashboardId: string
@@ -1407,6 +1438,7 @@ function WorkflowDashboard({
   onSelectStatusFilter: (filterId: string) => void
   onSelectStop: (stopId: string) => void
   onSelectTimer: (timerId: string) => void
+  onSelectLoop: (loopId: string) => void
   onNodePositionChange: (nodeId: string, position: { x: number; y: number }) => void
   onAgentDrop: (agentId: string, position: { x: number; y: number }) => void
   draggedAgentId: string
@@ -1417,15 +1449,22 @@ function WorkflowDashboard({
   const initialNodes = useMemo<Node[]>(
     () =>
       [
-        ...agents.map((agent, index) => ({
-          id: agent.id,
-          type: 'workflow',
-          width: 190,
-          height: 64,
-          position: positions[agent.id] ?? { x: 70 + (index % 3) * 220, y: 70 + Math.floor(index / 3) * 150 },
-          data: { label: agent.name, kind: 'agent' as const, status: agent.status, kindLabel: 'Agent' },
-          className: `workflowNode agent ${agent.status} ${agent.id === selectedAgentNodeId ? 'nodeSelected' : ''}`,
-        })),
+        ...agents.map((agent, index) => {
+          const activeStep = isAgentWorking({
+            status: agent.status,
+            pendingTurnId: agent.pendingTurnId,
+            isTransmitting: false,
+          })
+          return {
+            id: agent.id,
+            type: 'workflow',
+            width: 190,
+            height: 64,
+            position: positions[agent.id] ?? { x: 70 + (index % 3) * 220, y: 70 + Math.floor(index / 3) * 150 },
+            data: { label: agent.name, kind: 'agent' as const, status: agent.status, kindLabel: 'Agent' },
+            className: `workflowNode agent ${agent.status} ${activeStep ? 'activeStep' : ''} ${agent.id === selectedAgentNodeId ? 'nodeSelected' : ''}`,
+          }
+        }),
         ...prompts.map((prompt, index) => ({
           id: prompt.id,
           type: 'workflow',
@@ -1495,8 +1534,26 @@ function WorkflowDashboard({
           data: { label: timer.name, kind: 'timer' as const, kindLabel: language === 'de' ? 'Zeitsteuerung' : 'Schedule' },
           className: `workflowNode timer ${timer.enabled ? 'enabled' : 'disabled'}`,
         })),
+        ...loops.map((loop, index) => ({
+          id: loop.id,
+          type: 'workflow',
+          width: 190,
+          height: 72 + Math.max(0, ((loop.targetAgentIds?.length || (loop.targetAgentId ? 1 : 0)) - 1)) * 18,
+          position: positions[loop.id] ?? { x: 700, y: 300 + index * 130 },
+          data: {
+            label: loop.name,
+            kind: 'loop' as const,
+            kindLabel: loop.targetAgentIds?.length
+              ? `Zu: ${loop.targetAgentIds
+                .map((targetId) => agents.find((agent) => agent.id === targetId)?.name)
+                .filter(Boolean)
+                .join(', ')}`
+              : 'Ziel wählen',
+          },
+          className: 'workflowNode loop',
+        })),
       ],
-    [agents, initials, language, positions, prompts, selectedAgentNodeId, statusFilters, stops, timers],
+    [agents, initials, language, loops, positions, prompts, selectedAgentNodeId, statusFilters, stops, timers],
   )
   const initialEdges = useMemo<Edge[]>(
     () =>
@@ -1627,6 +1684,8 @@ function WorkflowDashboard({
             onSelectStop(node.id)
           } else if (timers.some((timer) => timer.id === node.id)) {
             onSelectTimer(node.id)
+          } else if (loops.some((loop) => loop.id === node.id)) {
+            onSelectLoop(node.id)
           } else if (agents.some((agent) => agent.id === node.id)) {
             onSelectAgent(node.id)
           }
@@ -1800,6 +1859,8 @@ function App() {
   )
   const [workflowStops, setWorkflowStops] = useState<WorkflowStop[]>(storedState.workflowStops)
   const [workflowTimers, setWorkflowTimers] = useState<WorkflowTimer[]>(storedState.workflowTimers)
+  const [workflowLoops, setWorkflowLoops] = useState<WorkflowLoop[]>(storedState.workflowLoops)
+  const [workflowLayoutPatterns, setWorkflowLayoutPatterns] = useState<WorkflowLayoutPattern[]>(storedState.workflowLayoutPatterns)
   const [workflowPositions, setWorkflowPositions] = useState<Record<string, { x: number; y: number }>>(
     storedState.workflowPositions,
   )
@@ -1809,6 +1870,7 @@ function App() {
   const [selectedStatusFilterId, setSelectedStatusFilterId] = useState('')
   const [selectedStopId, setSelectedStopId] = useState('')
   const [selectedTimerId, setSelectedTimerId] = useState('')
+  const [selectedLoopId, setSelectedLoopId] = useState('')
   const [newWorkflowStatusName, setNewWorkflowStatusName] = useState('')
   const [newWorkflowStatusDescription, setNewWorkflowStatusDescription] = useState('')
   const [statusLibraryOpen, setStatusLibraryOpen] = useState(false)
@@ -1827,6 +1889,7 @@ function App() {
   const [editingWorkflowStatusName, setEditingWorkflowStatusName] = useState('')
   const [editingWorkflowStatusDescription, setEditingWorkflowStatusDescription] = useState('')
   const [layoutRevision, setLayoutRevision] = useState(0)
+  const [layoutPatternFeedback, setLayoutPatternFeedback] = useState('')
   const [selectedWorkflowAgentId, setSelectedWorkflowAgentId] = useState('')
   const [workflowBoardAgentIds, setWorkflowBoardAgentIds] = useState<Record<string, string[]>>(
     storedState.workflowBoardAgentIds,
@@ -1846,6 +1909,13 @@ function App() {
   const [pendingPromptDeliveryAgentId, setPendingPromptDeliveryAgentId] = useState('')
   const [transmittingAgentIds, setTransmittingAgentIds] = useState<string[]>([])
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+
+  useEffect(() => {
+    if (!layoutPatternFeedback) return undefined
+    const timeout = window.setTimeout(() => setLayoutPatternFeedback(''), 1600)
+    return () => window.clearTimeout(timeout)
+  }, [layoutPatternFeedback])
+
   const copy = languageCopy[language]
   const effectiveTheme: Exclude<ThemeMode, 'system'> = programSettings.theme === 'system'
     ? systemDark ? 'dark' : 'light'
@@ -2206,6 +2276,8 @@ function App() {
       workflowStatusFilters,
       workflowStops,
       workflowTimers,
+      workflowLoops,
+      workflowLayoutPatterns,
       workflowPositions,
       workflowBoardAgentIds,
       deliveryQueue,
@@ -2279,7 +2351,7 @@ function App() {
       })
     }, 450)
     return () => window.clearTimeout(timer)
-  }, [agents, autoRun, deliveryQueue, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowLoopCounts, workflowPositions, workflowPrompts, workflowRuntime, workflowStatusFilters, workflowStatuses, workflowStops, workflowTimers])
+  }, [agents, autoRun, deliveryQueue, events, hiddenThreadIds, projectFilter, routes, sharedStateReady, workflowBoardAgentIds, workflowInitials, workflowLayoutPatterns, workflowLoopCounts, workflowLoops, workflowPositions, workflowPrompts, workflowRuntime, workflowStatusFilters, workflowStatuses, workflowStops, workflowTimers])
 
   const applySharedState = useCallback((state: ReturnType<typeof loadStoredState>) => {
     const incomingRoutes = Array.isArray(state.routes) ? state.routes : []
@@ -2313,6 +2385,8 @@ function App() {
     setWorkflowStatusFilters(incomingStatusFilters)
     setWorkflowStops(Array.isArray(state.workflowStops) ? state.workflowStops : [])
     setWorkflowTimers(Array.isArray(state.workflowTimers) ? state.workflowTimers : [])
+    setWorkflowLoops(Array.isArray(state.workflowLoops) ? state.workflowLoops : [])
+    setWorkflowLayoutPatterns(Array.isArray(state.workflowLayoutPatterns) ? state.workflowLayoutPatterns : [])
     setWorkflowPositions(state.workflowPositions ?? {})
     setWorkflowBoardAgentIds(state.workflowBoardAgentIds ?? {})
     const incomingDeliveryQueue = normalizeDeliveryQueue(state.deliveryQueue)
@@ -2479,11 +2553,12 @@ function App() {
       ...workflowStatusFilters.map((node) => node.id),
       ...workflowStops.map((node) => node.id),
       ...workflowTimers.map((node) => node.id),
+      ...workflowLoops.map((node) => node.id),
     ]
     setWorkflowBoardAgentIds((current) => pruneWorkflowBoardAgentIds(current, agentIds))
     setWorkflowPositions((current) => pruneWorkflowPositions(current, agentIds, nodeIds))
     updateDeliveryQueue((current) => pruneDeliveryQueue(current, agentIds))
-  }, [agents, updateDeliveryQueue, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStops, workflowTimers])
+  }, [agents, updateDeliveryQueue, workflowInitials, workflowLoops, workflowPrompts, workflowStatusFilters, workflowStops, workflowTimers])
 
   useEffect(() => {
     if (!selectedProjectPath) {
@@ -2813,7 +2888,7 @@ function App() {
     return () => window.cancelAnimationFrame(frame)
   }, [chatMessages, chatPinnedToBottom, communicationView, selectedAgent?.id])
 
-  const activeDashboardOwnerId = selectedAgent?.id ?? ''
+  const activeDashboardOwnerId = selectedProject?.path ? `project:${selectedProject.path}` : ''
   const projectWorkflowStatuses = [
     unconditionalForwardStatus(selectedProject?.path ?? ''),
     ...workflowStatuses.filter((status) =>
@@ -2829,45 +2904,43 @@ function App() {
   const visibleProjectKnowledgeSources = projectKnowledgeSources.filter(
     (source) => source.type === knowledgeSourceType,
   )
-  const projectStatusFilters = workflowStatusFilters.filter(
-    (filter) =>
-      filter.ownerAgentId === activeDashboardOwnerId &&
-      samePath(filter.projectPath, selectedProject?.path ?? ''),
-  )
+  const projectStatusFilters = LEGACY_STATUS_UI_ENABLED
+    ? workflowStatusFilters.filter(
+        (filter) =>
+          samePath(filter.projectPath, selectedProject?.path ?? ''),
+      )
+    : []
   const projectStops = workflowStops.filter(
     (stop) =>
-      stop.ownerAgentId === activeDashboardOwnerId &&
       samePath(stop.projectPath, selectedProject?.path ?? ''),
   )
   const projectTimers = workflowTimers.filter(
     (timer) =>
-      timer.ownerAgentId === activeDashboardOwnerId &&
       samePath(timer.projectPath, selectedProject?.path ?? ''),
+  )
+  const projectLoops = workflowLoops.filter((loop) =>
+    samePath(loop.projectPath, selectedProject?.path ?? ''),
   )
   const projectRoutes = useMemo(
     () =>
       routes.filter(
         (route) =>
-          (route.ownerAgentId || route.sourceId) === activeDashboardOwnerId &&
           samePath(route.projectPath, selectedProject?.path ?? '') &&
-          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops, ...projectTimers].some((node) => node.id === route.sourceId) &&
-          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops, ...projectTimers].some((node) => node.id === route.targetId),
+          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops, ...projectTimers, ...projectLoops].some((node) => node.id === route.sourceId) &&
+          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops, ...projectTimers, ...projectLoops].some((node) => node.id === route.targetId),
       ),
-    [activeDashboardOwnerId, projectAgents, projectStatusFilters, projectStops, projectTimers, routes, selectedProject?.path, workflowInitials, workflowPrompts],
+    [projectAgents, projectLoops, projectStatusFilters, projectStops, projectTimers, routes, selectedProject?.path, workflowInitials, workflowPrompts],
   )
   const projectPrompts = workflowPrompts.filter(
     (prompt) =>
-      prompt.ownerAgentId === activeDashboardOwnerId &&
       samePath(prompt.projectPath, selectedProject?.path ?? ''),
   )
   const dashboardPrompts = PROMPT_NODES_ENABLED ? projectPrompts : []
   const projectInitials = workflowInitials.filter(
     (initial) =>
-      initial.ownerAgentId === activeDashboardOwnerId &&
       samePath(initial.projectPath, selectedProject?.path ?? ''),
   )
   const existingDashboardInitial = workflowInitials.find((initial) =>
-    initial.ownerAgentId === activeDashboardOwnerId &&
     samePath(initial.projectPath, selectedProject?.path ?? ''),
   )
   const initialToolUnavailableReason = existingDashboardInitial
@@ -2888,23 +2961,31 @@ function App() {
     ...projectStatusFilters.map((filter) => filter.id),
     ...projectStops.map((stop) => stop.id),
     ...projectTimers.map((timer) => timer.id),
+    ...projectLoops.map((loop) => loop.id),
   ])
   const dashboardRoutes = projectRoutes.filter(
     (route) => dashboardNodeIds.has(route.sourceId) && dashboardNodeIds.has(route.targetId),
   )
   const dashboardPositions = Object.fromEntries(
-    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters, ...projectStops, ...projectTimers].map((node) => [
+    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters, ...projectStops, ...projectTimers, ...projectLoops].map((node) => [
       node.id,
       workflowPositions[`${activeDashboardOwnerId}:${node.id}`],
     ]).filter((entry) => Boolean(entry[1])),
   ) as Record<string, { x: number; y: number }>
   if (
     activeDashboardOwnerId &&
+    !activeDashboardOwnerId.startsWith('project:') &&
     projectInitials.length > 0 &&
     !dashboardPositions[activeDashboardOwnerId]
   ) {
     dashboardPositions[activeDashboardOwnerId] = { x: 50, y: 260 }
   }
+  const activeLayoutPattern = workflowLayoutPatterns
+    .filter((pattern) =>
+      samePath(pattern.projectPath, selectedProject?.path ?? '') &&
+      pattern.dashboardId === activeDashboardOwnerId,
+    )
+    .sort((left, right) => right.savedAt.localeCompare(left.savedAt))[0]
   const selectedRoute = projectRoutes.find((route) => route.id === selectedRouteId)
   const selectedRouteSourceForwarding = selectedRoute
     ? projectPrompts.find((prompt) => prompt.id === selectedRoute.sourceId) ??
@@ -2915,9 +2996,10 @@ function App() {
   const selectedStatusFilter = projectStatusFilters.find((filter) => filter.id === selectedStatusFilterId)
   const selectedStop = projectStops.find((stop) => stop.id === selectedStopId)
   const selectedTimer = projectTimers.find((timer) => timer.id === selectedTimerId)
+  const selectedLoop = projectLoops.find((loop) => loop.id === selectedLoopId)
   const selectedWorkflowAgent = projectAgents.find((agent) => agent.id === selectedWorkflowAgentId)
   const dashboardNodeLabel = (nodeId: string) =>
-    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters, ...projectStops, ...projectTimers].find(
+    [...dashboardAgents, ...dashboardPrompts, ...projectInitials, ...projectStatusFilters, ...projectStops, ...projectTimers, ...projectLoops].find(
       (node) => node.id === nodeId,
     )?.name ?? 'Unbekannter Baustein'
 
@@ -3729,7 +3811,7 @@ function App() {
     }
     if (autoRun || autoRunRef.current) {
       setAgentCreationError(tx(
-        'Agenten koennen nur bei Auto Stop erstellt werden.',
+        'Agenten können nur bei Auto Stop erstellt werden.',
         'Agents can only be created while Auto Stop is active.',
       ))
       return
@@ -3773,8 +3855,8 @@ function App() {
         projectPath: threadProject.path,
         threadTitle: thread.title,
         threadId: thread.id,
-        prompt: 'Definiere die Rollen-Anweisung fuer diesen Codex-Agenten.',
-        promptDocuments: [createDefaultPromptDocument('Definiere die Rollen-Anweisung fuer diesen Codex-Agenten.')],
+        prompt: 'Definiere die Rollen-Anweisung für diesen Codex-Agenten.',
+        promptDocuments: [createDefaultPromptDocument('Definiere die Rollen-Anweisung für diesen Codex-Agenten.')],
         activePromptDocumentId: 'default',
         status: thread.status === 'active' ? 'laeuft' : 'wartet',
         talkTo: [],
@@ -5098,6 +5180,7 @@ function App() {
       routes,
       statusFilters: workflowStatusFilters,
       promptNodes: workflowPrompts,
+      loopNodes: workflowLoops,
       targetIds: new Set(agents.map((item) => item.id)),
       stopIds: new Set(workflowStops.map((item) => item.id)),
     })
@@ -5114,7 +5197,7 @@ function App() {
       state: 'pending',
     })
     return true
-  }, [agents, persistWorkflowCheckpoint, routes, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [agents, persistWorkflowCheckpoint, routes, workflowLoops, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   useEffect(() => {
     if (
@@ -5211,6 +5294,7 @@ function App() {
             routes,
             statusFilters: workflowStatusFilters,
             promptNodes: workflowPrompts,
+            loopNodes: workflowLoops,
             targetIds: new Set(agents.map((item) => item.id)),
             stopIds: new Set(workflowStops.map((item) => item.id)),
           })
@@ -5962,7 +6046,7 @@ function App() {
       }
     }
     if (routes.some((route) =>
-      route.ownerAgentId === activeDashboardOwnerId &&
+      samePath(route.projectPath, selectedProject?.path ?? '') &&
       route.sourceId === connection.source &&
       (route.sourceHandle ?? 'output') === sourceHandle &&
       route.targetId === connection.target,
@@ -5972,7 +6056,7 @@ function App() {
     }
     const route: WorkflowRoute = {
       id: crypto.randomUUID(),
-      ownerAgentId: activeDashboardOwnerId,
+      ownerAgentId: selectedAgent?.id ?? '',
       projectPath: selectedProject?.path ?? '',
       sourceId: connection.source,
       targetId: connection.target,
@@ -5999,7 +6083,7 @@ function App() {
   const addWorkflowPrompt = () => {
     const prompt: WorkflowPrompt = {
       id: crypto.randomUUID(),
-      ownerAgentId: activeDashboardOwnerId,
+      ownerAgentId: selectedAgent?.id ?? '',
       projectPath: selectedProject?.path ?? '',
       name: 'Weiterleiten',
       condition: 'Immer',
@@ -6279,7 +6363,7 @@ function App() {
   const addWorkflowStatusFilter = () => {
     const status = projectWorkflowStatuses.find((candidate) =>
       !workflowStatusFilters.some((filter) =>
-        filter.ownerAgentId === activeDashboardOwnerId && filter.statusId === candidate.id,
+        samePath(filter.projectPath, selectedProject?.path ?? '') && filter.statusId === candidate.id,
       ),
     )
     if (!status || !activeDashboardOwnerId || !selectedProject) {
@@ -6288,7 +6372,7 @@ function App() {
     }
     const filter: WorkflowStatusFilter = {
       id: crypto.randomUUID(),
-      ownerAgentId: activeDashboardOwnerId,
+      ownerAgentId: selectedAgent?.id ?? '',
       projectPath: selectedProject.path,
       name: `Status: ${status.name}`,
       statusId: status.id,
@@ -6300,7 +6384,7 @@ function App() {
     sharedStateDirty.current = true
     setWorkflowStatusFilters((current) => [...current, filter])
     setAgents((current) => current.map((agent) =>
-      agent.id === activeDashboardOwnerId
+      agent.id === selectedAgent?.id
         ? {
             ...agent,
             workflowStatusIds: Array.from(new Set([...agent.workflowStatusIds, status.id])),
@@ -6434,7 +6518,6 @@ function App() {
       return
     }
     if (workflowInitials.some((initial) =>
-      initial.ownerAgentId === activeDashboardOwnerId &&
       samePath(initial.projectPath, selectedProject?.path ?? ''),
     )) {
       addEvent('Initial nicht angelegt', 'In diesem Agenten-Dashboard existiert bereits ein Initial-Baustein.')
@@ -6442,7 +6525,7 @@ function App() {
     }
     const initial: WorkflowInitial = {
       id: crypto.randomUUID(),
-      ownerAgentId: activeDashboardOwnerId,
+      ownerAgentId: selectedAgent.id,
       projectPath: selectedProject?.path ?? '',
       name: 'Start',
       instruction: '',
@@ -6476,7 +6559,7 @@ function App() {
     }
     const stop: WorkflowStop = {
       id: crypto.randomUUID(),
-      ownerAgentId: activeDashboardOwnerId,
+      ownerAgentId: selectedAgent?.id ?? '',
       projectPath: selectedProject.path,
       name: 'Stop',
     }
@@ -6509,7 +6592,7 @@ function App() {
     const startAt = new Date().toISOString()
     const timer: WorkflowTimer = {
       id: crypto.randomUUID(),
-      ownerAgentId: activeDashboardOwnerId,
+      ownerAgentId: selectedAgent?.id ?? '',
       projectPath: selectedProject.path,
       name: 'Zeitplan',
       task: 'Prüfe den aktuellen Stand und melde die nächsten erforderlichen Schritte.',
@@ -6532,6 +6615,42 @@ function App() {
     void selectWorkflowStatusFilterStatus
     void addWorkflowStop
     void addWorkflowTimer
+  }
+
+  const addWorkflowLoop = () => {
+    if (!activeDashboardOwnerId || !selectedProject) return
+    const loop: WorkflowLoop = {
+      id: crypto.randomUUID(),
+      ownerAgentId: selectedAgent?.id ?? '',
+      projectPath: selectedProject.path,
+      name: 'Rücksprung',
+      targetAgentId: '',
+      targetAgentIds: [],
+    }
+    sharedStateDirty.current = true
+    setWorkflowLoops((current) => [...current, loop])
+    addEvent('Rücksprung erstellt', 'Zielagent im Baustein festlegen.')
+  }
+
+  const updateWorkflowLoop = (loopId: string, patch: Partial<WorkflowLoop>) => {
+    sharedStateDirty.current = true
+    setWorkflowLoops((current) =>
+      current.map((loop) => (loop.id === loopId ? { ...loop, ...patch } : loop)),
+    )
+  }
+
+  const deleteWorkflowLoop = (loopId: string) => {
+    sharedStateDirty.current = true
+    setWorkflowLoops((current) => current.filter((loop) => loop.id !== loopId))
+    setRoutes((current) =>
+      current.filter((route) => route.sourceId !== loopId && route.targetId !== loopId),
+    )
+    setWorkflowPositions((current) => {
+      const next = { ...current }
+      delete next[`${activeDashboardOwnerId}:${loopId}`]
+      return next
+    })
+    setSelectedLoopId('')
   }
 
   const updateWorkflowTimer = (timerId: string, patch: Partial<WorkflowTimer>) => {
@@ -6629,7 +6748,37 @@ function App() {
     )
   }
 
+  const applySavedWorkflowLayoutPattern = () => {
+    if (!activeDashboardOwnerId || !activeLayoutPattern) return false
+    const visibleNodeIds = new Set([
+      ...dashboardAgents.map((node) => node.id),
+      ...dashboardPrompts.map((node) => node.id),
+      ...projectInitials.map((node) => node.id),
+      ...projectStatusFilters.map((node) => node.id),
+      ...projectStops.map((node) => node.id),
+      ...projectTimers.map((node) => node.id),
+      ...projectLoops.map((node) => node.id),
+    ])
+    const patternPositions = activeLayoutPattern.nodes.filter((node) => visibleNodeIds.has(node.id))
+    if (patternPositions.length === 0) return false
+    sharedStateDirty.current = true
+    setWorkflowPositions((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        patternPositions.map((node) => [
+          `${activeDashboardOwnerId}:${node.id}`,
+          { x: node.x, y: node.y },
+        ]),
+      ),
+    }))
+    setLayoutRevision((current) => current + 1)
+    setLayoutPatternFeedback(tx('Muster angewendet', 'Pattern applied'))
+    addEvent('Layout-Muster angewendet', `${patternPositions.length} Bausteine aus Vorlage angeordnet.`)
+    return true
+  }
+
   const autoArrangeWorkflow = () => {
+    if (applySavedWorkflowLayoutPattern()) return
     const nodeIds = [
       ...projectInitials.map((initial) => initial.id),
       ...projectTimers.map((timer) => timer.id),
@@ -6637,6 +6786,7 @@ function App() {
       ...dashboardPrompts.map((prompt) => prompt.id),
       ...projectStatusFilters.map((filter) => filter.id),
       ...projectStops.map((stop) => stop.id),
+      ...projectLoops.map((loop) => loop.id),
     ]
     const incoming = new Map(nodeIds.map((id) => [id, 0]))
     dashboardRoutes.forEach((route) => {
@@ -6726,6 +6876,7 @@ function App() {
           nextPositions[id] = { x: 70 + level * 230, y: 70 + index * 130 }
         })
       })
+    sharedStateDirty.current = true
     setWorkflowPositions((current) => ({
       ...current,
       ...Object.fromEntries(
@@ -6736,6 +6887,37 @@ function App() {
       ),
     }))
     setLayoutRevision((current) => current + 1)
+    setLayoutPatternFeedback(tx('Automatisch angeordnet', 'Arranged automatically'))
+  }
+
+  const saveWorkflowLayoutPattern = () => {
+    if (!selectedProject || !activeDashboardOwnerId) return
+    const nodeEntries: WorkflowLayoutPattern['nodes'] = [
+      ...dashboardAgents.map((node) => ({ id: node.id, kind: 'agent' as const })),
+      ...dashboardPrompts.map((node) => ({ id: node.id, kind: 'prompt' as const })),
+      ...projectInitials.map((node) => ({ id: node.id, kind: 'initial' as const })),
+      ...projectStatusFilters.map((node) => ({ id: node.id, kind: 'status' as const })),
+      ...projectStops.map((node) => ({ id: node.id, kind: 'stop' as const })),
+      ...projectTimers.map((node) => ({ id: node.id, kind: 'timer' as const })),
+      ...projectLoops.map((node) => ({ id: node.id, kind: 'loop' as const })),
+    ].map((node) => {
+      const position = workflowPositions[`${activeDashboardOwnerId}:${node.id}`] ?? dashboardPositions[node.id] ?? { x: 0, y: 0 }
+      return { ...node, x: position.x, y: position.y }
+    })
+    const pattern: WorkflowLayoutPattern = {
+      id: crypto.randomUUID(),
+      projectPath: selectedProject.path,
+      dashboardId: activeDashboardOwnerId,
+      savedAt: new Date().toISOString(),
+      nodes: nodeEntries,
+    }
+    sharedStateDirty.current = true
+    setWorkflowLayoutPatterns((current) => [
+      ...current.filter((item) => !samePath(item.projectPath, selectedProject.path)),
+      pattern,
+    ])
+    setLayoutPatternFeedback(tx('Gespeichert', 'Saved'))
+    addEvent('Layout-Muster gespeichert', `${nodeEntries.length} Bausteine als Vorlage gespeichert.`)
   }
 
   useEffect(() => {
@@ -7669,7 +7851,7 @@ function App() {
   }
 
   const settingsNavigation = [
-    { id: 'general' as const, label: tx('Allgemein', 'General'), symbol: '⚙' },
+    { id: 'general' as const, label: tx('Allgemein', 'General'), symbol: 'E' },
     { id: 'profile' as const, label: tx('Profil', 'Profile'), symbol: '○' },
     { id: 'appearance' as const, label: tx('Aussehen', 'Appearance'), symbol: '◐' },
   ].filter((item) => item.label.toLocaleLowerCase().includes(settingsSearch.trim().toLocaleLowerCase()))
@@ -8220,7 +8402,7 @@ function App() {
             </div>
             <p className="modalHint">
               {tx(
-                'Verknuepft einen vorhandenen Codex-Chat ueber seine Chat-ID. Der Agent uebernimmt automatisch den Chat-Namen.',
+                'Verknüpft einen vorhandenen Codex-Chat über seine Chat-ID. Der Agent übernimmt automatisch den Chat-Namen.',
                 'Links an existing Codex chat by chat ID. The agent automatically uses the chat name.',
               )}
             </p>
@@ -8301,7 +8483,7 @@ function App() {
               </div>
               <p className="modalHint">
                 {tx(
-                  'Name und Chat-ID koennen nachtraeglich angepasst werden. Beim Speichern wird die Chat-ID erneut geprueft.',
+                  'Name und Chat-ID können nachträglich angepasst werden. Beim Speichern wird die Chat-ID erneut geprüft.',
                   'Name and chat ID can be changed afterwards. The chat ID is checked again when saving.',
                 )}
               </p>
@@ -8718,7 +8900,7 @@ function App() {
                     title={setupOpen ? tx('Setup schließen', 'Close setup') : tx('Setup öffnen', 'Open setup')}
                     type="button"
                   >
-                    ⚙
+                    E
                   </button>
                 </span>
               </div>
@@ -9755,7 +9937,7 @@ function App() {
       {PROMPT_NODES_ENABLED && selectedPrompt && (
         <div className="modalBackdrop workflowNodeEditorBackdrop" role="presentation" onMouseDown={() => setSelectedPromptId('')}>
           <section
-            className="promptModal"
+            className="promptModal workflowToolModal forwardingModal"
             role="dialog"
             aria-modal="true"
             aria-label={tx('Weiterleiten-Baustein bearbeiten', 'Edit forwarding node')}
@@ -9766,7 +9948,7 @@ function App() {
                 <p className="eyebrow">{tx('Weiterleiten', 'Forward')}</p>
                 <h2>{selectedPrompt.name}</h2>
               </div>
-              <button title={tx('Fenster schließen', 'Close window')} onClick={() => setSelectedPromptId('')}>x</button>
+              <button title={tx('Fenster schließen', 'Close window')} onClick={() => setSelectedPromptId('')}>×</button>
             </div>
             <label>
               {tx('Name', 'Name')}
@@ -9776,69 +9958,164 @@ function App() {
               />
             </label>
             <label>
-              {tx('Zusatzprompt für den nächsten Agenten', 'Additional prompt for the next agent')}
-              <textarea
-                rows={6}
-                value={selectedPrompt.prompt}
-                onChange={(event) => updateWorkflowPrompt(selectedPrompt.id, { prompt: event.target.value, condition: '' })}
-              />
+              {tx('Übergabeart', 'Handoff mode')}
+              <select value="full" onChange={() => undefined}>
+                <option value="full">{tx('Volltext übergeben', 'Pass full text')}</option>
+                <option value="read">{tx('Lesen lassen', 'Let read')}</option>
+              </select>
             </label>
-            <label>
-              {tx('Intervall', 'Interval')}
-              <input
-                max={MAX_FORWARD_INTERVAL}
-                min={1}
-                onChange={(event) => updateWorkflowPromptInterval(selectedPrompt.id, event.target.value)}
-                placeholder={tx('Kein Intervall', 'No interval')}
-                type="number"
-                value={selectedPrompt.interval || ''}
-              />
-            </label>
-            {selectedPrompt.interval > 0 && (
+            <details className="forwardingNodeSection">
+              <summary>{tx('Weiterleiten-Text', 'Forwarding text')}</summary>
               <label>
-                {tx('Intervalltext', 'Interval text')}
+                {tx('Zusatzprompt für den nächsten Agenten', 'Additional prompt for the next agent')}
                 <textarea
-                  rows={4}
-                  value={selectedPrompt.intervalPrompt}
-                  onChange={(event) =>
-                    updateWorkflowPromptIntervalPrompt(selectedPrompt.id, event.target.value)
-                  }
-                  placeholder={tx('Optional: eigener Text für den Intervall-Ausgang.', 'Optional: separate text for the interval output.')}
+                  rows={6}
+                  value={selectedPrompt.prompt}
+                  onChange={(event) => updateWorkflowPrompt(selectedPrompt.id, { prompt: event.target.value, condition: '' })}
                 />
               </label>
-            )}
-            {selectedPrompt.interval > 0 && (
+            </details>
+            <details className="forwardingNodeSection intervalBlock">
+              <summary>{tx('Intervall-Ausgang', 'Interval output')}</summary>
               <label>
-                {tx('Intervall-Verhalten', 'Interval behavior')}
+                {tx('Intervall-Quelle', 'Interval source')}
                 <select
-                  value={selectedPrompt.intervalMode}
-                  onChange={(event) => updateWorkflowPromptIntervalMode(selectedPrompt.id, event.target.value)}
+                  value={selectedPrompt.interval > 0 ? (selectedPrompt.interval === selectedLoopCount ? 'project' : 'custom') : 'none'}
+                  onChange={(event) => {
+                    if (event.target.value === 'none') {
+                      updateWorkflowPromptInterval(selectedPrompt.id, 0)
+                    } else if (event.target.value === 'project') {
+                      updateWorkflowPromptInterval(selectedPrompt.id, selectedLoopCount)
+                    } else {
+                      updateWorkflowPromptInterval(selectedPrompt.id, selectedPrompt.interval || 1)
+                    }
+                  }}
                 >
-                  <option value="replace">{tx('Nur Intervall-Ausgang', 'Interval output only')}</option>
-                  <option value="both">{tx('Normal + Intervall', 'Normal + interval')}</option>
+                  <option value="none">{tx('Kein Intervall', 'No interval')}</option>
+                  <option value="custom">{tx('Eigener Intervall', 'Custom interval')}</option>
+                  <option value="project">{tx('Projekt-Läufe verwenden', 'Use project runs')}</option>
                 </select>
               </label>
-            )}
-            <p className="modalHint forwardIntervalHint">
-              {selectedPrompt.interval > 0
-                ? tx(
-                    selectedPrompt.intervalMode === 'both'
-                      ? `Stand ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. Beim ${selectedPrompt.interval}. Treffer werden Normal und Intervall verwendet; der Stand wird auf 0 gesetzt.`
-                      : `Stand ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. Beim ${selectedPrompt.interval}. Treffer wird der Intervall-Ausgang verwendet und der Stand auf 0 gesetzt.`,
-                    selectedPrompt.intervalMode === 'both'
-                      ? `Count ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. On hit ${selectedPrompt.interval}, normal and interval outputs are used, then the count resets to 0.`
-                      : `Count ${selectedPrompt.intervalCount}/${selectedPrompt.interval}. The interval output is used on hit ${selectedPrompt.interval}, then the count resets to 0.`,
-                  )
-                : tx(
-                    'Ohne Intervall besitzt der Baustein nur den normalen Ausgang.',
-                    'Without an interval, the node has only its normal output.',
-                  )}
-            </p>
+              {selectedPrompt.interval > 0 && (
+                <>
+                  <label>
+                    {tx('Intervall', 'Interval')}
+                    <input
+                      disabled={selectedPrompt.interval === selectedLoopCount}
+                      max={MAX_FORWARD_INTERVAL}
+                      min={1}
+                      onChange={(event) => updateWorkflowPromptInterval(selectedPrompt.id, event.target.value)}
+                      type={selectedPrompt.interval === selectedLoopCount ? 'text' : 'number'}
+                      value={selectedPrompt.interval === selectedLoopCount
+                        ? `${selectedLoopCount} ${tx('Projekt-Läufe', 'project runs')}`
+                        : selectedPrompt.interval}
+                    />
+                  </label>
+                  <label>
+                    {tx('Intervalltext', 'Interval text')}
+                    <textarea
+                      rows={4}
+                      value={selectedPrompt.intervalPrompt}
+                      onChange={(event) =>
+                        updateWorkflowPromptIntervalPrompt(selectedPrompt.id, event.target.value)
+                      }
+                      placeholder={tx('Optional: eigener Text für den Intervall-Ausgang.', 'Optional: separate text for the interval output.')}
+                    />
+                  </label>
+                  <label>
+                    {tx('Intervall-Verhalten', 'Interval behavior')}
+                    <select
+                      value={selectedPrompt.intervalMode}
+                      onChange={(event) => updateWorkflowPromptIntervalMode(selectedPrompt.id, event.target.value)}
+                    >
+                      <option value="replace">{tx('Nur Intervall-Ausgang', 'Interval output only')}</option>
+                      <option value="both">{tx('Normal + Intervall', 'Normal + interval')}</option>
+                    </select>
+                  </label>
+                </>
+              )}
+            </details>
             <div className="modalActions">
               <button className="deleteButton" onClick={() => deleteWorkflowPrompt(selectedPrompt.id)}>
-                {tx('Weiterleiten-Baustein löschen', 'Delete forwarding node')}
+                {tx('Löschen', 'Delete')}
               </button>
               <button className="primary" onClick={() => setSelectedPromptId('')}>{tx('Übernehmen', 'Apply')}</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {selectedLoop && (
+        <div className="modalBackdrop workflowNodeEditorBackdrop" role="presentation" onMouseDown={() => setSelectedLoopId('')}>
+          <section
+            className="promptModal workflowToolModal loopModal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={tx('Rücksprung bearbeiten', 'Edit return jump')}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">{tx('Workflow-Rücksprung', 'Workflow return')}</p>
+                <h2>{selectedLoop.name}</h2>
+              </div>
+              <button title={tx('Fenster schließen', 'Close window')} onClick={() => setSelectedLoopId('')}>×</button>
+            </div>
+            <label>
+              {tx('Name', 'Name')}
+              <input
+                value={selectedLoop.name}
+                onChange={(event) => updateWorkflowLoop(selectedLoop.id, { name: event.target.value })}
+              />
+            </label>
+            <details className="loopTargetMenu forwardingNodeSection">
+              <summary>
+                <span>{tx('Zielagenten', 'Target agents')}</span>
+              </summary>
+              <p className="modalHint loopTargetHint">
+                {tx('Ausgewählte Agenten lesen die Nachricht.', 'Selected agents read the message.')}
+              </p>
+              <div className="loopTargetOptions">
+                {projectAgents.map((agent) => {
+                  const selectedTargetIds = selectedLoop.targetAgentIds?.length
+                    ? selectedLoop.targetAgentIds
+                    : selectedLoop.targetAgentId
+                      ? [selectedLoop.targetAgentId]
+                      : []
+                  const checked = selectedTargetIds.includes(agent.id)
+                  return (
+                    <label className="loopTargetOption" key={agent.id}>
+                      <input
+                        checked={checked}
+                        onChange={(event) => {
+                          const nextIds = event.target.checked
+                            ? [...new Set([...selectedTargetIds, agent.id])]
+                            : selectedTargetIds.filter((id) => id !== agent.id)
+                          updateWorkflowLoop(selectedLoop.id, {
+                            targetAgentId: nextIds[0] ?? '',
+                            targetAgentIds: nextIds,
+                          })
+                        }}
+                        type="checkbox"
+                      />
+                      <span>{agent.name}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </details>
+            <p className="modalHint">
+              {tx(
+                'Der Baustein zeigt nur die kurze Verbindung bis zum Rücksprung. Die Nachricht wird von den ausgewählten Agenten gelesen, ohne zusätzliche sichtbare Rückkanten anzulegen.',
+                'The node shows only the short connection to the return jump. The selected agents read the message without additional visible return edges.',
+              )}
+            </p>
+            <div className="modalActions">
+              <button className="deleteButton" onClick={() => deleteWorkflowLoop(selectedLoop.id)}>
+                {tx('Löschen', 'Delete')}
+              </button>
+              <button className="primary" onClick={() => setSelectedLoopId('')}>
+                {tx('Übernehmen', 'Apply')}
+              </button>
             </div>
           </section>
         </div>
@@ -9882,7 +10159,7 @@ function App() {
                       )}</p>
                       {projectAgents.map((agent) => {
                         const enabled = activeBoardAgentIds.includes(agent.id)
-                        const isOwner = agent.id === activeDashboardOwnerId
+                        const isOwner = agent.id === selectedAgent?.id
                         return (
                           <label className="promptStatusOption" key={agent.id}>
                             <input
@@ -9919,6 +10196,17 @@ function App() {
                     type="button"
                   >
                     A
+                  </button>
+                  <button
+                    aria-label={tx('Layout-Muster speichern', 'Save layout pattern')}
+                    className="compactAction iconAction"
+                    onClick={saveWorkflowLayoutPattern}
+                    title={activeLayoutPattern
+                      ? tx('Layout-Muster überschreiben', 'Overwrite layout pattern')
+                      : tx('Layout-Muster speichern', 'Save layout pattern')}
+                    type="button"
+                  >
+                    M
                   </button>
                   {LEGACY_STATUS_UI_ENABLED && (
                   <details className="dashboardStatusMenu">
@@ -10010,6 +10298,45 @@ function App() {
                         <small>{tx('Antwort mit optionalem Zusatzprompt weitergeben', 'Forward response with an optional prompt')}</small>
                       </span>
                     </button>
+                    <button
+                      onClick={(event) => {
+                        addWorkflowLoop()
+                        event.currentTarget.closest('details')?.removeAttribute('open')
+                      }}
+                      type="button"
+                    >
+                      <span className="toolSymbol loopToolSymbol">R</span>
+                      <span>
+                        <strong>Rücksprung</strong>
+                        <small>{tx('Kurzer Rücksprung zu ausgewählten Agenten', 'Short return jump to selected agents')}</small>
+                      </span>
+                    </button>
+                    <button
+                      onClick={(event) => {
+                        addWorkflowStop()
+                        event.currentTarget.closest('details')?.removeAttribute('open')
+                      }}
+                      type="button"
+                    >
+                      <span className="toolSymbol">S</span>
+                      <span>
+                        <strong>Stop</strong>
+                        <small>{tx('Workflow-Pfad an dieser Stelle beenden', 'End the workflow path here')}</small>
+                      </span>
+                    </button>
+                    <button
+                      onClick={(event) => {
+                        addWorkflowTimer()
+                        event.currentTarget.closest('details')?.removeAttribute('open')
+                      }}
+                      type="button"
+                    >
+                      <span className="toolSymbol">Z</span>
+                      <span>
+                        <strong>Zeitplan</strong>
+                        <small>{tx('Zeitgesteuerten Startpunkt anlegen', 'Create a scheduled start point')}</small>
+                      </span>
+                    </button>
                   </div>
                   </details>
                 </div>
@@ -10034,6 +10361,7 @@ function App() {
                 statusFilters={projectStatusFilters}
                 stops={projectStops}
                 timers={projectTimers}
+                loops={projectLoops}
                 statuses={projectWorkflowStatuses}
                 positions={dashboardPositions}
                 dashboardId={activeDashboardOwnerId}
@@ -10044,10 +10372,13 @@ function App() {
                 onConnectAgents={connectAgents}
                 onSelectRoute={(routeId) => {
                   setSelectedRouteId(routeId)
+                  setSelectedPromptId('')
                   setSelectedWorkflowAgentId('')
                   setSelectedInitialId('')
                   setSelectedStatusFilterId('')
                   setSelectedStopId('')
+                  setSelectedTimerId('')
+                  setSelectedLoopId('')
                 }}
                 onSelectPrompt={(promptId) => {
                   setSelectedPromptId(promptId)
@@ -10055,56 +10386,85 @@ function App() {
                   setSelectedInitialId('')
                   setSelectedStatusFilterId('')
                   setSelectedStopId('')
+                  setSelectedTimerId('')
+                  setSelectedLoopId('')
                 }}
                 onSelectAgent={(agentId) => {
                   setSelectedWorkflowAgentId(agentId)
+                  setSelectedPromptId('')
                   setSelectedRouteId('')
                   setSelectedInitialId('')
                   setSelectedStatusFilterId('')
                   setSelectedStopId('')
+                  setSelectedTimerId('')
+                  setSelectedLoopId('')
                 }}
                 onSelectInitial={(initialId) => {
                   setSelectedInitialId(initialId)
+                  setSelectedPromptId('')
                   setSelectedWorkflowAgentId('')
                   setSelectedRouteId('')
                   setSelectedStatusFilterId('')
                   setSelectedStopId('')
+                  setSelectedTimerId('')
+                  setSelectedLoopId('')
                 }}
                 onSelectStatusFilter={(filterId) => {
                   setSelectedStatusFilterId(filterId)
+                  setSelectedPromptId('')
                   setSelectedWorkflowAgentId('')
                   setSelectedRouteId('')
                   setSelectedInitialId('')
                   setSelectedStopId('')
+                  setSelectedTimerId('')
+                  setSelectedLoopId('')
                 }}
                 onSelectStop={(stopId) => {
                   setSelectedStopId(stopId)
+                  setSelectedPromptId('')
                   setSelectedWorkflowAgentId('')
                   setSelectedRouteId('')
                   setSelectedInitialId('')
                   setSelectedStatusFilterId('')
                   setSelectedTimerId('')
+                  setSelectedLoopId('')
                 }}
                 onSelectTimer={(timerId) => {
                   setSelectedTimerId(timerId)
+                  setSelectedPromptId('')
                   setSelectedWorkflowAgentId('')
                   setSelectedRouteId('')
                   setSelectedInitialId('')
                   setSelectedStatusFilterId('')
                   setSelectedStopId('')
+                  setSelectedLoopId('')
                 }}
-                onNodePositionChange={(nodeId, position) =>
+                onSelectLoop={(loopId) => {
+                  setSelectedLoopId(loopId)
+                  setSelectedPromptId('')
+                  setSelectedWorkflowAgentId('')
+                  setSelectedRouteId('')
+                  setSelectedInitialId('')
+                  setSelectedStatusFilterId('')
+                  setSelectedStopId('')
+                  setSelectedTimerId('')
+                }}
+                onNodePositionChange={(nodeId, position) => {
+                  sharedStateDirty.current = true
                   setWorkflowPositions((current) => ({
                     ...current,
                     [`${activeDashboardOwnerId}:${nodeId}`]: position,
                   }))
-                }
+                }}
                 onAgentDrop={dropAgentIntoDashboard}
                 draggedAgentId={draggedAgentId}
                 selectedAgentNodeId={selectedWorkflowAgentId}
                 language={language}
               />
             </ReactFlowProvider>
+            {layoutPatternFeedback && (
+              <span className="layoutPatternToast">{layoutPatternFeedback}</span>
+            )}
           </section>
         </div>
       )}
@@ -10726,7 +11086,7 @@ function App() {
               >
                 {tx('Verbindung löschen', 'Delete connection')}
               </button>
-              <button className="primary" onClick={() => setSelectedRouteId('')}>{tx('Schließen', 'Close')}</button>
+              <button className="primary" onClick={() => setSelectedRouteId('')}>{tx('Übernehmen', 'Apply')}</button>
             </div>
           </section>
         </div>
@@ -10755,18 +11115,18 @@ function App() {
             </div>
             <p className="modalHint">
               {tx(
-                `Dieser Baustein repräsentiert den Codex-Chat „${selectedWorkflowAgent.name}“. Das Entfernen löscht den Chat nicht, sondern nur diesen Baustein und seine Verbindungen aus diesem Dashboard.`,
-                `This node represents the Codex chat “${selectedWorkflowAgent.name}”. Removing it does not delete the chat; it only removes this node and its connections from the dashboard.`,
-              )}
+                  `Dieser Baustein repräsentiert den Codex-Chat „${selectedWorkflowAgent.name}“. Das Entfernen löscht den Chat nicht, sondern nur diesen Baustein und seine Verbindungen aus diesem Dashboard.`,
+                  `This node represents the Codex chat “${selectedWorkflowAgent.name}”. Removing it does not delete the chat; it only removes this node and its connections from the dashboard.`,
+                )}
             </p>
             <div className="modalActions">
               <button
                 className="deleteButton"
                 onClick={() => removeAgentFromDashboard(selectedWorkflowAgent.id)}
               >
-                {tx('Aus Dashboard entfernen', 'Remove from dashboard')}
+                {tx('Entfernen', 'Remove')}
               </button>
-              <button className="primary" onClick={() => setSelectedWorkflowAgentId('')}>{tx('Schließen', 'Close')}</button>
+              <button className="primary" onClick={() => setSelectedWorkflowAgentId('')}>{tx('Übernehmen', 'Apply')}</button>
             </div>
           </section>
         </div>
@@ -10889,4 +11249,3 @@ function App() {
 }
 
 export default App
-
