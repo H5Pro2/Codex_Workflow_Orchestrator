@@ -47,6 +47,26 @@ test('routes a forwarding prompt without a workflow status signal', () => {
   assert.deepEqual(deliveries.map((delivery) => delivery.targetId), ['researcher', 'helper'])
 })
 
+test('ignores stale route conditions on visible forwarding paths', () => {
+  const deliveries = resolveConfiguredDeliveries({
+    sourceId: 'researcher',
+    result: 'Ergebnis liegt vor.\n\n[Workflow-Status: Interner Workflow-Fehler]',
+    routes: [
+      route('researcher-forward', 'researcher', 'forward-node'),
+      { ...route('forward-helper', 'forward-node', 'helper'), sourceHandle: 'output', condition: 'Alter Statusname' },
+    ],
+    promptNodes: [{
+      id: 'forward-node',
+      condition: '',
+      prompt: 'Weitergeben.',
+    }],
+    targetIds: new Set(['helper']),
+    stopIds: new Set(),
+  })
+
+  assert.deepEqual(deliveries.map((delivery) => delivery.targetId), ['helper'])
+})
+
 test('routes a forwarding interval through normal and interval outputs', () => {
   const routes = [
     route('agent-forward', 'agent', 'forward-node'),

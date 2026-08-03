@@ -58,13 +58,8 @@ export function wouldCreateUnsupportedUnconditionalForwardCycle(_input?: unknown
   return false
 }
 
-export function routeConditionMatches(condition: string, result: string) {
-  const normalized = condition.trim().toLocaleLowerCase('de-DE')
-  return (
-    normalized === '' ||
-    normalized === 'immer' ||
-    result.toLocaleLowerCase('de-DE').includes(normalized)
-  )
+export function routeConditionMatches(_condition: string, _result: string) {
+  return true
 }
 
 export function isTerminalIntervalSideBranch({

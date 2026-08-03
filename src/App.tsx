@@ -297,6 +297,15 @@ type StallNotice = {
   durationSeconds: number
 }
 
+type WorkflowStopNotice = {
+  projectName: string
+  sourceAgentName: string
+  stopNames: string[]
+  cycle: number
+  targetCycles: number
+  durationMs: number
+}
+
 type PendingApproval = {
   id: string
   method: string
@@ -1812,6 +1821,7 @@ function App() {
   const [userConfirmationError, setUserConfirmationError] = useState('')
   const [userQuestionAnswer, setUserQuestionAnswer] = useState('')
   const [stallNotice, setStallNotice] = useState<StallNotice | null>(null)
+  const [workflowStopNotice, setWorkflowStopNotice] = useState<WorkflowStopNotice | null>(null)
   const [provisioningRecovery, setProvisioningRecovery] = useState<ProvisioningRecovery | null>(null)
   const [language, setLanguage] = useState<UiLanguage>(() => {
     const storedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
@@ -5258,9 +5268,23 @@ function App() {
       agent.assignment,
       agent.lastResult,
     ].filter(Boolean).join('\n'))
+    const topologyDeliveries: ResolvedWorkflowDelivery[] =
+      unconditionalForwarding.enabled && unconditionalForwarding.deliveries?.length
+        ? unconditionalForwarding.deliveries
+        : resolveConfiguredDeliveries({
+            sourceId: agent.id,
+            result: agent.lastResult,
+            resultStatusIds: workflowSignal.statusIds,
+            routes,
+            statusFilters: workflowStatusFilters,
+            promptNodes: workflowPrompts,
+            loopNodes: workflowLoops,
+            targetIds: new Set(agents.map((item) => item.id)),
+            stopIds: new Set(workflowStops.map((item) => item.id)),
+          })
     const reportsInternalWorkflowError = Boolean(
       constraintViolation || unconditionalForwarding.issue,
-    ) || (!unconditionalForwarding.enabled && shouldEscalateInternalWorkflowError({
+    ) || (!unconditionalForwarding.enabled && topologyDeliveries.length === 0 && shouldEscalateInternalWorkflowError({
       assignment: agent.assignment,
       signalKind: workflowSignal.kind,
       runPurpose: agent.runPurpose,
@@ -5285,19 +5309,7 @@ function App() {
     )
     const resolvedConfiguredDeliveries: ResolvedWorkflowDelivery[] = reportsInternalWorkflowError
       ? []
-      : unconditionalForwarding.enabled && unconditionalForwarding.deliveries?.length
-        ? unconditionalForwarding.deliveries
-        : resolveConfiguredDeliveries({
-            sourceId: agent.id,
-            result: agent.lastResult,
-            resultStatusIds,
-            routes,
-            statusFilters: workflowStatusFilters,
-            promptNodes: workflowPrompts,
-            loopNodes: workflowLoops,
-            targetIds: new Set(agents.map((item) => item.id)),
-            stopIds: new Set(workflowStops.map((item) => item.id)),
-          })
+      : topologyDeliveries
     const configuredDeliveries = resolvedConfiguredDeliveries.flatMap<WorkflowDelivery>(({
       targetId,
       stopId,
@@ -5627,6 +5639,7 @@ function App() {
         pendingTurnId: '',
         runStartedAt: '',
       })
+      const runBeforeStop = activeWorkflowRun(workflowRuntimeRef.current, agent.projectPath)
       const progress = workflowRunCycleProgress(workflowRuntimeRef.current, agent.projectPath)
       const completionDetail = `${agent.name} -> ${stopDeliveries.map((delivery) => delivery.stop.name).join(', ')}`
       updateWorkflowRuntime((current) => {
@@ -5703,6 +5716,16 @@ function App() {
         'Automatik am Stopp beendet',
         `${agent.name} hat Lauf ${progress.cycle}/${progress.targetCycles} abgeschlossen. Es werden keine weiteren Übergaben gestartet.`,
       )
+      setWorkflowStopNotice({
+        projectName: codexProjects.find((project) => samePath(project.path, agent.projectPath))?.label ?? agent.projectPath,
+        sourceAgentName: agent.name,
+        stopNames: stopDeliveries.map((delivery) => delivery.stop.name),
+        cycle: progress.cycle,
+        targetCycles: progress.targetCycles,
+        durationMs: runBeforeStop
+          ? Math.max(0, Date.now() - Date.parse(runBeforeStop.startedAt))
+          : agent.lastDurationMs,
+      })
       return
     }
 
@@ -5936,7 +5959,7 @@ function App() {
         }),
       ))
     }
-  }, [addEvent, agents, applyThreadReplacement, commitForwardIntervalHits, knowledgeSources, persistWorkflowCheckpoint, projectGoals, recordSupervisorDiagnosis, releaseAutomationLease, resetInactiveAgentStatuses, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, codexProjects, commitForwardIntervalHits, knowledgeSources, persistWorkflowCheckpoint, projectGoals, recordSupervisorDiagnosis, releaseAutomationLease, resetInactiveAgentStatuses, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
 
   useEffect(() => {
     if (!autoRun || !automationLeader || !sharedStateReady || !selectedProjectPath) return
@@ -7653,6 +7676,7 @@ function App() {
         ...workflowPrompts.filter((prompt) => samePath(prompt.projectPath, activeProjectPath)),
         ...workflowStatusFilters.filter((filter) => samePath(filter.projectPath, activeProjectPath)),
       ],
+      loopNodes: workflowLoops.filter((loop) => samePath(loop.projectPath, activeProjectPath)),
       terminals: [
         ...workflowStops,
         ...workflowInitials,
@@ -8333,6 +8357,58 @@ function App() {
             </p>
             <div className="modalActions">
               <button onClick={() => setStallNotice(null)}>{tx('Schließen', 'Close')}</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {workflowStopNotice && (
+        <div className="modalBackdrop" role="presentation" onMouseDown={() => setWorkflowStopNotice(null)}>
+          <section
+            aria-labelledby="workflow-stop-title"
+            aria-modal="true"
+            className="promptModal workflowCompletionModal"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="alertdialog"
+          >
+            <div className="modalHeader">
+              <div>
+                <p className="eyebrow">{tx('WORKFLOW BEENDET', 'WORKFLOW COMPLETED')}</p>
+                <h2 id="workflow-stop-title">{tx('Lauf am Stop beendet', 'Run ended at stop')}</h2>
+              </div>
+              <button
+                aria-label={tx('Fenster schließen', 'Close window')}
+                onClick={() => setWorkflowStopNotice(null)}
+              >×</button>
+            </div>
+            <p className="modalHint">{workflowStopNotice.projectName}</p>
+            <div className="workflowCompletionStats">
+              <div>
+                <span>{tx('Läufe', 'Runs')}</span>
+                <strong>{workflowStopNotice.cycle}/{workflowStopNotice.targetCycles}</strong>
+              </div>
+              <div>
+                <span>{tx('Gesamtdauer', 'Total duration')}</span>
+                <strong>{formatDuration(workflowStopNotice.durationMs, language)}</strong>
+              </div>
+              <div>
+                <span>{tx('Agent', 'Agent')}</span>
+                <strong>{workflowStopNotice.sourceAgentName}</strong>
+              </div>
+              <div>
+                <span>{tx('Stop', 'Stop')}</span>
+                <strong>{workflowStopNotice.stopNames.join(', ')}</strong>
+              </div>
+            </div>
+            <div className="workflowCompletionDiagnosis">
+              <strong>{tx('Diagnose', 'Diagnosis')}</strong>
+              <p>{tx(
+                'Der sichtbare Stop-Baustein wurde erreicht. Der Workflow wurde beendet und es werden keine weiteren Übergaben gestartet.',
+                'The visible stop node was reached. The workflow was completed and no further handoffs will be started.',
+              )}</p>
+            </div>
+            <div className="modalActions">
+              <button className="primary" onClick={() => setWorkflowStopNotice(null)}>OK</button>
             </div>
           </section>
         </div>
