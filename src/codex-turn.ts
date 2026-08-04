@@ -125,3 +125,21 @@ export function findCompletedConversationTurnById(
       Boolean(message.text.trim()),
   ) ?? null
 }
+
+export function findLatestCompletedConversationTurnAfter(
+  messages: ConversationMessage[],
+  lastCompletedTurnId = '',
+) {
+  const lastCompletedIndex = lastCompletedTurnId
+    ? messages.findLastIndex((message) => message.turnId === lastCompletedTurnId)
+    : -1
+  return messages.findLast(
+    (message, index) =>
+      index > lastCompletedIndex &&
+      message.turnId !== lastCompletedTurnId &&
+      message.role === 'assistant' &&
+      message.phase === 'final_answer' &&
+      message.turnStatus === 'completed' &&
+      Boolean(message.text.trim()),
+  ) ?? null
+}

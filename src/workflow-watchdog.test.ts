@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   TURN_INACTIVITY_TIMEOUT_MS,
+  TURN_MAX_RUNTIME_MS,
   observeTurnActivity,
   turnNeedsWatchdogIntervention,
+  turnNeedsZombieIntervention,
 } from './workflow-watchdog.ts'
 
 test('new activity resets the inactivity timer', () => {
@@ -37,4 +39,18 @@ test('allows a long-running turn while it still shows activity', () => {
   const observation = observeTurnActivity(undefined, 'turn-1', 'recent', now - 1_000)
 
   assert.equal(turnNeedsWatchdogIntervention(observation, 1, now), false)
+})
+
+test('marks a max-runtime turn without visible activity as zombie', () => {
+  const now = TURN_MAX_RUNTIME_MS + 1_000
+  const observation = observeTurnActivity(undefined, 'turn-1', '', now)
+
+  assert.equal(turnNeedsZombieIntervention(observation, 1, now), true)
+})
+
+test('keeps a max-runtime turn alive while fresh activity is visible', () => {
+  const now = TURN_MAX_RUNTIME_MS + 1_000
+  const observation = observeTurnActivity(undefined, 'turn-1', 'working', now - 1_000)
+
+  assert.equal(turnNeedsZombieIntervention(observation, 1, now), false)
 })

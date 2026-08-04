@@ -29,11 +29,13 @@ import {
   findCompletedConversationTurnById,
   findConversationTurnActivity,
   findConversationTurnActivityById,
+  findLatestCompletedConversationTurnAfter,
   requireStartedTurnId,
 } from './codex-turn.ts'
 import {
   observeTurnActivity,
   turnNeedsWatchdogIntervention,
+  turnNeedsZombieIntervention,
   type TurnActivityObservation,
 } from './workflow-watchdog.ts'
 import {
@@ -187,6 +189,7 @@ const workflowEdgeTypes = { workflow: WorkflowEdge }
 
 const INVENTORY_RECONCILIATION_GRACE_MS = 5 * 60 * 1000
 const ORPHANED_HANDOFF_GRACE_MS = 15_000
+const COMPLETED_TURN_RECOVERY_GRACE_MS = 10 * 60 * 1000
 const AUTOMATION_LEASE_KEY = 'codex-orchestrator-automation-lease-v1'
 const AUTOMATION_LEASE_DURATION_MS = 7_000
 
@@ -578,16 +581,16 @@ function clearAutomaticTeamPlanFormatClaim(agentId: string) {
 const defaultProgramSettings: ProgramSettings = {
   displayName: '',
   theme: 'dark',
-  accentColor: '#8b949e',
-  backgroundColor: '#0d1117',
+  accentColor: '#4b545d',
+  backgroundColor: '#0a0f12',
   foregroundColor: '#e6edf3',
   buttonColor: '#21262d',
   buttonTextColor: '#e6edf3',
-  topbarColor: '#0d1117',
-  projectBarColor: '#11161c',
-  agentRailColor: '#11161c',
-  workspaceColor: '#0d1117',
-  eventLogColor: '#11161c',
+  topbarColor: '#0a0f12',
+  projectBarColor: '#0a0f12',
+  agentRailColor: '#0a0f12',
+  workspaceColor: '#0a0f12',
+  eventLogColor: '#0a0f12',
   uiFont: 'Segoe UI Variable Text',
   codeFont: 'Cascadia Code',
   contrast: 60,
@@ -625,6 +628,7 @@ function normalizeProgramSettingsClient(settings: Partial<ProgramSettings>): Pro
   const usesOldDarkDefaults = merged.theme === 'dark' && (
     (background === '#0b0b0c' && foreground === '#f2f2f3' && (!accent || accent === '#72d6c9')) ||
     (background === '#000000' && (!accent || accent === '#47a9c2')) ||
+    (background === '#0d1117' && foreground === '#e6edf3' && (!accent || accent === '#8b949e')) ||
     (background === '#090c10' && foreground === '#e6edf3' && (!accent || accent === '#8b949e'))
   )
   if (hasStaleLightPalette) {
@@ -2114,8 +2118,8 @@ function App() {
     if (programSettings.theme !== 'system') {
       return
     }
-    const backgroundColor = systemDark ? '#0b0b0c' : '#f7f7f8'
-    const foregroundColor = systemDark ? '#f2f2f3' : '#18181b'
+    const backgroundColor = systemDark ? defaultProgramSettings.backgroundColor : '#f7f7f8'
+    const foregroundColor = systemDark ? defaultProgramSettings.foregroundColor : '#18181b'
     setProgramSettings((current) => {
       if (current.backgroundColor === backgroundColor && current.foregroundColor === foregroundColor) {
         return current
@@ -2147,7 +2151,9 @@ function App() {
   const automaticTeamPlanFormatRequests = useRef(new Set<string>())
   const authorizedTeamPlanRequestAgentIds = useRef(new Set<string>())
   const requestTeamPlanFormatCorrectionRef = useRef<(agent: Agent) => Promise<void>>(async () => {})
-  const startInitialWorkflowsRef = useRef<() => Promise<{ sentCount: number; busyCount: number }>>(
+  const startInitialWorkflowsRef = useRef<(
+    options?: { repeatCycle?: number; targetCycles?: number }
+  ) => Promise<{ sentCount: number; busyCount: number }>>(
     async () => ({ sentCount: 0, busyCount: 0 }),
   )
   const autoRunRef = useRef(autoRun)
@@ -5692,7 +5698,10 @@ function App() {
           `Lauf ${progress.cycle}/${progress.targetCycles} ist abgeschlossen. Lauf ${progress.cycle + 1}/${progress.targetCycles} wird gestartet.`,
         )
         window.setTimeout(() => {
-          void startInitialWorkflowsRef.current()
+          void startInitialWorkflowsRef.current({
+            repeatCycle: progress.cycle + 1,
+            targetCycles: progress.targetCycles,
+          })
             .then(({ sentCount, busyCount }) => {
               if (sentCount > 0 || busyCount > 0) return
               autoRunRef.current = false
@@ -7037,8 +7046,19 @@ function App() {
                       conversation.messages ?? [],
                       agent.lastResult,
                       agent.lastCompletedTurnId,
-                    )
+                    ) ?? (runAgeMs >= COMPLETED_TURN_RECOVERY_GRACE_MS
+                      ? findLatestCompletedConversationTurnAfter(
+                          conversation.messages ?? [],
+                          agent.lastCompletedTurnId,
+                        )
+                      : null)
                     if (completedMessage) {
+                      if (completedMessage.turnId !== agent.pendingTurnId) {
+                        addEvent(
+                          'Codex-Ergebnis wiedergefunden',
+                          `${agent.name}: Fertige Antwort wurde aus dem Chat nachgelesen und dem offenen Lauf zugeordnet.`,
+                        )
+                      }
                       data = {
                         turnId: completedMessage.turnId,
                         status: 'completed',
@@ -7086,6 +7106,59 @@ function App() {
                       turnId: activeTurnId,
                       durationSeconds: noticeDurationSeconds,
                     })
+                  }
+                  if (turnNeedsZombieIntervention(observation, persistedRunStartedAt, now)) {
+                    const failureDetail = `Bridge-Turn ${activeTurnId} haengt seit ${Math.round(runAgeMs / 60_000)} Minuten ohne verwertbare Codex-Aktivitaet.`
+                    const failedAgent: Agent = {
+                      ...agent,
+                      status: agent.runPurpose === 'chat'
+                        ? 'wartet'
+                        : autoRunRef.current ? 'rueckfrage' : 'wartet',
+                      lastResult: [
+                        'Der Codex-Lauf wurde nicht abgeschlossen.',
+                        `Agent: ${agent.name}`,
+                        `Fehler: ${failureDetail}`,
+                        '',
+                        `[Workflow-Status: ${MANAGEMENT_ERROR_STATUS_NAME}]`,
+                      ].join('\n'),
+                      pendingTurnId: '',
+                      lastCompletedTurnId: activeTurnId,
+                      runStartedAt: '',
+                      updatedAt: new Date().toISOString(),
+                    }
+                    terminalResultObservations.current.delete(agent.pendingTurnId)
+                    processedTurnIds.current.add(agent.pendingTurnId)
+                    processedTurnIds.current.add(activeTurnId)
+                    turnActivityObservations.current.delete(agent.id)
+                    watchdogInterventionTurnIds.current.delete(agent.pendingTurnId)
+                    watchdogInterventionTurnIds.current.delete(activeTurnId)
+                    activeDeliveryTargetIds.current.delete(agent.id)
+                    updateDeliveryQueue((current) => removeDeliveryTarget(current, agent.id))
+                    updateAgent(agent.id, failedAgent)
+                    updateWorkflowRuntime((current) => appendWorkflowRunEntry(
+                      current,
+                      agent.projectPath,
+                      workflowRunEntry('paused', {
+                        agentId: agent.id,
+                        agentName: agent.name,
+                        detail: failureDetail,
+                      }),
+                    ))
+                    sharedStateDirty.current = true
+                    if (autoRunRef.current) {
+                      autoRunRef.current = false
+                      setAutoRun(false)
+                      setTransmittingAgentIds([])
+                      releaseAutomationLease()
+                      resetInactiveAgentStatuses()
+                    }
+                    addEvent('Bridge-Lauf blockiert', `${agent.name}: ${failureDetail}`)
+                    setStallNotice({
+                      agentName: agent.name,
+                      turnId: activeTurnId,
+                      durationSeconds: Math.round(runAgeMs / 1000),
+                    })
+                    return
                   }
                 }
                 if (data.status === 'inProgress') {
@@ -7470,8 +7543,13 @@ function App() {
     return () => window.clearInterval(timer)
   }, [addEvent, agents, applyThreadReplacement, automationLeader, autoRun, knowledgeSources, projectGoals, routes, selectedProject?.path, updateAgent, workflowStatuses, workflowTimers])
 
-  const startInitialWorkflows = useCallback(async () => {
+  const startInitialWorkflows = useCallback(async (
+    options: { repeatCycle?: number; targetCycles?: number } = {},
+  ) => {
     const activeProjectPath = selectedProject?.path ?? ''
+    const isRepeatCycle = Number.isFinite(options.repeatCycle) && (options.repeatCycle ?? 1) > 1
+    const repeatCycle = Math.max(2, Math.trunc(options.repeatCycle ?? 2))
+    const repeatTargetCycles = Math.max(repeatCycle, Math.trunc(options.targetCycles ?? repeatCycle))
     const starts = workflowInitials
       .filter((initial) => samePath(initial.projectPath, activeProjectPath))
     const deliveries = starts.flatMap((initial) =>
@@ -7504,7 +7582,7 @@ function App() {
       deliveries.map(async ({ initial, target }) => {
         if (!target.threadId) {
           addEvent(
-            'Initial-Anfrage nicht gesendet',
+            isRepeatCycle ? 'Folgelauf nicht gesendet' : 'Initial-Anfrage nicht gesendet',
             `${target.name} ist mit keinem Codex-Chat verknüpft.`,
           )
           return
@@ -7512,19 +7590,28 @@ function App() {
         if (!reserveAgentDispatch(activeDeliveryTargetIds.current, target)) {
           busyCount += 1
           addEvent(
-            'Initial-Anfrage nicht gesendet',
+            isRepeatCycle ? 'Folgelauf nicht gesendet' : 'Initial-Anfrage nicht gesendet',
             `${target.name} verarbeitet bereits einen anderen Auftrag.`,
           )
           return
         }
 
+        const initialLeadInstructions = isRepeatCycle
+          ? [
+              'Folgelauf:',
+              `Starte Lauf ${repeatCycle}/${repeatTargetCycles}.`,
+              'Sende die Initialanweisung und den Starttext des Benutzers nicht erneut. Nutze den bestehenden Chat- und Projektstand als Kontext.',
+            ]
+          : [
+              'Initial-Ablaufanweisung:',
+              'Prüfe die jüngste Benutzeranweisung in diesem Chat und den bestehenden Projektstand.',
+              'Der Initialbaustein darf ausschließlich Ablaufanweisungen enthalten. Fachliche Aufgaben, Projektziele oder Prompt-Inhalte im Initialbaustein sind ungültig und dürfen nicht als Auftrag ausgeführt werden.',
+              ...(initial.instructionSource === 'user' && initial.instruction.trim()
+                ? ['', 'Optionale Initialanweisung des Benutzers:', initial.instruction.trim()]
+                : []),
+            ]
         const internalInitialInstructions = [
-          'Initial-Ablaufanweisung:',
-          'Prüfe die jüngste Benutzeranweisung in diesem Chat und den bestehenden Projektstand.',
-          'Der Initialbaustein darf ausschließlich Ablaufanweisungen enthalten. Fachliche Aufgaben, Projektziele oder Prompt-Inhalte im Initialbaustein sind ungültig und dürfen nicht als Auftrag ausgeführt werden.',
-          ...(initial.instructionSource === 'user' && initial.instruction.trim()
-            ? ['', 'Optionale Initialanweisung des Benutzers:', initial.instruction.trim()]
-            : []),
+          ...initialLeadInstructions,
           '',
           'Verbindliche Arbeitsanweisung des Ziel-Agenten:',
           agentPromptInstruction(target),
@@ -7539,12 +7626,16 @@ function App() {
           ),
           '',
           target.assignment === 'management'
-            ? 'Bearbeite dieses Startsignal ausschließlich als Teamleiter. Formuliere die Delegationsentscheidung und den vollständigen Arbeitsauftrag für den gewählten Fachagenten.'
-            : 'Bearbeite dieses Startsignal gemäß deiner Rollen-Anweisung und der jüngsten Benutzeranweisung in deinem Chat.',
+            ? isRepeatCycle
+              ? 'Bearbeite dieses Folgelauf-Signal ausschließlich als Teamleiter. Formuliere die Delegationsentscheidung und den vollständigen Arbeitsauftrag für den gewählten Fachagenten.'
+              : 'Bearbeite dieses Startsignal ausschließlich als Teamleiter. Formuliere die Delegationsentscheidung und den vollständigen Arbeitsauftrag für den gewählten Fachagenten.'
+            : isRepeatCycle
+              ? 'Bearbeite dieses Folgelauf-Signal gemäß deiner Rollen-Anweisung und dem bestehenden Projektstand.'
+              : 'Bearbeite dieses Startsignal gemäß deiner Rollen-Anweisung und der jüngsten Benutzeranweisung in deinem Chat.',
           'Kontaktiere keine anderen Codex-Chats; die Weitergabe übernimmt ausschließlich der Workflow-Orchestrator.',
           workflowStatusInstruction(workflowStatusesForAgent(target, workflowStatuses)),
         ].join('\n')
-        const message = withInternalInstructions('Start', internalInitialInstructions)
+        const message = withInternalInstructions(isRepeatCycle ? 'Folgelauf' : 'Start', internalInitialInstructions)
 
         try {
           const response = await fetch(
@@ -7557,9 +7648,11 @@ function App() {
           )
           const data = await response.json()
           if (!response.ok) {
-            throw new Error(data.error || 'Initial-Anfrage konnte nicht gesendet werden.')
+            throw new Error(data.error || (isRepeatCycle
+              ? 'Folgelauf konnte nicht gesendet werden.'
+              : 'Initial-Anfrage konnte nicht gesendet werden.'))
           }
-          const turnId = requireStartedTurnId(data, 'die Initial-Anfrage')
+          const turnId = requireStartedTurnId(data, isRepeatCycle ? 'den Folgelauf' : 'die Initial-Anfrage')
           applyThreadReplacement(target, data.replacementThread)
           updateAgent(target.id, {
             status: 'laeuft',
@@ -7569,13 +7662,13 @@ function App() {
           })
           sentCount += 1
           addEvent(
-            'Initial-Anfrage gesendet',
+            isRepeatCycle ? 'Folgelauf gesendet' : 'Initial-Anfrage gesendet',
             `${initial.name} → ${target.name}`,
           )
         } catch (error) {
           releaseAgentDispatch(activeDeliveryTargetIds.current, target.id)
           addEvent(
-            'Initial-Anfrage nicht gesendet',
+            isRepeatCycle ? 'Folgelauf nicht gesendet' : 'Initial-Anfrage nicht gesendet',
             `${target.name}: ${error instanceof Error ? error.message : 'Connector nicht erreichbar.'}`,
           )
         }
@@ -7887,15 +7980,16 @@ function App() {
     setProgramSettings((current) => ({
       ...current,
       theme,
-      backgroundColor: resolved === 'light' ? '#f7f7f8' : '#0b0b0c',
-      foregroundColor: resolved === 'light' ? '#18181b' : '#f2f2f3',
-      buttonColor: resolved === 'light' ? '#e4e4e7' : '#19191b',
-      buttonTextColor: resolved === 'light' ? '#18181b' : '#f2f2f3',
-      topbarColor: resolved === 'light' ? '#ffffff' : '#0f1012',
-      projectBarColor: resolved === 'light' ? '#ffffff' : '#131315',
-      agentRailColor: resolved === 'light' ? '#ffffff' : '#131315',
-      workspaceColor: resolved === 'light' ? '#ffffff' : '#131315',
-      eventLogColor: resolved === 'light' ? '#ffffff' : '#131315',
+      accentColor: resolved === 'light' ? '#475569' : defaultProgramSettings.accentColor,
+      backgroundColor: resolved === 'light' ? '#f7f7f8' : defaultProgramSettings.backgroundColor,
+      foregroundColor: resolved === 'light' ? '#18181b' : defaultProgramSettings.foregroundColor,
+      buttonColor: resolved === 'light' ? '#e4e4e7' : defaultProgramSettings.buttonColor,
+      buttonTextColor: resolved === 'light' ? '#18181b' : defaultProgramSettings.buttonTextColor,
+      topbarColor: resolved === 'light' ? '#ffffff' : defaultProgramSettings.topbarColor,
+      projectBarColor: resolved === 'light' ? '#ffffff' : defaultProgramSettings.projectBarColor,
+      agentRailColor: resolved === 'light' ? '#ffffff' : defaultProgramSettings.agentRailColor,
+      workspaceColor: resolved === 'light' ? '#ffffff' : defaultProgramSettings.workspaceColor,
+      eventLogColor: resolved === 'light' ? '#ffffff' : defaultProgramSettings.eventLogColor,
     }))
   }
 
@@ -8070,15 +8164,16 @@ function App() {
                         ...defaultProgramSettings,
                         displayName: current.displayName,
                         theme: current.theme,
-                        backgroundColor: effectiveTheme === 'light' ? '#f7f7f8' : '#0b0b0c',
-                        foregroundColor: effectiveTheme === 'light' ? '#18181b' : '#f2f2f3',
-                        buttonColor: effectiveTheme === 'light' ? '#e4e4e7' : '#19191b',
-                        buttonTextColor: effectiveTheme === 'light' ? '#18181b' : '#f2f2f3',
-                        topbarColor: effectiveTheme === 'light' ? '#ffffff' : '#0f1012',
-                        projectBarColor: effectiveTheme === 'light' ? '#ffffff' : '#131315',
-                        agentRailColor: effectiveTheme === 'light' ? '#ffffff' : '#131315',
-                        workspaceColor: effectiveTheme === 'light' ? '#ffffff' : '#131315',
-                        eventLogColor: effectiveTheme === 'light' ? '#ffffff' : '#131315',
+                        accentColor: effectiveTheme === 'light' ? '#475569' : defaultProgramSettings.accentColor,
+                        backgroundColor: effectiveTheme === 'light' ? '#f7f7f8' : defaultProgramSettings.backgroundColor,
+                        foregroundColor: effectiveTheme === 'light' ? '#18181b' : defaultProgramSettings.foregroundColor,
+                        buttonColor: effectiveTheme === 'light' ? '#e4e4e7' : defaultProgramSettings.buttonColor,
+                        buttonTextColor: effectiveTheme === 'light' ? '#18181b' : defaultProgramSettings.buttonTextColor,
+                        topbarColor: effectiveTheme === 'light' ? '#ffffff' : defaultProgramSettings.topbarColor,
+                        projectBarColor: effectiveTheme === 'light' ? '#ffffff' : defaultProgramSettings.projectBarColor,
+                        agentRailColor: effectiveTheme === 'light' ? '#ffffff' : defaultProgramSettings.agentRailColor,
+                        workspaceColor: effectiveTheme === 'light' ? '#ffffff' : defaultProgramSettings.workspaceColor,
+                        eventLogColor: effectiveTheme === 'light' ? '#ffffff' : defaultProgramSettings.eventLogColor,
                       }))}
                       type="button"
                     >
@@ -8735,7 +8830,6 @@ function App() {
 
       <section className="codexBrowser">
         <div>
-          <p className="eyebrow">{copy.projects}</p>
           <div className="codexPicker">
             <button
               className="projectStatusButton"

@@ -27,3 +27,13 @@ export function turnNeedsWatchdogIntervention(
   if (!Number.isFinite(runStartedAt) || runStartedAt <= 0) return false
   return now - observation.lastActivityAt >= TURN_INACTIVITY_TIMEOUT_MS
 }
+
+export function turnNeedsZombieIntervention(
+  observation: TurnActivityObservation,
+  runStartedAt: number,
+  now: number,
+) {
+  if (!Number.isFinite(runStartedAt) || runStartedAt <= 0) return false
+  if (now - runStartedAt < TURN_MAX_RUNTIME_MS) return false
+  return !observation.signature || now - observation.lastActivityAt >= TURN_INACTIVITY_TIMEOUT_MS
+}

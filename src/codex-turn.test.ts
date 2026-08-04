@@ -5,6 +5,7 @@ import {
   findCompletedConversationTurnById,
   findConversationTurnActivity,
   findConversationTurnActivityById,
+  findLatestCompletedConversationTurnAfter,
   requireStartedTurnId,
   type ConversationMessage,
 } from './codex-turn.ts'
@@ -143,4 +144,45 @@ test('finds a completed result directly by the open turn id', () => {
   ]
 
   assert.deepEqual(findCompletedConversationTurnById(messages, 'open-turn'), messages[0])
+})
+
+test('finds the latest completed result after the last known turn', () => {
+  const messages: ConversationMessage[] = [
+    {
+      id: 'old-result',
+      turnId: 'old-turn',
+      role: 'assistant',
+      text: 'Altes Ergebnis',
+      phase: 'final_answer',
+      turnStatus: 'completed',
+    },
+    {
+      id: 'new-result',
+      turnId: 'replacement-turn',
+      role: 'assistant',
+      text: 'Neues Ergebnis.',
+      phase: 'final_answer',
+      turnStatus: 'completed',
+    },
+  ]
+
+  assert.deepEqual(
+    findLatestCompletedConversationTurnAfter(messages, 'old-turn'),
+    messages[1],
+  )
+})
+
+test('does not reuse the last known completed turn as recovery result', () => {
+  const messages: ConversationMessage[] = [
+    {
+      id: 'old-result',
+      turnId: 'old-turn',
+      role: 'assistant',
+      text: 'Altes Ergebnis',
+      phase: 'final_answer',
+      turnStatus: 'completed',
+    },
+  ]
+
+  assert.equal(findLatestCompletedConversationTurnAfter(messages, 'old-turn'), null)
 })

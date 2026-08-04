@@ -350,7 +350,7 @@ h2 {
 
 .profileLauncher {
   align-items: center;
-  background: var(--surface);
+  background: var(--workspace-surface);
   border: 0;
   border-radius: 4px;
   bottom: -1px;
@@ -381,7 +381,7 @@ h2 {
 }
 
 .profileLauncher:hover {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--workspace-surface) 82%, var(--surface-hover));
   border-color: transparent;
 }
 
