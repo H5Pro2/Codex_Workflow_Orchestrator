@@ -26,6 +26,7 @@ export type WorkflowNodeData = {
   instructionIndicatorLabel?: string
   interval?: number
   intervalCount?: number
+  intervalDisplayCount?: number
   intervalMode?: 'replace' | 'both'
 }
 
@@ -34,10 +35,6 @@ export function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
   const isStop = data.kind === 'stop'
   const isTimer = data.kind === 'timer'
   const hasInterval = (data.kind === 'prompt' || data.kind === 'status') && Boolean(data.interval)
-  const intervalLimit = data.interval ?? 0
-  const visibleIntervalCount = hasInterval
-    ? Math.min(intervalLimit, Math.max(1, (data.intervalCount ?? 0) + 1))
-    : 0
   return (
     <div className={`workflowNodeContent ${data.kind} ${hasInterval ? 'intervalEnabled' : ''}`}>
       {data.hasInstruction && (
@@ -67,7 +64,7 @@ export function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
       )}
       {hasInterval && (
         <>
-          <span className="intervalProgress">{visibleIntervalCount}/{data.interval}</span>
+          <span className="intervalProgress">{data.intervalDisplayCount ?? data.intervalCount ?? 0}/{data.interval}</span>
           <span className="portLabel intervalOutput">{data.intervalOutputLabel ?? 'Intervall'}</span>
           <Handle className="intervalOutput" id="interval" type="source" position={Position.Right} />
         </>

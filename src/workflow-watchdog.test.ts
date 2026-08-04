@@ -48,9 +48,9 @@ test('marks a max-runtime turn without visible activity as zombie', () => {
   assert.equal(turnNeedsZombieIntervention(observation, 1, now), true)
 })
 
-test('keeps a max-runtime turn alive while fresh activity is visible', () => {
+test('marks a max-runtime turn as zombie even while activity is visible', () => {
   const now = TURN_MAX_RUNTIME_MS + 1_000
   const observation = observeTurnActivity(undefined, 'turn-1', 'working', now - 1_000)
 
-  assert.equal(turnNeedsZombieIntervention(observation, 1, now), false)
+  assert.equal(turnNeedsZombieIntervention(observation, 1, now), true)
 })

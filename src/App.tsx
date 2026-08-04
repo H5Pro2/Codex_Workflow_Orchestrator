@@ -1448,6 +1448,7 @@ function WorkflowDashboard({
   positions,
   dashboardId,
   layoutRevision,
+  projectCycle,
   autoRun,
   routes,
   selectedRouteId,
@@ -1477,6 +1478,7 @@ function WorkflowDashboard({
   positions: Record<string, { x: number; y: number }>
   dashboardId: string
   layoutRevision: number
+  projectCycle: number
   autoRun: boolean
   routes: WorkflowRoute[]
   selectedRouteId: string
@@ -1533,6 +1535,9 @@ function WorkflowDashboard({
             kindLabel: language === 'de' ? 'Weiterleiten' : 'Forward',
             interval: prompt.interval,
             intervalCount: prompt.intervalCount,
+            intervalDisplayCount: prompt.intervalSource === 'project' && prompt.interval > 0
+              ? Math.min(prompt.interval, Math.max(1, projectCycle))
+              : undefined,
             intervalMode: prompt.intervalMode,
             ...portLabels,
           },
@@ -1623,7 +1628,7 @@ function WorkflowDashboard({
           className: 'workflowNode loop',
         })),
       ],
-    [agents, initials, language, loops, portLabels, positions, prompts, selectedAgentNodeId, statusFilters, stops, timers],
+    [agents, initials, language, loops, portLabels, positions, projectCycle, prompts, selectedAgentNodeId, statusFilters, stops, timers],
   )
   const initialEdges = useMemo<Edge[]>(
     () =>
@@ -10712,6 +10717,7 @@ function App() {
                 positions={dashboardPositions}
                 dashboardId={activeDashboardOwnerId}
                 layoutRevision={layoutRevision}
+                projectCycle={autoRun && selectedLoopProgress ? selectedLoopProgress.cycle : 1}
                 autoRun={autoRun}
                 routes={dashboardRoutes}
                 selectedRouteId={selectedRouteId}

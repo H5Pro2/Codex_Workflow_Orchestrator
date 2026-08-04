@@ -474,7 +474,7 @@ test('manages internal CEO instructions through the real UI', { timeout: 75_000 
   assert.equal(sharedState.workflowPrompts.find((prompt) => prompt.name === 'Weiterleiten')?.intervalMode, 'both')
   assert.equal(await forwardNode.locator('[data-handleid="output"]').count(), 1)
   assert.equal(await forwardNode.locator('[data-handleid="interval"]').count(), 1)
-  await forwardNode.getByText('1/2', { exact: true }).waitFor()
+  await forwardNode.getByText('0/2', { exact: true }).waitFor()
   const forwardNodeBoxAfterInterval = await forwardNode.boundingBox()
   assert.ok(forwardNodeBoxAfterInterval.height > forwardNodeBoxBeforeInterval.height)
 
