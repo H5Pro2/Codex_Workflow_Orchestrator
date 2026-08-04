@@ -745,7 +745,7 @@ h2 {
 }
 
 .agentChat {
-  background: #101011;
+  background: var(--workspace-surface);
   border: 1px solid var(--line);
   border-radius: 8px;
   display: flex;
@@ -2636,31 +2636,31 @@ label {
   align-items: center;
   background: var(--surface-raised);
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  bottom: 37px;
-  color: var(--muted);
+  border-radius: 0;
+  bottom: 94.5px;
+  color: var(--text);
   display: inline-flex;
   font-size: 14px;
   font-weight: 900;
-  height: 26px;
+  height: 28px;
   justify-content: center;
   left: 15px;
   line-height: 1;
   padding: 0;
   position: absolute;
-  width: 26px;
+  width: 28px;
   z-index: 5;
 }
 
 .workflowGridToggle:hover {
   background: var(--surface-hover);
-  border-color: color-mix(in srgb, var(--line-strong) 70%, var(--accent) 30%);
+  border-color: var(--line-strong);
   color: var(--text);
 }
 
 .workflowGridToggle.active {
-  background: var(--surface-accent);
-  border-color: var(--accent);
+  background: var(--surface-raised);
+  border-color: var(--line-strong);
   color: var(--accent);
 }
 

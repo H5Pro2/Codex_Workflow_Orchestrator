@@ -7,6 +7,7 @@ import {
   type Edge,
   type Node,
   type ReactFlowInstance,
+  type SnapGrid,
   useNodesState,
   useUpdateNodeInternals,
 } from '@xyflow/react'
@@ -190,6 +191,7 @@ const workflowEdgeTypes = { workflow: WorkflowEdge }
 const INVENTORY_RECONCILIATION_GRACE_MS = 5 * 60 * 1000
 const ORPHANED_HANDOFF_GRACE_MS = 15_000
 const COMPLETED_TURN_RECOVERY_GRACE_MS = 10 * 60 * 1000
+const WORKFLOW_SNAP_GRID: SnapGrid = [20, 20]
 const AUTOMATION_LEASE_KEY = 'codex-orchestrator-automation-lease-v1'
 const AUTOMATION_LEASE_DURATION_MS = 7_000
 
@@ -1404,6 +1406,17 @@ function CollapsibleText({
   )
 }
 
+function translateWorkflowNodeLabel(label: string, language: UiLanguage) {
+  if (language === 'de') return label
+  const normalized = label.trim()
+  if (normalized === 'Weiterleiten') return 'Forward'
+  if (normalized === 'Rücksprung') return 'Return'
+  if (normalized === 'Zeitplan') return 'Schedule'
+  if (normalized === 'Start') return 'Start'
+  if (normalized === 'Stop') return 'Stop'
+  return label
+}
+
 function WorkflowDashboard({
   agents,
   prompts,
@@ -1464,6 +1477,12 @@ function WorkflowDashboard({
   language: UiLanguage
 }) {
   void statuses
+  const portLabels = useMemo(() => ({
+    inputLabel: language === 'de' ? 'IN' : 'IN',
+    outputLabel: language === 'de' ? 'OUT' : 'OUT',
+    normalOutputLabel: language === 'de' ? 'NORMAL' : 'NORMAL',
+    intervalOutputLabel: language === 'de' ? 'INTERVALL' : 'INTERVAL',
+  }), [language])
   const initialNodes = useMemo<Node[]>(
     () =>
       [
@@ -1479,7 +1498,7 @@ function WorkflowDashboard({
             width: 190,
             height: 64,
             position: positions[agent.id] ?? { x: 70 + (index % 3) * 220, y: 70 + Math.floor(index / 3) * 150 },
-            data: { label: agent.name, kind: 'agent' as const, status: agent.status, kindLabel: 'Agent' },
+            data: { label: agent.name, kind: 'agent' as const, status: agent.status, kindLabel: 'Agent', ...portLabels },
             className: `workflowNode agent ${agent.status} ${activeStep ? 'activeStep' : ''} ${agent.id === selectedAgentNodeId ? 'nodeSelected' : ''}`,
           }
         }),
@@ -1490,12 +1509,13 @@ function WorkflowDashboard({
           height: prompt.interval ? 128 : 64,
           position: positions[prompt.id] ?? { x: 180 + (index % 3) * 220, y: 250 + Math.floor(index / 3) * 150 },
           data: {
-            label: prompt.name,
+            label: translateWorkflowNodeLabel(prompt.name, language),
             kind: 'prompt' as const,
             kindLabel: language === 'de' ? 'Weiterleiten' : 'Forward',
             interval: prompt.interval,
             intervalCount: prompt.intervalCount,
             intervalMode: prompt.intervalMode,
+            ...portLabels,
           },
           className: 'workflowNode prompt',
         })),
@@ -1506,13 +1526,14 @@ function WorkflowDashboard({
           height: 64,
           position: positions[initial.id] ?? { x: 40, y: 70 + index * 130 },
           data: {
-            label: initial.name,
+            label: translateWorkflowNodeLabel(initial.name, language),
             kind: 'initial' as const,
             kindLabel: 'Start',
             hasInstruction: initial.instructionSource === 'user' && Boolean(initial.instruction.trim()),
             instructionIndicatorLabel: language === 'de'
               ? 'Optionale Anweisung vorhanden'
               : 'Optional instruction available',
+            ...portLabels,
           },
           className: 'workflowNode initial',
         })),
@@ -1530,6 +1551,7 @@ function WorkflowDashboard({
               interval: filter.interval,
               intervalCount: filter.intervalCount,
               intervalMode: filter.intervalMode,
+              ...portLabels,
             },
             className: 'workflowNode statusFilter',
           }
@@ -1540,7 +1562,12 @@ function WorkflowDashboard({
           width: 190,
           height: 64,
           position: positions[stop.id] ?? { x: 700, y: 120 + index * 130 },
-          data: { label: stop.name, kind: 'stop' as const, kindLabel: language === 'de' ? 'Pfad beenden' : 'End path' },
+          data: {
+            label: translateWorkflowNodeLabel(stop.name, language),
+            kind: 'stop' as const,
+            kindLabel: language === 'de' ? 'Pfad beenden' : 'End path',
+            ...portLabels,
+          },
           className: 'workflowNode stop',
         })),
         ...timers.map((timer, index) => ({
@@ -1549,7 +1576,12 @@ function WorkflowDashboard({
           width: 190,
           height: 64,
           position: positions[timer.id] ?? { x: 40, y: 240 + index * 130 },
-          data: { label: timer.name, kind: 'timer' as const, kindLabel: language === 'de' ? 'Zeitsteuerung' : 'Schedule' },
+          data: {
+            label: translateWorkflowNodeLabel(timer.name, language),
+            kind: 'timer' as const,
+            kindLabel: language === 'de' ? 'Zeitsteuerung' : 'Schedule',
+            ...portLabels,
+          },
           className: `workflowNode timer ${timer.enabled ? 'enabled' : 'disabled'}`,
         })),
         ...loops.map((loop, index) => ({
@@ -1559,19 +1591,20 @@ function WorkflowDashboard({
           height: 72 + Math.max(0, ((loop.targetAgentIds?.length || (loop.targetAgentId ? 1 : 0)) - 1)) * 18,
           position: positions[loop.id] ?? { x: 700, y: 300 + index * 130 },
           data: {
-            label: loop.name,
+            label: translateWorkflowNodeLabel(loop.name, language),
             kind: 'loop' as const,
             kindLabel: loop.targetAgentIds?.length
-              ? `Zu: ${loop.targetAgentIds
+              ? `${language === 'de' ? 'Zu' : 'To'}: ${loop.targetAgentIds
                 .map((targetId) => agents.find((agent) => agent.id === targetId)?.name)
                 .filter(Boolean)
                 .join(', ')}`
-              : 'Ziel wählen',
+              : language === 'de' ? 'Ziel wählen' : 'Select target',
+            ...portLabels,
           },
           className: 'workflowNode loop',
         })),
       ],
-    [agents, initials, language, loops, positions, prompts, selectedAgentNodeId, statusFilters, stops, timers],
+    [agents, initials, language, loops, portLabels, positions, prompts, selectedAgentNodeId, statusFilters, stops, timers],
   )
   const initialEdges = useMemo<Edge[]>(
     () =>
@@ -1592,6 +1625,7 @@ function WorkflowDashboard({
   const updateNodeInternals = useUpdateNodeInternals()
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null)
   const [agentDragOver, setAgentDragOver] = useState(false)
+  const [gridEnabled, setGridEnabled] = useState(false)
   const initialNodesRef = useRef(initialNodes)
   const isNodeDraggingRef = useRef(false)
   const previousDashboardIdRef = useRef(dashboardId)
@@ -1678,10 +1712,23 @@ function WorkflowDashboard({
         }
         onAgentDrop(
           agentId,
-          flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+          flowInstance.screenToFlowPosition(
+            { x: event.clientX, y: event.clientY },
+            { snapToGrid: gridEnabled, snapGrid: WORKFLOW_SNAP_GRID },
+          ),
         )
       }}
     >
+      <button
+        aria-label={language === 'de' ? 'Raster ein- oder ausschalten' : 'Toggle grid snapping'}
+        aria-pressed={gridEnabled}
+        className={`workflowGridToggle ${gridEnabled ? 'active' : ''}`}
+        onClick={() => setGridEnabled((current) => !current)}
+        title={language === 'de' ? 'Snap to Grid' : 'Snap to grid'}
+        type="button"
+      >
+        G
+      </button>
       <ReactFlow
         nodeTypes={workflowNodeTypes}
         edgeTypes={workflowEdgeTypes}
@@ -1723,7 +1770,8 @@ function WorkflowDashboard({
         fitViewOptions={{ padding: 0.22 }}
         nodeDragThreshold={4}
         reconnectRadius={26}
-        snapToGrid={false}
+        snapGrid={WORKFLOW_SNAP_GRID}
+        snapToGrid={gridEnabled}
       >
         <Controls showInteractive={false} />
       </ReactFlow>
@@ -9105,7 +9153,7 @@ function App() {
                     title={setupOpen ? tx('Setup schließen', 'Close setup') : tx('Setup öffnen', 'Open setup')}
                     type="button"
                   >
-                    E
+                    <span aria-hidden="true">⚙</span>
                   </button>
                 </span>
               </div>
@@ -10489,7 +10537,7 @@ function App() {
                     >
                       <span className="toolSymbol">+</span>
                       <span>
-                        <strong>Weiterleiten</strong>
+                        <strong>{tx('Weiterleiten', 'Forward')}</strong>
                         <small>{tx('Antwort mit optionalem Zusatzprompt weitergeben', 'Forward response with an optional prompt')}</small>
                       </span>
                     </button>
@@ -10502,7 +10550,7 @@ function App() {
                     >
                       <span className="toolSymbol loopToolSymbol">R</span>
                       <span>
-                        <strong>Rücksprung</strong>
+                        <strong>{tx('Rücksprung', 'Return')}</strong>
                         <small>{tx('Kurzer Rücksprung zu ausgewählten Agenten', 'Short return jump to selected agents')}</small>
                       </span>
                     </button>
@@ -10528,7 +10576,7 @@ function App() {
                     >
                       <span className="toolSymbol">Z</span>
                       <span>
-                        <strong>Zeitplan</strong>
+                        <strong>{tx('Zeitplan', 'Schedule')}</strong>
                         <small>{tx('Zeitgesteuerten Startpunkt anlegen', 'Create a scheduled start point')}</small>
                       </span>
                     </button>
