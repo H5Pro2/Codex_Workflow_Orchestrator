@@ -490,6 +490,25 @@ function normalizeWorkflowPrompts(value: unknown): WorkflowPrompt[] {
   return Array.isArray(value) ? value.map((prompt) => normalizeWorkflowPrompt(prompt)) : []
 }
 
+function workflowPromptEffectiveInterval(prompt: WorkflowPrompt, loopCounts: WorkflowLoopCounts) {
+  return prompt.intervalSource === 'project'
+    ? workflowLoopCountForProject(loopCounts, prompt.projectPath, [prompt.projectPath, `path:${prompt.projectPath}`])
+    : normalizeForwardInterval(prompt.interval)
+}
+
+function applyEffectiveWorkflowPromptIntervals(
+  prompts: readonly WorkflowPrompt[],
+  loopCounts: WorkflowLoopCounts,
+) {
+  return prompts.map((prompt) => {
+    const interval = workflowPromptEffectiveInterval(prompt, loopCounts)
+    const intervalCount = normalizeForwardIntervalCount(prompt.intervalCount, interval)
+    return interval === prompt.interval && intervalCount === prompt.intervalCount
+      ? prompt
+      : { ...prompt, interval, intervalCount }
+  })
+}
+
 function normalizeWorkflowStatusFilter(value: Partial<WorkflowStatusFilter>): WorkflowStatusFilter {
   const interval = normalizeForwardInterval(value.interval)
   return {
@@ -2179,7 +2198,7 @@ function App() {
   const [chatPinnedToBottom, setChatPinnedToBottom] = useState(true)
   const [communicationView, setCommunicationView] = useState<'overview' | 'chat'>('overview')
   const [communicationChatScope, setCommunicationChatScope] = useState<'team' | 'agent'>('team')
-  const [, setChatSending] = useState(false)
+  const [chatSending, setChatSending] = useState(false)
   const chatMessagesSnapshotRef = useRef('')
   const chatSendHandlerRef = useRef<(agentId: string, text: string) => Promise<boolean>>(
     async () => false,
@@ -2334,12 +2353,13 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const persistedWorkflowPrompts = applyEffectiveWorkflowPromptIntervals(workflowPrompts, workflowLoopCounts)
     const state = {
       agents,
       events,
       hiddenThreadIds,
       routes,
-      workflowPrompts,
+      workflowPrompts: persistedWorkflowPrompts,
       workflowInitials,
       workflowStatuses,
       workflowStatusFilters,
@@ -2399,6 +2419,13 @@ function App() {
                 ...normalizeWorkflowLoopCounts(serverState.workflowLoopCounts),
                 ...workflowLoopCounts,
               },
+              workflowPrompts: applyEffectiveWorkflowPromptIntervals(
+                normalizeWorkflowPrompts(serverState.workflowPrompts),
+                {
+                  ...normalizeWorkflowLoopCounts(serverState.workflowLoopCounts),
+                  ...workflowLoopCounts,
+                },
+              ),
             }
             const retryResponse = await fetch('/api/state', {
               method: 'PUT',
@@ -2557,6 +2584,36 @@ function App() {
   const selectedWorkflowCheckpoint = workflowRuntime.checkpoints.find(
     (checkpoint) => samePath(checkpoint.projectPath, selectedProjectPath),
   )
+  const effectiveWorkflowPrompts = useMemo(
+    () => applyEffectiveWorkflowPromptIntervals(workflowPrompts, workflowLoopCounts),
+    [workflowLoopCounts, workflowPrompts],
+  )
+
+  useEffect(() => {
+    if (!selectedProjectPath) return
+    setWorkflowPrompts((current) => {
+      let changed = false
+      const next = current.map((prompt) => {
+        if (!samePath(prompt.projectPath, selectedProjectPath) || prompt.intervalSource !== 'project') {
+          return prompt
+        }
+        const interval = workflowLoopCountForProject(
+          workflowLoopCounts,
+          prompt.projectPath,
+          [prompt.projectPath, `path:${prompt.projectPath}`],
+        )
+        const intervalCount = normalizeForwardIntervalCount(prompt.intervalCount, interval)
+        if (prompt.interval === interval && prompt.intervalCount === intervalCount) {
+          return prompt
+        }
+        changed = true
+        return { ...prompt, interval, intervalCount }
+      })
+      if (!changed) return current
+      sharedStateDirty.current = true
+      return next
+    })
+  }, [selectedProjectPath, workflowLoopCounts])
 
   useEffect(() => {
     if (!selectedProjectPath) return
@@ -2995,12 +3052,12 @@ function App() {
       routes.filter(
         (route) =>
           samePath(route.projectPath, selectedProject?.path ?? '') &&
-          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops, ...projectTimers, ...projectLoops].some((node) => node.id === route.sourceId) &&
-          [...projectAgents, ...workflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops, ...projectTimers, ...projectLoops].some((node) => node.id === route.targetId),
+          [...projectAgents, ...effectiveWorkflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops, ...projectTimers, ...projectLoops].some((node) => node.id === route.sourceId) &&
+          [...projectAgents, ...effectiveWorkflowPrompts, ...workflowInitials, ...projectStatusFilters, ...projectStops, ...projectTimers, ...projectLoops].some((node) => node.id === route.targetId),
       ),
-    [projectAgents, projectLoops, projectStatusFilters, projectStops, projectTimers, routes, selectedProject?.path, workflowInitials, workflowPrompts],
+    [effectiveWorkflowPrompts, projectAgents, projectLoops, projectStatusFilters, projectStops, projectTimers, routes, selectedProject?.path, workflowInitials],
   )
-  const projectPrompts = workflowPrompts.filter(
+  const projectPrompts = effectiveWorkflowPrompts.filter(
     (prompt) =>
       samePath(prompt.projectPath, selectedProject?.path ?? ''),
   )
@@ -4562,7 +4619,7 @@ function App() {
             events,
             hiddenThreadIds,
             routes: finalRoutes,
-            workflowPrompts,
+            workflowPrompts: applyEffectiveWorkflowPromptIntervals(workflowPrompts, workflowLoopCounts),
             workflowInitials: finalInitials,
             workflowStatuses: nextWorkflowStatuses,
             workflowStatusFilters: finalStatusFilters,
@@ -5248,7 +5305,7 @@ function App() {
       resultStatusIds: signal.statusIds,
       routes,
       statusFilters: workflowStatusFilters,
-      promptNodes: workflowPrompts,
+      promptNodes: effectiveWorkflowPrompts,
       loopNodes: workflowLoops,
       targetIds: new Set(agents.map((item) => item.id)),
       stopIds: new Set(workflowStops.map((item) => item.id)),
@@ -5266,7 +5323,7 @@ function App() {
       state: 'pending',
     })
     return true
-  }, [agents, persistWorkflowCheckpoint, routes, workflowLoops, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [agents, effectiveWorkflowPrompts, persistWorkflowCheckpoint, routes, workflowLoops, workflowStatusFilters, workflowStatuses, workflowStops])
 
   useEffect(() => {
     if (
@@ -5336,7 +5393,7 @@ function App() {
             resultStatusIds: workflowSignal.statusIds,
             routes,
             statusFilters: workflowStatusFilters,
-            promptNodes: workflowPrompts,
+            promptNodes: effectiveWorkflowPrompts,
             loopNodes: workflowLoops,
             targetIds: new Set(agents.map((item) => item.id)),
             stopIds: new Set(workflowStops.map((item) => item.id)),
@@ -6030,7 +6087,7 @@ function App() {
         }),
       ))
     }
-  }, [addEvent, agents, applyThreadReplacement, codexProjects, commitForwardIntervalHits, knowledgeSources, persistWorkflowCheckpoint, projectGoals, recordSupervisorDiagnosis, releaseAutomationLease, resetInactiveAgentStatuses, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, codexProjects, commitForwardIntervalHits, effectiveWorkflowPrompts, knowledgeSources, persistWorkflowCheckpoint, projectGoals, recordSupervisorDiagnosis, releaseAutomationLease, resetInactiveAgentStatuses, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowInitials, workflowStatusFilters, workflowStatuses, workflowStops])
 
   useEffect(() => {
     if (!autoRun || !automationLeader || !sharedStateReady || !selectedProjectPath) return
@@ -7726,6 +7783,37 @@ function App() {
   }, [addEvent, agents, applyThreadReplacement, knowledgeSources, projectGoals, routes, selectedProject?.path, updateAgent, workflowInitials, workflowStatuses])
   startInitialWorkflowsRef.current = startInitialWorkflows
 
+  const resetProjectForwardIntervalCounts = useCallback((projectPath: string) => {
+    if (!projectPath) return
+    setWorkflowPrompts((current) => {
+      let changed = false
+      const next = current.map((prompt) => {
+        if (!samePath(prompt.projectPath, projectPath) || prompt.intervalCount === 0) return prompt
+        changed = true
+        return { ...prompt, intervalCount: 0 }
+      })
+      if (!changed) return current
+      sharedStateDirty.current = true
+      return next
+    })
+    setWorkflowStatusFilters((current) => {
+      let changed = false
+      const next = current.map((filter) => {
+        if (!samePath(filter.projectPath, projectPath) || filter.intervalCount === 0) return filter
+        changed = true
+        return { ...filter, intervalCount: 0 }
+      })
+      if (!changed) return current
+      sharedStateDirty.current = true
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (autoRun || !selectedProjectPath) return
+    resetProjectForwardIntervalCounts(selectedProjectPath)
+  }, [autoRun, resetProjectForwardIntervalCounts, selectedProjectPath])
+
   const resetSelectedWorkflowRun = async () => {
     const activeProjectPath = selectedProject?.path ?? ''
     if (!activeProjectPath || workflowResetting) return
@@ -7815,11 +7903,13 @@ function App() {
 
   const toggleAutomation = () => {
     if (autoRun) {
+      const activeProjectPath = selectedProject?.path ?? ''
       sharedStateDirty.current = true
       autoRunRef.current = false
       setAutoRun(false)
       setTransmittingAgentIds([])
       updateDeliveryQueue(() => ({}))
+      resetProjectForwardIntervalCounts(activeProjectPath)
       resetInactiveAgentStatuses()
       releaseAutomationLease()
       addEvent('Automatik gestoppt', 'Weitere fertige Ergebnisse werden nicht automatisch weitergegeben.')
@@ -9733,6 +9823,19 @@ function App() {
                     >
                       <span aria-hidden="true">↓</span>
                     </button>
+                  )}
+                  {communicationChatScope === 'agent' && (
+                    <ChatComposer
+                      agentId={selectedAgent.id}
+                      ariaLabel={tx('Nachricht an den Agentenchat', 'Message to the agent chat')}
+                      enabled={Boolean(selectedAgent.threadId) && !chatSending}
+                      onSend={async (agentId, text) => chatSendHandlerRef.current(agentId, text)}
+                      placeholder={selectedAgent.threadId
+                        ? tx('User-Eingabe an diesen Agenten schreiben...', 'Write user input to this agent...')
+                        : tx('Kein Codex-Chat verknuepft.', 'No Codex chat linked.')}
+                      sending={chatSending}
+                      sendTitle={tx('Nachricht senden', 'Send message')}
+                    />
                   )}
                 </div>
                 )}
