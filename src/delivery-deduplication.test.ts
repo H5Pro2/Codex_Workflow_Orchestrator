@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   deliveryDeduplicationSignature,
+  isWorkflowSourceTurnReady,
   shouldDeliverWorkflowTask,
 } from './delivery-deduplication.ts'
 
@@ -47,4 +48,19 @@ test('allows statusless forwarding to repeat the same text from a new turn', () 
     currentSignature: secondTurn,
     lastForwardedSignature: firstTurn,
   }), true)
+})
+
+test('only forwards after the source agent has a completed turn and no open turn', () => {
+  assert.equal(isWorkflowSourceTurnReady({
+    pendingTurnId: '',
+    lastCompletedTurnId: 'turn-2',
+  }), true)
+  assert.equal(isWorkflowSourceTurnReady({
+    pendingTurnId: 'turn-3',
+    lastCompletedTurnId: 'turn-2',
+  }), false)
+  assert.equal(isWorkflowSourceTurnReady({
+    pendingTurnId: '',
+    lastCompletedTurnId: '',
+  }), false)
 })

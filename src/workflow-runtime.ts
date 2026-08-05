@@ -339,6 +339,15 @@ export function removeWorkflowCheckpoint(runtime: WorkflowRuntime, checkpointId:
   }
 }
 
+export function removeWorkflowProjectCheckpoints(runtime: WorkflowRuntime, projectPath: string) {
+  const checkpoints = runtime.checkpoints.filter(
+    (checkpoint) => !samePath(checkpoint.projectPath, projectPath),
+  )
+  return checkpoints.length === runtime.checkpoints.length
+    ? runtime
+    : { ...runtime, checkpoints }
+}
+
 export function resetProjectWorkflowRuntime(
   runtime: WorkflowRuntime,
   projectPath: string,

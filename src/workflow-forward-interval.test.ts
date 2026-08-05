@@ -6,6 +6,7 @@ import {
   normalizeForwardInterval,
   normalizeForwardIntervalCount,
   normalizeForwardIntervalMode,
+  projectForwardIntervalCount,
 } from './workflow-forward-interval.ts'
 
 test('uses the normal branch until the configured interval is reached', () => {
@@ -32,4 +33,15 @@ test('selects one or both source handles for interval hits', () => {
   assert.deepEqual(forwardIntervalSourceHandles('interval', 'both'), ['output', 'interval'])
   assert.equal(normalizeForwardIntervalMode('both'), 'both')
   assert.equal(normalizeForwardIntervalMode('anything'), 'replace')
+})
+
+test('derives project interval count from the active workflow cycle', () => {
+  assert.deepEqual(
+    nextForwardIntervalHit(2, projectForwardIntervalCount(1, 2)),
+    { branch: 'normal', nextCount: 1 },
+  )
+  assert.deepEqual(
+    nextForwardIntervalHit(2, projectForwardIntervalCount(2, 2)),
+    { branch: 'interval', nextCount: 0 },
+  )
 })

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  BRIDGE_STALL_TIMEOUT_MS,
   TURN_INACTIVITY_TIMEOUT_MS,
   TURN_MAX_RUNTIME_MS,
   observeTurnActivity,
+  turnNeedsBridgeStallIntervention,
   turnNeedsWatchdogIntervention,
   turnNeedsZombieIntervention,
 } from './workflow-watchdog.ts'
@@ -39,6 +41,20 @@ test('allows a long-running turn while it still shows activity', () => {
   const observation = observeTurnActivity(undefined, 'turn-1', 'recent', now - 1_000)
 
   assert.equal(turnNeedsWatchdogIntervention(observation, 1, now), false)
+})
+
+test('blocks a bridge turn that has no usable activity after the stall window', () => {
+  const now = BRIDGE_STALL_TIMEOUT_MS + 1_000
+  const observation = observeTurnActivity(undefined, 'turn-1', '', now)
+
+  assert.equal(turnNeedsBridgeStallIntervention(observation, 1, now), true)
+})
+
+test('does not block a bridge turn that still exposes activity', () => {
+  const now = BRIDGE_STALL_TIMEOUT_MS + 1_000
+  const observation = observeTurnActivity(undefined, 'turn-1', 'working', now - 1_000)
+
+  assert.equal(turnNeedsBridgeStallIntervention(observation, 1, now), false)
 })
 
 test('marks a max-runtime turn without visible activity as zombie', () => {

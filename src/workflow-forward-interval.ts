@@ -37,3 +37,11 @@ export function nextForwardIntervalHit(interval: unknown, currentCount: unknown)
     ? { branch: 'interval' as const, nextCount: 0 }
     : { branch: 'normal' as const, nextCount }
 }
+
+export function projectForwardIntervalCount(cycle: unknown, interval: unknown) {
+  const normalizedInterval = normalizeForwardInterval(interval)
+  if (normalizedInterval === 0) return 0
+  const parsedCycle = Number(cycle)
+  if (!Number.isFinite(parsedCycle)) return 0
+  return normalizeForwardIntervalCount(Math.max(1, Math.trunc(parsedCycle)) - 1, normalizedInterval)
+}

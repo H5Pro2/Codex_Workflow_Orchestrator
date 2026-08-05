@@ -1,15 +1,33 @@
 export function workflowDeliveryKey({
   sourceId,
+  sourceTurnId = '',
+  routeId = '',
+  sourceNodeId = '',
   targetId,
+  mode = 'read',
   statusIds,
   taskSignature = '',
 }: {
   sourceId: string
+  sourceTurnId?: string
+  routeId?: string
+  sourceNodeId?: string
   targetId: string
+  mode?: 'read' | 'stop'
   statusIds: readonly string[]
   taskSignature?: string
 }) {
-  return `${sourceId}->${targetId}:${[...statusIds].sort().join(',')}:${taskSignature}`
+  const statusKey = [...statusIds].sort().join(',')
+  return [
+    `source:${sourceId}`,
+    `turn:${sourceTurnId}`,
+    `node:${sourceNodeId}`,
+    `route:${routeId}`,
+    `target:${targetId}`,
+    `mode:${mode}`,
+    `status:${statusKey}`,
+    `task:${taskSignature}`,
+  ].join('|')
 }
 
 export function wouldRepeatWorkflowCycle(

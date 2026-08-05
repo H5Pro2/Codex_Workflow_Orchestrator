@@ -77,7 +77,7 @@ export function diagnoseWorkflowStall(
     return {
       cause: 'missing-route',
       summary: 'Ein Status wurde erkannt, aber kein passender Zielpfad wurde aufgelöst.',
-      nextStep: 'Pruefen, ob der erkannte Status zu einer vorhandenen Dashboard-Verbindung passt.',
+      nextStep: 'Prüfen, ob der erkannte Status zu einer vorhandenen Dashboard-Verbindung passt.',
     }
   }
 

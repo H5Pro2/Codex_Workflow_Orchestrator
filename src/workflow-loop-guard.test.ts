@@ -45,3 +45,24 @@ test('allows the same route for a new task', () => {
     firstTask,
   ], nextTask), false)
 })
+
+test('uses the completed source turn and route as delivery identity', () => {
+  const firstTurn = workflowDeliveryKey({
+    sourceId: 'lead',
+    sourceTurnId: 'turn-1',
+    routeId: 'route-a',
+    targetId: 'developer',
+    statusIds: [],
+    taskSignature: 'same result',
+  })
+  const secondTurn = workflowDeliveryKey({
+    sourceId: 'lead',
+    sourceTurnId: 'turn-2',
+    routeId: 'route-a',
+    targetId: 'developer',
+    statusIds: [],
+    taskSignature: 'same result',
+  })
+
+  assert.notEqual(firstTurn, secondTurn)
+})

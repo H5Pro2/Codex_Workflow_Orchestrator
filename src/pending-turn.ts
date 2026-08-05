@@ -29,8 +29,35 @@ export function shouldPollPendingTurn({
     threadId &&
     pendingTurnId &&
     pendingTurnId !== lastCompletedTurnId &&
+    !isDispatchLockTurnId(pendingTurnId) &&
     !isAlreadyPolling,
   )
+}
+
+export const DISPATCH_LOCK_TURN_PREFIX = 'dispatch-lock:'
+
+export function createDispatchLockTurnId(id = crypto.randomUUID()) {
+  return `${DISPATCH_LOCK_TURN_PREFIX}${id}`
+}
+
+export function isDispatchLockTurnId(turnId: string) {
+  return turnId.startsWith(DISPATCH_LOCK_TURN_PREFIX)
+}
+
+export function isStaleDispatchLock({
+  pendingTurnId,
+  updatedAt,
+  now,
+  maxAgeMs = 120_000,
+}: {
+  pendingTurnId: string
+  updatedAt: string
+  now: number
+  maxAgeMs?: number
+}) {
+  if (!isDispatchLockTurnId(pendingTurnId)) return false
+  const updatedTime = new Date(updatedAt).getTime()
+  return !Number.isFinite(updatedTime) || now - updatedTime >= maxAgeMs
 }
 
 type StableTerminalResultInput = {

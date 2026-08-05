@@ -19,3 +19,13 @@ export function shouldDeliverWorkflowTask({
 }) {
   return replayCheckpoint || !currentSignature || lastForwardedSignature !== currentSignature
 }
+
+export function isWorkflowSourceTurnReady({
+  pendingTurnId,
+  lastCompletedTurnId,
+}: {
+  pendingTurnId?: string
+  lastCompletedTurnId?: string
+}) {
+  return Boolean(lastCompletedTurnId) && !pendingTurnId
+}

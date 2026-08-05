@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  createDispatchLockTurnId,
   hasStableTerminalResult,
   isAgentWorking,
+  isDispatchLockTurnId,
+  isStaleDispatchLock,
   resolvePendingTurnStartedAt,
   shouldPollPendingTurn,
 } from './pending-turn.ts'
@@ -45,6 +48,28 @@ test('does not poll missing, completed, or currently polled turns', () => {
   assert.equal(shouldPollPendingTurn({ ...base, pendingTurnId: '' }), false)
   assert.equal(shouldPollPendingTurn({ ...base, lastCompletedTurnId: 'turn-2' }), false)
   assert.equal(shouldPollPendingTurn({ ...base, isAlreadyPolling: true }), false)
+})
+
+test('uses dispatch locks as persisted busy markers without polling them', () => {
+  const lockId = createDispatchLockTurnId('target')
+
+  assert.equal(isDispatchLockTurnId(lockId), true)
+  assert.equal(shouldPollPendingTurn({
+    threadId: 'thread',
+    pendingTurnId: lockId,
+    lastCompletedTurnId: 'turn-1',
+    isAlreadyPolling: false,
+  }), false)
+  assert.equal(isStaleDispatchLock({
+    pendingTurnId: lockId,
+    updatedAt: new Date(1_000).toISOString(),
+    now: 121_000,
+  }), true)
+  assert.equal(isStaleDispatchLock({
+    pendingTurnId: lockId,
+    updatedAt: new Date(1_000).toISOString(),
+    now: 30_000,
+  }), false)
 })
 
 test('accepts a repeatedly observed terminal result without a persisted start time', () => {

@@ -14,6 +14,7 @@ import {
   removeProjectCheckpointsSupersededAt,
   resetProjectWorkflowRuntime,
   removeWorkflowCheckpoint,
+  removeWorkflowProjectCheckpoints,
   resumableWorkflowCheckpoint,
   saveWorkflowCheckpoint,
   workflowRunEntry,
@@ -367,6 +368,53 @@ test('does not recover historical agents after a clean workflow stop', () => {
     lastResult: 'Noch nicht weitergegebenes Ergebnis',
     lastCompletedTurnId: 'turn-current',
   }), true)
+})
+
+test('removes only checkpoints for the completed project', () => {
+  const runtime = normalizeWorkflowRuntime({
+    runs: [],
+    checkpoints: [
+      {
+        id: 'project-checkpoint',
+        runId: 'run-1',
+        projectPath: 'C:\\Project',
+        sourceAgentId: 'lead',
+        sourceAgentName: 'Leitung',
+        sourceTurnId: 'turn-1',
+        targetAgentIds: ['review'],
+        targetAgentNames: ['Prüfung'],
+        statusIds: [],
+        statusNames: [],
+        result: 'Auftrag',
+        state: 'pending',
+        reason: '',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'other-checkpoint',
+        runId: 'run-2',
+        projectPath: 'C:\\Other',
+        sourceAgentId: 'lead',
+        sourceAgentName: 'Leitung',
+        sourceTurnId: 'turn-1',
+        targetAgentIds: ['review'],
+        targetAgentNames: ['Prüfung'],
+        statusIds: [],
+        statusNames: [],
+        result: 'Auftrag',
+        state: 'pending',
+        reason: '',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    ],
+  })
+
+  assert.deepEqual(
+    removeWorkflowProjectCheckpoints(runtime, 'C:\\Project').checkpoints.map((checkpoint) => checkpoint.id),
+    ['other-checkpoint'],
+  )
 })
 
 test('compacts persisted workflow history without removing recent run structure', () => {

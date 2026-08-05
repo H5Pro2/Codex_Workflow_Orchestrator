@@ -26,21 +26,21 @@ import {
 } from './team-plan.ts'
 import { runProvisioningTransaction } from './provisioning-transaction.ts'
 import {
-  findCompletedConversationTurn,
   findCompletedConversationTurnById,
   findConversationTurnActivity,
   findConversationTurnActivityById,
-  findLatestCompletedConversationTurnAfter,
   requireStartedTurnId,
 } from './codex-turn.ts'
 import {
   observeTurnActivity,
+  turnNeedsBridgeStallIntervention,
   turnNeedsWatchdogIntervention,
   turnNeedsZombieIntervention,
   type TurnActivityObservation,
 } from './workflow-watchdog.ts'
 import {
   deliveryDeduplicationSignature,
+  isWorkflowSourceTurnReady,
   shouldDeliverWorkflowTask,
 } from './delivery-deduplication.ts'
 import { explicitAgentStatusIds } from './agent-status-assignment.ts'
@@ -112,6 +112,7 @@ import {
   normalizeForwardIntervalMode,
   normalizeForwardInterval,
   normalizeForwardIntervalCount,
+  projectForwardIntervalCount,
   type ForwardIntervalMode,
 } from './workflow-forward-interval.ts'
 import { decideWorkflowContinuation } from './workflow-decision.ts'
@@ -131,6 +132,7 @@ import {
   removeProjectCheckpointsSupersededAt,
   resetProjectWorkflowRuntime,
   removeWorkflowCheckpoint,
+  removeWorkflowProjectCheckpoints,
   resumableWorkflowCheckpoint,
   saveWorkflowCheckpoint,
   workflowRunCycleProgress,
@@ -154,8 +156,10 @@ import {
   WorkflowNode,
 } from './workflow-canvas.tsx'
 import {
+  createDispatchLockTurnId,
   hasStableTerminalResult,
   isAgentWorking,
+  isStaleDispatchLock,
   resolvePendingTurnStartedAt,
   shouldPollPendingTurn,
 } from './pending-turn.ts'
@@ -190,7 +194,7 @@ const workflowEdgeTypes = { workflow: WorkflowEdge }
 
 const INVENTORY_RECONCILIATION_GRACE_MS = 5 * 60 * 1000
 const ORPHANED_HANDOFF_GRACE_MS = 15_000
-const COMPLETED_TURN_RECOVERY_GRACE_MS = 10 * 60 * 1000
+const ORPHANED_PENDING_TURN_GRACE_MS = 60_000
 const WORKFLOW_SNAP_GRID: SnapGrid = [20, 20]
 const AUTOMATION_LEASE_KEY = 'codex-orchestrator-automation-lease-v1'
 const AUTOMATION_LEASE_DURATION_MS = 7_000
@@ -458,9 +462,15 @@ type WorkflowLayoutPattern = {
 
 type WorkflowDelivery = {
   route: WorkflowRoute
+  deliveryKey?: string
+  sourceAgentId?: string
+  sourceTurnId?: string
+  sourceNodeId?: string
+  mode?: 'read' | 'stop'
   target?: Agent
   stop?: WorkflowStop
   promptNodeId?: string
+  loopNodeId?: string
   promptBranch?: 'normal' | 'interval'
   promptNextCount?: number
 }
@@ -909,8 +919,22 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
   const legacyAgent = agent as Partial<Agent> & { handoffTo?: string; managementInstructions?: string }
   const name = normalizeGermanTypography(agent.name ?? 'Agent')
   const legacyPrompt = normalizeGermanTypography(agent.prompt ?? '')
-  const normalizedStatus =
-    agent.status === 'laeuft' && !agent.pendingTurnId ? 'wartet' : agent.status ?? 'wartet'
+  const pendingTurnId = agent.pendingTurnId ?? ''
+  const staleDispatchLock = isStaleDispatchLock({
+    pendingTurnId,
+    updatedAt: agent.updatedAt ?? '',
+    now: Date.now(),
+  })
+  const hasOpenTurn = Boolean(
+    pendingTurnId &&
+    pendingTurnId !== agent.lastCompletedTurnId &&
+    !staleDispatchLock,
+  )
+  const normalizedStatus = hasOpenTurn
+    ? 'laeuft'
+    : agent.status === 'laeuft'
+      ? 'wartet'
+      : agent.status ?? 'wartet'
   const promptDocuments = Array.isArray(agent.promptDocuments) && agent.promptDocuments.length > 0
     ? agent.promptDocuments.map((document) => ({
         id: document.id || crypto.randomUUID(),
@@ -970,11 +994,13 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
     lastResult: agent.lastResult ?? '',
     instructionVersion: agent.instructionVersion ?? 1,
     lastInstruction: agent.lastInstruction ?? '',
-    runStartedAt: agent.runStartedAt ?? '',
+    runStartedAt: hasOpenTurn && !agent.runStartedAt
+      ? agent.updatedAt ?? new Date().toISOString()
+      : agent.runStartedAt ?? '',
     lastDurationMs: agent.lastDurationMs ?? 0,
     completedRuns: agent.completedRuns ?? 0,
     consecutiveFailedRuns: Math.max(0, agent.consecutiveFailedRuns ?? 0),
-    pendingTurnId: agent.pendingTurnId ?? '',
+    pendingTurnId: hasOpenTurn ? pendingTurnId : '',
     runPurpose: ['chat', 'chat-forward', 'handoff', 'handoff-repair', 'initial', 'prompt', 'status-repair', 'timer'].includes(agent.runPurpose ?? '')
       ? agent.runPurpose as AgentRunPurpose
       : '',
@@ -3259,12 +3285,29 @@ function App() {
 
         const hasLocalNameEdit = agent.name !== agent.threadTitle
         const hasExternalNameChange = agent.threadTitle !== thread.title
-        const nextStatus =
-          agent.status === 'laeuft' && !agent.pendingTurnId ? 'wartet' : agent.status
+        const staleDispatchLock = isStaleDispatchLock({
+          pendingTurnId: agent.pendingTurnId,
+          updatedAt: agent.updatedAt,
+          now: Date.now(),
+        })
+        const hasOpenTurn = Boolean(
+          agent.pendingTurnId && agent.pendingTurnId !== agent.lastCompletedTurnId && !staleDispatchLock,
+        )
+        const nextStatus = hasOpenTurn
+          ? 'laeuft'
+          : agent.status === 'laeuft'
+            ? 'wartet'
+            : agent.status
+        const nextPendingTurnId = hasOpenTurn ? agent.pendingTurnId : ''
+        const nextRunStartedAt = hasOpenTurn && !agent.runStartedAt
+          ? agent.updatedAt
+          : agent.runStartedAt
 
         if (
           (!hasExternalNameChange || hasLocalNameEdit) &&
-          nextStatus === agent.status
+          nextStatus === agent.status &&
+          nextPendingTurnId === agent.pendingTurnId &&
+          nextRunStartedAt === agent.runStartedAt
         ) {
           return agent
         }
@@ -3282,6 +3325,8 @@ function App() {
           threadTitle:
             hasExternalNameChange && !hasLocalNameEdit ? thread.title : agent.threadTitle,
           status: nextStatus as AgentStatus,
+          pendingTurnId: nextPendingTurnId,
+          runStartedAt: nextRunStartedAt,
           updatedAt: new Date().toISOString(),
         }
       })
@@ -3315,20 +3360,26 @@ function App() {
   )
 
   const addEvent = useCallback((title: string, detail: string) => {
-    setEvents((current) => [
-      { id: crypto.randomUUID(), at: nowLabel(), title, detail, projectPath: selectedProjectPath },
-      ...current.slice(0, 39),
-    ])
+    setEvents((current) => {
+      if (current[0]?.title === title && current[0]?.detail === detail) return current
+      return [
+        { id: crypto.randomUUID(), at: nowLabel(), title, detail, projectPath: selectedProjectPath },
+        ...current.slice(0, 39),
+      ]
+    })
   }, [selectedProjectPath])
 
   const updateAgent = useCallback((id: string, patch: Partial<Agent>) => {
     // Block incoming shared-state snapshots until this local change is persisted.
     sharedStateDirty.current = true
-    setAgents((current) =>
-      current.map((agent) =>
-        agent.id === id ? { ...agent, ...patch, updatedAt: new Date().toISOString() } : agent,
-      ),
-    )
+    setAgents((current) => {
+      const updatedAt = new Date().toISOString()
+      const next = current.map((agent) =>
+        agent.id === id ? { ...agent, ...patch, updatedAt } : agent,
+      )
+      agentsRef.current = next
+      return next
+    })
   }, [])
 
   const resetInactiveAgentStatuses = useCallback(() => {
@@ -3833,6 +3884,15 @@ function App() {
     setUserConfirmationResolvingAgentId(agent.id)
     setUserConfirmationError('')
     setAgentTransmission(agent.id, true)
+    const dispatchLockTurnId = createDispatchLockTurnId()
+    updateAgent(agent.id, {
+      status: 'laeuft',
+      pendingTurnId: dispatchLockTurnId,
+      pendingUserConfirmation: null,
+      runStartedAt: new Date().toISOString(),
+      runPurpose: request.forwardAfterConfirmation ? 'chat-forward' : 'chat',
+      lastInstruction: visibleText,
+    })
     const message = withInternalInstructions(visibleText, [
       request.kind === 'question'
         ? 'Der Benutzer beantwortet hiermit deine unmittelbar zuvor gestellte Rückfrage.'
@@ -3879,6 +3939,12 @@ function App() {
       )
     } catch (error) {
       releaseAgentDispatch(activeDeliveryTargetIds.current, agent.id)
+      updateAgent(agent.id, {
+        status: 'rueckfrage',
+        pendingTurnId: '',
+        pendingUserConfirmation: request,
+        runStartedAt: '',
+      })
       setUserConfirmationError(
         error instanceof Error ? error.message : 'Benutzerbestätigung konnte nicht gesendet werden.',
       )
@@ -5304,13 +5370,22 @@ function App() {
       agent.lastCompletedTurnId,
       false,
     )
+    const routingProgress = workflowRunCycleProgress(workflowRuntimeRef.current, agent.projectPath)
+    const routingPromptNodes = effectiveWorkflowPrompts.map((prompt) =>
+      prompt.intervalSource === 'project' && samePath(prompt.projectPath, agent.projectPath)
+        ? {
+            ...prompt,
+            intervalCount: projectForwardIntervalCount(routingProgress.cycle, prompt.interval),
+          }
+        : prompt,
+    )
     const targetIds = resolveConfiguredDeliveries({
       sourceId: agent.id,
       result: agent.lastResult,
       resultStatusIds: signal.statusIds,
       routes,
       statusFilters: workflowStatusFilters,
-      promptNodes: effectiveWorkflowPrompts,
+      promptNodes: routingPromptNodes,
       loopNodes: workflowLoops,
       targetIds: new Set(agents.map((item) => item.id)),
       stopIds: new Set(workflowStops.map((item) => item.id)),
@@ -5365,6 +5440,16 @@ function App() {
     if (!automationLeaderRef.current) {
       return
     }
+    if (!isWorkflowSourceTurnReady({
+      pendingTurnId: agent.pendingTurnId,
+      lastCompletedTurnId: agent.lastCompletedTurnId,
+    })) {
+      addEvent(
+        'Weitergabe wartet',
+        `${agent.name}: Der vorherige Agenten-Turn ist noch nicht abgeschlossen.`,
+      )
+      return
+    }
     const activeRoutes = routes.filter(
       (route) => route.sourceId === agent.id,
     )
@@ -5389,6 +5474,15 @@ function App() {
       agent.assignment,
       agent.lastResult,
     ].filter(Boolean).join('\n'))
+    const routingProgress = workflowRunCycleProgress(workflowRuntimeRef.current, agent.projectPath)
+    const routingPromptNodes = effectiveWorkflowPrompts.map((prompt) =>
+      prompt.intervalSource === 'project' && samePath(prompt.projectPath, agent.projectPath)
+        ? {
+            ...prompt,
+            intervalCount: projectForwardIntervalCount(routingProgress.cycle, prompt.interval),
+          }
+        : prompt,
+    )
     const topologyDeliveries: ResolvedWorkflowDelivery[] =
       unconditionalForwarding.enabled && unconditionalForwarding.deliveries?.length
         ? unconditionalForwarding.deliveries
@@ -5398,7 +5492,7 @@ function App() {
             resultStatusIds: workflowSignal.statusIds,
             routes,
             statusFilters: workflowStatusFilters,
-            promptNodes: effectiveWorkflowPrompts,
+            promptNodes: routingPromptNodes,
             loopNodes: workflowLoops,
             targetIds: new Set(agents.map((item) => item.id)),
             stopIds: new Set(workflowStops.map((item) => item.id)),
@@ -5437,6 +5531,26 @@ function App() {
       agent.lastCompletedTurnId,
       reportsTechnicalFailure || unconditionalForwarding.enabled,
     )
+    const activeRunForDispatch = activeWorkflowRun(workflowRuntimeRef.current, agent.projectPath)
+    if (
+      currentTaskSignature &&
+      activeRunForDispatch?.entries.some((entry) =>
+        entry.agentId === agent.id &&
+        entry.taskSignature === currentTaskSignature &&
+        ['completed', 'paused'].includes(entry.kind),
+      )
+    ) {
+      updateAgent(agent.id, {
+        status: 'weitergegeben',
+        pendingTurnId: '',
+        runStartedAt: '',
+      })
+      addEvent(
+        'Weitergabe blockiert',
+        `${agent.name}: Diese Agentenantwort wurde im aktuellen Lauf bereits verarbeitet.`,
+      )
+      return
+    }
     const resolvedConfiguredDeliveries: ResolvedWorkflowDelivery[] = reportsInternalWorkflowError
       ? []
       : topologyDeliveries
@@ -5445,12 +5559,13 @@ function App() {
       stopId,
       route,
       promptNodeId,
+      loopNodeId,
       promptBranch,
       promptNextCount,
     }) => {
       const resolvedRoute = route as WorkflowRoute
       const target = agents.find((item) => item.id === targetId)
-      const promptMetadata = { promptNodeId, promptBranch, promptNextCount }
+      const promptMetadata = { promptNodeId, loopNodeId, promptBranch, promptNextCount }
       if (target) return [{ target, route: resolvedRoute, ...promptMetadata }]
       const stop = workflowStops.find((item) => item.id === stopId)
       return stop ? [{ stop, route: resolvedRoute, ...promptMetadata }] : []
@@ -5504,7 +5619,28 @@ function App() {
       ...configuredDeliveries,
       ...(internalErrorDelivery ? [internalErrorDelivery] : []),
       ...(managementRecoveryDelivery ? [managementRecoveryDelivery] : []),
-    ]
+    ].map((delivery): WorkflowDelivery => {
+      const targetId = delivery.target?.id ?? delivery.stop?.id ?? ''
+      const mode = delivery.stop ? 'stop' : 'read'
+      const sourceNodeId = delivery.promptNodeId ?? delivery.loopNodeId ?? delivery.route.sourceId
+      return {
+        ...delivery,
+        deliveryKey: workflowDeliveryKey({
+          sourceId: agent.id,
+          sourceTurnId: agent.lastCompletedTurnId,
+          sourceNodeId,
+          routeId: delivery.route.id,
+          targetId,
+          mode,
+          statusIds: resultStatusIds,
+          taskSignature: currentTaskSignature,
+        }),
+        sourceAgentId: agent.id,
+        sourceTurnId: agent.lastCompletedTurnId,
+        sourceNodeId,
+        mode,
+      }
+    })
 
     const continuation = decideWorkflowContinuation({
       signal: workflowSignal,
@@ -5623,9 +5759,9 @@ function App() {
       )
       return
     }
-    const newDeliveries = deliveries.filter(({ route, target, stop }) => {
+    const newDeliveries = deliveries.filter(({ deliveryKey, route, target, stop }) => {
       if (shouldDeliverWorkflowTask({
-        currentSignature: currentTaskSignature,
+        currentSignature: deliveryKey || currentTaskSignature,
         lastForwardedSignature: route.lastForwardedTask,
         replayCheckpoint,
       })) {
@@ -5667,12 +5803,19 @@ function App() {
       return
     }
 
-    const stopDeliveries = newDeliveries.filter(
+    const resolvedStopDeliveries = newDeliveries.filter(
       (delivery): delivery is WorkflowDelivery & { stop: WorkflowStop } => Boolean(delivery.stop),
     )
     const agentDeliveries = newDeliveries.filter(
       (delivery): delivery is WorkflowDelivery & { target: Agent } => Boolean(delivery.target),
     )
+    const stopDeliveries = agentDeliveries.length > 0 ? [] : resolvedStopDeliveries
+    if (agentDeliveries.length > 0 && resolvedStopDeliveries.length > 0) {
+      addEvent(
+        'Stopp wartet',
+        `${agent.name}: Der Stopp wird erst bewertet, nachdem die weitergeleiteten Agenten geantwortet haben.`,
+      )
+    }
 
     if (agentDeliveries.length === 1 && stopDeliveries.length === 0) {
       const delivery = agentDeliveries[0]
@@ -5729,7 +5872,20 @@ function App() {
         ),
     )
     const activeRun = activeWorkflowRun(workflowRuntimeRef.current, agent.projectPath)
+    const projectHasActiveAgentWork = agentsRef.current.some((candidate) =>
+      samePath(candidate.projectPath, agent.projectPath) &&
+      candidate.id !== agent.id &&
+      (
+        Boolean(candidate.pendingTurnId && candidate.pendingTurnId !== candidate.lastCompletedTurnId) ||
+        candidate.status === 'laeuft' ||
+        activeDeliveryTargetIds.current.has(candidate.id) ||
+        Boolean(deliveryQueueRef.current[candidate.id]?.length)
+      ),
+    )
     const returningToInitialAgent = autoRunRef.current &&
+      resolvedStopDeliveries.length === 0 &&
+      agentDeliveries.length === 1 &&
+      !projectHasActiveAgentWork &&
       wouldCompleteWorkflowCycleOnReturn({
         run: activeRun,
         sourceAgentId: agent.id,
@@ -5747,11 +5903,11 @@ function App() {
       })
     }
 
-    stopDeliveries.forEach(({ route, stop }) => {
-      if (currentTaskSignature) {
+    stopDeliveries.forEach(({ route, stop, deliveryKey }) => {
+      if (deliveryKey) {
         setRoutes((current) =>
           current.map((item) =>
-            item.id === route.id ? { ...item, lastForwardedTask: currentTaskSignature } : item,
+            item.id === route.id ? { ...item, lastForwardedTask: deliveryKey } : item,
           ),
         )
       }
@@ -5782,6 +5938,7 @@ function App() {
           agentName: agent.name,
           statusIds: resultStatusIds,
           statusNames: resultStatusNames,
+          taskSignature: currentTaskSignature,
           detail: completionDetail,
         })
         return progress.shouldContinue
@@ -5793,7 +5950,11 @@ function App() {
                 detail: `Lauf ${progress.cycle + 1}/${progress.targetCycles} gestartet`,
               }),
             )
-          : appendWorkflowRunEntry(withoutCheckpoint, agent.projectPath, completedEntry)
+          : appendWorkflowRunEntry(
+              removeWorkflowProjectCheckpoints(withoutCheckpoint, agent.projectPath),
+              agent.projectPath,
+              completedEntry,
+            )
       })
 
       if (progress.shouldContinue) {
@@ -5877,6 +6038,7 @@ function App() {
       updateDeliveryQueue(() => ({}))
       activeDeliveryTargetIds.current.clear()
       const progress = workflowRunCycleProgress(workflowRuntimeRef.current, agent.projectPath)
+      const runBeforeInitialReturn = activeWorkflowRun(workflowRuntimeRef.current, agent.projectPath)
       const completionDetail = `${agent.name}: Rückgabe zum Initial-Agenten beendet Lauf ${progress.cycle}/${progress.targetCycles}.`
       updateWorkflowRuntime((current) => {
         const checkpoint = current.checkpoints.find(
@@ -5888,6 +6050,7 @@ function App() {
           agentName: agent.name,
           statusIds: resultStatusIds,
           statusNames: resultStatusNames,
+          taskSignature: currentTaskSignature,
           detail: completionDetail,
         })
         return progress.shouldContinue
@@ -5899,7 +6062,11 @@ function App() {
                 detail: `Lauf ${progress.cycle + 1}/${progress.targetCycles} gestartet`,
               }),
             )
-          : appendWorkflowRunEntry(withoutCheckpoint, agent.projectPath, completedEntry)
+          : appendWorkflowRunEntry(
+              removeWorkflowProjectCheckpoints(withoutCheckpoint, agent.projectPath),
+              agent.projectPath,
+              completedEntry,
+            )
       })
 
       if (progress.shouldContinue) {
@@ -5928,6 +6095,16 @@ function App() {
           'Automatik am Laufende beendet',
           `${agent.name} hat Lauf ${progress.cycle}/${progress.targetCycles} abgeschlossen. Die Rückgabe zum Initial-Agenten wurde nicht erneut gesendet.`,
         )
+        setWorkflowStopNotice({
+          projectName: codexProjects.find((project) => samePath(project.path, agent.projectPath))?.label ?? agent.projectPath,
+          sourceAgentName: agent.name,
+          stopNames: ['Laufende'],
+          cycle: progress.cycle,
+          targetCycles: progress.targetCycles,
+          durationMs: runBeforeInitialReturn
+            ? Math.max(0, Date.now() - Date.parse(runBeforeInitialReturn.startedAt))
+            : agent.lastDurationMs,
+        })
         return
       }
     }
@@ -5949,12 +6126,33 @@ function App() {
           'Weitergabe wartet',
           `${agent.name} -> ${target.name}: Der Zielagent verarbeitet noch eine andere Übergabe.`,
         )
+        updateWorkflowRuntime((current) => appendWorkflowRunEntry(
+          current,
+          agent.projectPath,
+          workflowRunEntry('handoff-pending', {
+            agentId: agent.id,
+            agentName: agent.name,
+            targetAgentIds: [target.id],
+            targetAgentNames: [target.name],
+            statusIds: resultStatusIds,
+            statusNames: resultStatusNames,
+            taskSignature: currentTaskSignature,
+            detail: `${agent.name} -> ${target.name}: Wartet auf freien Zielagenten.`,
+          }),
+        ))
       }
       return false
     })
-    if (readyAgentDeliveries.length === 0) return
+    if (readyAgentDeliveries.length === 0) {
+      updateAgent(agent.id, {
+        status: 'weitergegeben',
+        pendingTurnId: '',
+        runStartedAt: '',
+      })
+      return
+    }
 
-    const deliveryAttempts = await Promise.all(readyAgentDeliveries.map(async ({ target, route }) => {
+    const deliveryAttempts = await Promise.all(readyAgentDeliveries.map(async ({ target, route, deliveryKey }) => {
       const message = buildHandoffMessage(
         agent,
         target,
@@ -5975,8 +6173,10 @@ function App() {
         return { targetId: target.id, targetName: target.name, delivered: false }
       }
 
+      const dispatchLockTurnId = createDispatchLockTurnId()
       updateAgent(target.id, {
         status: 'laeuft',
+        pendingTurnId: dispatchLockTurnId,
         lastResult: message,
         runStartedAt: new Date().toISOString(),
         lastInboundAgentId: agent.id,
@@ -6001,11 +6201,11 @@ function App() {
           status: 'laeuft',
           pendingTurnId: turnId,
         })
-        if (currentTaskSignature) {
+        if (deliveryKey) {
           setRoutes((current) =>
             current.map((item) =>
               item.id === route.id
-                ? { ...item, lastForwardedTask: currentTaskSignature }
+                ? { ...item, lastForwardedTask: deliveryKey }
                 : item,
             ),
           )
@@ -6028,6 +6228,8 @@ function App() {
     const deliveryOutcome = summarizeDeliveryAttempts(deliveryAttempts)
     updateAgent(agent.id, {
       status: deliveryOutcome.sourceStatus,
+      pendingTurnId: '',
+      runStartedAt: '',
       ...(managementRecoveryDelivery && deliveryOutcome.delivered
         ? { lastInboundAgentId: '' }
         : {}),
@@ -7149,19 +7351,25 @@ function App() {
                   )
                   if (conversationResponse.ok) {
                     const conversation = await conversationResponse.json()
+                    const conversationMessages = conversation.messages ?? []
+                    const pendingTurnVisible = conversationMessages.some(
+                      (message: ChatMessage) => message.turnId === agent.pendingTurnId,
+                    )
+                    if (!pendingTurnVisible && runAgeMs >= ORPHANED_PENDING_TURN_GRACE_MS) {
+                      data = {
+                        turnId: agent.pendingTurnId,
+                        status: 'missing',
+                        text: '',
+                        durationMs: runAgeMs,
+                        error: {
+                          message: `Bridge-Turn ${agent.pendingTurnId} ist nicht mehr in der Chat-Historie auffindbar.`,
+                        },
+                      }
+                    }
                     const completedMessage = findCompletedConversationTurnById(
-                      conversation.messages ?? [],
+                      conversationMessages,
                       agent.pendingTurnId,
-                    ) ?? findCompletedConversationTurn(
-                      conversation.messages ?? [],
-                      agent.lastResult,
-                      agent.lastCompletedTurnId,
-                    ) ?? (runAgeMs >= COMPLETED_TURN_RECOVERY_GRACE_MS
-                      ? findLatestCompletedConversationTurnAfter(
-                          conversation.messages ?? [],
-                          agent.lastCompletedTurnId,
-                        )
-                      : null)
+                    )
                     if (completedMessage) {
                       if (completedMessage.turnId !== agent.pendingTurnId) {
                         addEvent(
@@ -7178,10 +7386,10 @@ function App() {
                       }
                     } else {
                       const activity = findConversationTurnActivityById(
-                        conversation.messages ?? [],
+                        conversationMessages,
                         agent.pendingTurnId,
                       ) ?? findConversationTurnActivity(
-                        conversation.messages ?? [],
+                        conversationMessages,
                         agent.lastResult,
                         agent.lastCompletedTurnId,
                       )
@@ -7207,8 +7415,8 @@ function App() {
                   ) {
                     watchdogInterventionTurnIds.current.add(activeTurnId)
                     addEvent(
-                      'Systemueberwachung meldet Verzoegerung',
-                      `${agent.name}: Seit mindestens fuenf Minuten wurde keine neue Codex-Aktivitaet erkannt. Der Lauf bleibt aktiv.`,
+                      'Systemüberwachung meldet Verzögerung',
+                      `${agent.name}: Seit mindestens fünf Minuten wurde keine neue Codex-Aktivität erkannt. Der Lauf bleibt aktiv.`,
                     )
                     const noticeDurationSeconds = Math.round(runAgeMs / 1000)
                     setStallNotice({
@@ -7217,8 +7425,11 @@ function App() {
                       durationSeconds: noticeDurationSeconds,
                     })
                   }
-                  if (turnNeedsZombieIntervention(observation, persistedRunStartedAt, now)) {
-                    const failureDetail = `Bridge-Turn ${activeTurnId} haengt seit ${Math.round(runAgeMs / 60_000)} Minuten ohne verwertbare Codex-Aktivitaet.`
+                  if (
+                    turnNeedsBridgeStallIntervention(observation, persistedRunStartedAt, now) ||
+                    turnNeedsZombieIntervention(observation, persistedRunStartedAt, now)
+                  ) {
+                    const failureDetail = `Bridge-Turn ${activeTurnId} hängt seit ${Math.round(runAgeMs / 60_000)} Minuten ohne verwertbare Codex-Aktivität.`
                     const failedAgent: Agent = {
                       ...agent,
                       status: agent.runPurpose === 'chat'
@@ -7599,6 +7810,13 @@ function App() {
             if (!reserveAgentDispatch(activeDeliveryTargetIds.current, target)) {
               throw new Error(`${target.name} verarbeitet bereits einen anderen Auftrag.`)
             }
+            const dispatchLockTurnId = createDispatchLockTurnId()
+            updateAgent(target.id, {
+              status: 'laeuft',
+              runStartedAt: firedAt,
+              pendingTurnId: dispatchLockTurnId,
+              runPurpose: 'timer',
+            })
             const message = [
               `Zeitgesteuerte Aufgabe: ${timer.name}`,
               '',
@@ -7634,6 +7852,11 @@ function App() {
               })
             } catch (error) {
               releaseAgentDispatch(activeDeliveryTargetIds.current, target.id)
+              updateAgent(target.id, {
+                status: 'wartet',
+                pendingTurnId: '',
+                runStartedAt: '',
+              })
               throw error
             }
           }))
@@ -7705,6 +7928,13 @@ function App() {
           )
           return
         }
+        const dispatchLockTurnId = createDispatchLockTurnId()
+        updateAgent(target.id, {
+          status: 'laeuft',
+          runStartedAt: new Date().toISOString(),
+          pendingTurnId: dispatchLockTurnId,
+          runPurpose: 'initial',
+        })
 
         const initialLeadInstructions = isRepeatCycle
           ? [
@@ -7777,6 +8007,11 @@ function App() {
           )
         } catch (error) {
           releaseAgentDispatch(activeDeliveryTargetIds.current, target.id)
+          updateAgent(target.id, {
+            status: 'wartet',
+            pendingTurnId: '',
+            runStartedAt: '',
+          })
           addEvent(
             isRepeatCycle ? 'Folgelauf nicht gesendet' : 'Initial-Anfrage nicht gesendet',
             `${target.name}: ${error instanceof Error ? error.message : 'Connector nicht erreichbar.'}`,
