@@ -103,8 +103,6 @@ import {
 } from './workflow-protocol.ts'
 import {
   resolveConfiguredDeliveries,
-  resolveUnconditionalForwarding,
-  wouldCreateUnsupportedUnconditionalForwardCycle,
   type ResolvedWorkflowDelivery,
 } from './workflow-routing.ts'
 import {
@@ -185,7 +183,7 @@ import { diagnoseWorkflowStall } from './workflow-supervisor.ts'
 type AgentStatus = 'wartet' | 'laeuft' | 'fertig' | 'rueckfrage' | 'weitergegeben'
 type UiLanguage = 'de' | 'en'
 type AgentAssignment = 'agent' | 'management'
-type AgentRunPurpose = '' | 'chat' | 'chat-forward' | 'handoff' | 'handoff-repair' | 'initial' | 'prompt' | 'status-repair' | 'timer'
+type AgentRunPurpose = '' | 'chat' | 'chat-forward' | 'handoff' | 'handoff-repair' | 'initial' | 'prompt' | 'status-repair' | 'terminal-read' | 'timer'
 type ThemeMode = 'system' | 'light' | 'dark'
 type SettingsSection = 'general' | 'profile' | 'appearance'
 
@@ -312,6 +310,50 @@ type WorkflowStopNotice = {
   cycle: number
   targetCycles: number
   durationMs: number
+}
+
+type TerminalStopCheckpointReason = {
+  stopIds: string[]
+  stopNames: string[]
+}
+
+const TERMINAL_STOP_CHECKPOINT_PREFIX = 'terminal-stop:'
+const WORKFLOW_TRIGGER_RUN_PURPOSES = new Set<AgentRunPurpose>([
+  'handoff',
+  'handoff-repair',
+  'initial',
+  'prompt',
+  'status-repair',
+  'terminal-read',
+  'timer',
+])
+
+function isWorkflowTriggeredRunPurpose(runPurpose: AgentRunPurpose) {
+  return WORKFLOW_TRIGGER_RUN_PURPOSES.has(runPurpose)
+}
+
+function terminalStopCheckpointReason(stops: readonly { id: string; name: string }[]) {
+  return `${TERMINAL_STOP_CHECKPOINT_PREFIX}${JSON.stringify({
+    stopIds: stops.map((stop) => stop.id),
+    stopNames: stops.map((stop) => stop.name),
+  } satisfies TerminalStopCheckpointReason)}`
+}
+
+function parseTerminalStopCheckpointReason(reason: string): TerminalStopCheckpointReason | null {
+  if (!reason.startsWith(TERMINAL_STOP_CHECKPOINT_PREFIX)) return null
+  try {
+    const parsed = JSON.parse(reason.slice(TERMINAL_STOP_CHECKPOINT_PREFIX.length)) as Partial<TerminalStopCheckpointReason>
+    return {
+      stopIds: Array.isArray(parsed.stopIds)
+        ? parsed.stopIds.filter((item): item is string => typeof item === 'string')
+        : [],
+      stopNames: Array.isArray(parsed.stopNames)
+        ? parsed.stopNames.filter((item): item is string => typeof item === 'string')
+        : [],
+    }
+  } catch {
+    return null
+  }
 }
 
 type PendingApproval = {
@@ -549,11 +591,11 @@ function chatMessageIdentity(message: ChatMessage, agentName: string, language: 
     }
   }
 
-  const handoff = message.text.match(/^Übergabe von (.+?) an (.+?)(?:\r?\n|$)/)
+  const handoff = message.text.match(/^(?:Übergabe|Leseauftrag) von (.+?) an (.+?)(?:\r?\n|$)/)
   if (handoff) {
     return {
       name: handoff[1],
-      label: `${language === 'de' ? 'Übergabe an' : 'Handoff to'} ${handoff[2]}`,
+      label: `${language === 'de' ? 'Leseauftrag an' : 'Read request to'} ${handoff[2]}`,
     }
   }
 
@@ -1001,7 +1043,7 @@ function normalizeAgent(agent: Partial<Agent>): Agent {
     completedRuns: agent.completedRuns ?? 0,
     consecutiveFailedRuns: Math.max(0, agent.consecutiveFailedRuns ?? 0),
     pendingTurnId: hasOpenTurn ? pendingTurnId : '',
-    runPurpose: ['chat', 'chat-forward', 'handoff', 'handoff-repair', 'initial', 'prompt', 'status-repair', 'timer'].includes(agent.runPurpose ?? '')
+    runPurpose: ['chat', 'chat-forward', 'handoff', 'handoff-repair', 'initial', 'prompt', 'status-repair', 'terminal-read', 'timer'].includes(agent.runPurpose ?? '')
       ? agent.runPurpose as AgentRunPurpose
       : '',
     lastCompletedTurnId: agent.lastCompletedTurnId ?? '',
@@ -1340,15 +1382,24 @@ function buildHandoffMessage(
   statuses: WorkflowStatusDefinition[],
   sources: KnowledgeSource[],
   projectGoal: string,
-  fixedForwarding = false,
+  terminalRead = false,
 ) {
+  const systemRouteInstruction = route.id.startsWith('internal-workflow-error:') ||
+    route.id.startsWith('management-recovery:')
+    ? route.prompt
+    : ''
   return [
-    `Übergabe von ${source.name} an ${target.name}`,
+    `Leseauftrag von ${source.name} an ${target.name}`,
     '',
-    `Workflow-Bedingung: ${route.condition || 'Immer'}`,
+    'Quelle:',
+    `Agent: ${source.name}`,
+    source.threadTitle ? `Codex-Chat: ${source.threadTitle}` : '',
+    source.lastCompletedTurnId ? `Abgeschlossener Turn: ${source.lastCompletedTurnId}` : '',
     '',
-    'Übergabe-Anweisung:',
-    route.prompt || 'Bearbeite das übergebene Ergebnis gemäß deiner Rolle.',
+    'Baustein:',
+    route.condition ? `Pfad: ${route.condition}` : 'Pfad: Weiterleiten',
+    systemRouteInstruction ? 'System-Anweisung:' : '',
+    systemRouteInstruction,
     '',
     'Rollenbezug des Ziel-Agenten:',
     target.role,
@@ -1360,19 +1411,15 @@ function buildHandoffMessage(
       : '',
     '',
     currentHandoffContextInstruction(),
-    fixedForwarding
-      ? 'Feste Weiterleitung: Der Orchestrator hat die vorherige Antwort automatisch als Gesprächsbeitrag weitergegeben. Bearbeite den Eingang gemäß deiner Rolle und der Übergabe-Anweisung.'
-      : '',
-    '',
-    'Ergebnis / Auftrag:',
-    source.lastResult || 'Kein Ergebnistext hinterlegt.',
     '',
     internalProjectGoalInstruction(projectGoal),
     '',
     knowledgeSourceInstruction(sources),
     '',
-    'Bitte analysiere diesen Eingang gemäß deiner Rollen-Anweisung und liefere wieder das Abschlussformat.',
-    workflowStatusInstruction(statuses),
+    terminalRead
+      ? 'Terminaler Leseauftrag vor einem Stopp: Lies die letzte abgeschlossene Antwort der Quelle. Beruecksichtige sie gemaess deiner Rolle. Starte keine weitere Workflow-Weitergabe und liefere keinen neuen Workflow-Status.'
+      : 'Lies die letzte abgeschlossene Antwort der Quelle. Beruecksichtige sie gemaess deiner Rollen-Anweisung und liefere danach wieder das Abschlussformat.',
+    terminalRead ? '' : workflowStatusInstruction(statuses),
   ].join('\n')
 }
 
@@ -3033,6 +3080,7 @@ function App() {
       active = false
       window.clearInterval(timer)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- The chat poll is keyed by stable agent signatures; depending on full agent objects resets manual scroll state.
   }, [communicationChatScope, selectedAgentChatKey, teamChatAgentKey, tx])
 
   useEffect(() => {
@@ -3061,12 +3109,15 @@ function App() {
   const visibleProjectKnowledgeSources = projectKnowledgeSources.filter(
     (source) => source.type === knowledgeSourceType,
   )
-  const projectStatusFilters = LEGACY_STATUS_UI_ENABLED
-    ? workflowStatusFilters.filter(
-        (filter) =>
-          samePath(filter.projectPath, selectedProject?.path ?? ''),
-      )
-    : []
+  const projectStatusFilters = useMemo(
+    () => LEGACY_STATUS_UI_ENABLED
+      ? workflowStatusFilters.filter(
+          (filter) =>
+            samePath(filter.projectPath, selectedProject?.path ?? ''),
+        )
+      : [],
+    [selectedProject?.path, workflowStatusFilters],
+  )
   const projectStops = workflowStops.filter(
     (stop) =>
       samePath(stop.projectPath, selectedProject?.path ?? ''),
@@ -5340,28 +5391,6 @@ function App() {
     if (workflowRuntimeRef.current.checkpoints.some((checkpoint) =>
       samePath(checkpoint.projectPath, agent.projectPath) && checkpoint.sourceAgentId === agent.id,
     )) return false
-    const unconditionalForwarding = resolveUnconditionalForwarding({
-      sourceId: agent.id,
-      statusId: UNCONDITIONAL_FORWARD_STATUS_ID,
-      routes,
-      statusFilters: workflowStatusFilters,
-      targetIds: new Set(agents.map((item) => item.id)),
-    })
-    if (unconditionalForwarding.enabled) {
-      const targetIds = (unconditionalForwarding.deliveries ?? [])
-        .map((delivery) => delivery.targetId)
-        .filter(Boolean)
-      const targets = agents.filter((item) => targetIds.includes(item.id))
-      if (targets.length === 0 || unconditionalForwarding.issue) return false
-      persistWorkflowCheckpoint({
-        source: agent,
-        targets,
-        statusIds: [UNCONDITIONAL_FORWARD_STATUS_ID],
-        statusNames: [UNCONDITIONAL_FORWARD_STATUS_NAME],
-        state: 'pending',
-      })
-      return true
-    }
     const projectStatuses = workflowStatusesForAgent(agent, workflowStatuses)
     const signal = parseWorkflowSignal(agent.lastResult, projectStatuses)
     if (signal.kind !== 'valid') return false
@@ -5454,22 +5483,7 @@ function App() {
       (route) => route.sourceId === agent.id,
     )
     const projectStatuses = workflowStatusesForAgent(agent, workflowStatuses)
-    const unconditionalForwarding = resolveUnconditionalForwarding({
-      sourceId: agent.id,
-      statusId: UNCONDITIONAL_FORWARD_STATUS_ID,
-      routes,
-      statusFilters: workflowStatusFilters,
-      targetIds: new Set(agents.map((item) => item.id)),
-    })
-    const workflowSignal = unconditionalForwarding.enabled
-      ? {
-          kind: 'valid' as const,
-          statusIds: [UNCONDITIONAL_FORWARD_STATUS_ID],
-          names: [UNCONDITIONAL_FORWARD_STATUS_NAME],
-          unknownNames: [],
-          source: 'none' as const,
-        }
-      : parseWorkflowSignal(agent.lastResult, projectStatuses)
+    const workflowSignal = parseWorkflowSignal(agent.lastResult, projectStatuses)
     const constraintViolation = workflowConstraintViolation([
       agent.assignment,
       agent.lastResult,
@@ -5483,23 +5497,20 @@ function App() {
           }
         : prompt,
     )
-    const topologyDeliveries: ResolvedWorkflowDelivery[] =
-      unconditionalForwarding.enabled && unconditionalForwarding.deliveries?.length
-        ? unconditionalForwarding.deliveries
-        : resolveConfiguredDeliveries({
-            sourceId: agent.id,
-            result: agent.lastResult,
-            resultStatusIds: workflowSignal.statusIds,
-            routes,
-            statusFilters: workflowStatusFilters,
-            promptNodes: routingPromptNodes,
-            loopNodes: workflowLoops,
-            targetIds: new Set(agents.map((item) => item.id)),
-            stopIds: new Set(workflowStops.map((item) => item.id)),
-          })
+    const topologyDeliveries: ResolvedWorkflowDelivery[] = resolveConfiguredDeliveries({
+      sourceId: agent.id,
+      result: agent.lastResult,
+      resultStatusIds: workflowSignal.statusIds,
+      routes,
+      statusFilters: workflowStatusFilters,
+      promptNodes: routingPromptNodes,
+      loopNodes: workflowLoops,
+      targetIds: new Set(agents.map((item) => item.id)),
+      stopIds: new Set(workflowStops.map((item) => item.id)),
+    })
     const reportsInternalWorkflowError = Boolean(
-      constraintViolation || unconditionalForwarding.issue,
-    ) || (!unconditionalForwarding.enabled && topologyDeliveries.length === 0 && shouldEscalateInternalWorkflowError({
+      constraintViolation,
+    ) || (topologyDeliveries.length === 0 && shouldEscalateInternalWorkflowError({
       assignment: agent.assignment,
       signalKind: workflowSignal.kind,
       runPurpose: agent.runPurpose,
@@ -5529,7 +5540,7 @@ function App() {
     const currentTaskSignature = deliveryDeduplicationSignature(
       taskSignature(agent.lastResult),
       agent.lastCompletedTurnId,
-      reportsTechnicalFailure || unconditionalForwarding.enabled,
+      reportsTechnicalFailure,
     )
     const activeRunForDispatch = activeWorkflowRun(workflowRuntimeRef.current, agent.projectPath)
     if (
@@ -5585,7 +5596,7 @@ function App() {
             targetId: internalErrorManager.id,
             condition: INTERNAL_WORKFLOW_ERROR_STATUS_NAME,
             prompt: internalWorkflowErrorHandoffInstruction(
-              constraintViolation || unconditionalForwarding.issue || workflowSignalIssue(workflowSignal),
+              constraintViolation || workflowSignalIssue(workflowSignal),
             ),
           },
         }
@@ -5660,8 +5671,8 @@ function App() {
         deliveryCount: deliveries.length,
         statusKind: workflowSignal.kind,
         statusNames: workflowSignal.names,
-        fixedForwardingEnabled: unconditionalForwarding.enabled,
-        fixedForwardingIssue: unconditionalForwarding.issue,
+        fixedForwardingEnabled: false,
+        fixedForwardingIssue: '',
         continuationReason: continuation.reason,
       })
       recordSupervisorDiagnosis({
@@ -5809,11 +5820,13 @@ function App() {
     const agentDeliveries = newDeliveries.filter(
       (delivery): delivery is WorkflowDelivery & { target: Agent } => Boolean(delivery.target),
     )
+    const terminalStopDeliveries = agentDeliveries.length > 0 ? resolvedStopDeliveries : []
     const stopDeliveries = agentDeliveries.length > 0 ? [] : resolvedStopDeliveries
-    if (agentDeliveries.length > 0 && resolvedStopDeliveries.length > 0) {
+    const terminalStopMode = terminalStopDeliveries.length > 0
+    if (terminalStopMode) {
       addEvent(
-        'Stopp wartet',
-        `${agent.name}: Der Stopp wird erst bewertet, nachdem die weitergeleiteten Agenten geantwortet haben.`,
+        'Stopp wartet auf Leseabschluss',
+        `${agent.name}: Der Stopp wird erst ausgelöst, nachdem alle angeschlossenen Zielagenten den Eingang gelesen haben.`,
       )
     }
 
@@ -5900,6 +5913,9 @@ function App() {
         statusIds: resultStatusIds,
         statusNames: resultStatusNames,
         state: 'pending',
+        reason: terminalStopMode
+          ? terminalStopCheckpointReason(terminalStopDeliveries.map((delivery) => delivery.stop))
+          : '',
       })
     }
 
@@ -6160,7 +6176,7 @@ function App() {
         workflowStatusesForAgent(target, workflowStatuses),
         knowledgeSourcesForAgent(knowledgeSources, target.projectPath, target.usesProjectKnowledge),
         projectGoalForProject(projectGoals, target.projectPath),
-        unconditionalForwarding.enabled,
+        terminalStopMode,
       )
       if (!target.threadId) {
         activeDeliveryTargetIds.current.delete(target.id)
@@ -6180,7 +6196,7 @@ function App() {
         lastResult: message,
         runStartedAt: new Date().toISOString(),
         lastInboundAgentId: agent.id,
-        runPurpose: 'handoff',
+        runPurpose: terminalStopMode ? 'terminal-read' : 'handoff',
       })
       try {
         const response = await fetch(
@@ -6245,8 +6261,20 @@ function App() {
         const checkpoint = current.checkpoints.find(
           (item) => samePath(item.projectPath, agent.projectPath) && item.sourceAgentId === agent.id,
         )
+        const deliveredTerminalTargets = terminalStopMode
+          ? readyAgentDeliveries.filter((delivery) =>
+              deliveryOutcome.deliveredTargets.includes(delivery.target.name),
+            )
+          : []
         const withoutCheckpoint = checkpoint
-          ? removeWorkflowCheckpoint(current, checkpoint.id)
+          ? terminalStopMode
+            ? saveWorkflowCheckpoint(current, {
+                ...checkpoint,
+                targetAgentIds: deliveredTerminalTargets.map((delivery) => delivery.target.id),
+                targetAgentNames: deliveredTerminalTargets.map((delivery) => delivery.target.name),
+                updatedAt: new Date().toISOString(),
+              })
+            : removeWorkflowCheckpoint(current, checkpoint.id)
           : current
         return appendWorkflowRunEntry(
           withoutCheckpoint,
@@ -6294,7 +6322,7 @@ function App() {
         }),
       ))
     }
-  }, [addEvent, agents, applyThreadReplacement, codexProjects, commitForwardIntervalHits, effectiveWorkflowPrompts, knowledgeSources, persistWorkflowCheckpoint, projectGoals, recordSupervisorDiagnosis, releaseAutomationLease, resetInactiveAgentStatuses, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowInitials, workflowStatusFilters, workflowStatuses, workflowStops])
+  }, [addEvent, agents, applyThreadReplacement, codexProjects, commitForwardIntervalHits, effectiveWorkflowPrompts, knowledgeSources, persistWorkflowCheckpoint, projectGoals, recordSupervisorDiagnosis, releaseAutomationLease, resetInactiveAgentStatuses, routes, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowInitials, workflowLoops, workflowStatusFilters, workflowStatuses, workflowStops])
 
   useEffect(() => {
     if (!autoRun || !automationLeader || !sharedStateReady || !selectedProjectPath) return
@@ -6384,21 +6412,12 @@ function App() {
         route.sourceId === sourceForwardFilter.id &&
         (route.sourceHandle ?? 'output') === sourceHandle,
       )
-      const createsUnsupportedCycle = targetIsAgent && wouldCreateUnsupportedUnconditionalForwardCycle({
-        sourceAgentId: sourceForwardFilter.ownerAgentId,
-        targetAgentId: connection.target,
-        statusId: UNCONDITIONAL_FORWARD_STATUS_ID,
-        routes,
-        statusFilters: workflowStatusFilters,
-      })
-      if (!targetIsAgent || alreadyHasTarget || createsUnsupportedCycle) {
+      if (!targetIsAgent || alreadyHasTarget) {
         addEvent(
           'Workflow-Verbindung abgelehnt',
-          createsUnsupportedCycle
-            ? 'Der feste Status „Weiterleiten“ erlaubt nur einen direkten Zwei-Agenten-Kreis. Selbstschleifen und größere Kreise sind gesperrt.'
-            : sourceForwardFilter.interval
-              ? 'Jeder Ausgang des festen Status „Weiterleiten“ darf genau einen Zielagenten besitzen.'
-              : 'Der feste Status „Weiterleiten“ muss mit genau einem Zielagenten verbunden sein.',
+          sourceForwardFilter.interval
+            ? 'Jeder Ausgang des festen Status „Weiterleiten“ darf genau einen Zielagenten besitzen.'
+            : 'Der feste Status „Weiterleiten“ muss mit genau einem Zielagenten verbunden sein.',
         )
         return
       }
@@ -6436,7 +6455,7 @@ function App() {
       'Workflow-Verbindung erstellt',
       `${nodeName(route.sourceId)} → ${nodeName(route.targetId)}`,
     )
-  }, [activeDashboardOwnerId, addEvent, agents, routes, selectedProject?.path, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStops, workflowTimers])
+  }, [addEvent, agents, routes, selectedAgent?.id, selectedProject?.path, workflowInitials, workflowPrompts, workflowStatusFilters, workflowStops, workflowTimers])
 
   const addWorkflowPrompt = () => {
     const prompt: WorkflowPrompt = {
@@ -6496,13 +6515,6 @@ function App() {
     sharedStateDirty.current = true
     setWorkflowPrompts((current) => current.map((prompt) =>
       prompt.id === promptId ? { ...prompt, intervalMode } : prompt,
-    ))
-  }
-
-  const updateWorkflowPromptIntervalPrompt = (promptId: string, intervalPrompt: string) => {
-    sharedStateDirty.current = true
-    setWorkflowPrompts((current) => current.map((prompt) =>
-      prompt.id === promptId ? { ...prompt, intervalPrompt } : prompt,
     ))
   }
 
@@ -7432,7 +7444,7 @@ function App() {
                     const failureDetail = `Bridge-Turn ${activeTurnId} hängt seit ${Math.round(runAgeMs / 60_000)} Minuten ohne verwertbare Codex-Aktivität.`
                     const failedAgent: Agent = {
                       ...agent,
-                      status: agent.runPurpose === 'chat'
+                      status: !isWorkflowTriggeredRunPurpose(agent.runPurpose)
                         ? 'wartet'
                         : autoRunRef.current ? 'rueckfrage' : 'wartet',
                       lastResult: [
@@ -7521,7 +7533,7 @@ function App() {
                 const overloadEscalation = shouldEscalateWorkload(consecutiveFailedRuns)
                 const failedAgent: Agent = {
                   ...agent,
-                  status: agent.runPurpose === 'chat'
+                  status: !isWorkflowTriggeredRunPurpose(agent.runPurpose)
                     ? 'wartet'
                     : autoRunRef.current ? 'rueckfrage' : 'wartet',
                   lastResult: overloadEscalation
@@ -7567,7 +7579,7 @@ function App() {
                     'Automatik gestoppt',
                     `${failedAgent.name} benötigt nach einem fehlgeschlagenen Lauf eine Benutzerentscheidung.`,
                   )
-                } else if (autoRunRef.current && failedAgent.runPurpose !== 'chat' && failedAgent.autoForward) {
+                } else if (autoRunRef.current && isWorkflowTriggeredRunPurpose(failedAgent.runPurpose) && failedAgent.autoForward) {
                   await handoff(failedAgent)
                   await forwardNextQueuedSource(failedAgent.id)
                 }
@@ -7580,7 +7592,7 @@ function App() {
               const pendingUserConfirmation = parsedUserConfirmation
                 ? {
                     ...parsedUserConfirmation,
-                    forwardAfterConfirmation: agent.runPurpose !== 'chat',
+                    forwardAfterConfirmation: isWorkflowTriggeredRunPurpose(agent.runPurpose),
                     resumeAutomation: autoRunRef.current,
                   }
                 : agent.runPurpose === 'chat' && agent.pendingUserConfirmation?.dismissed
@@ -7633,7 +7645,81 @@ function App() {
                 }
                 return
               }
-              if (!autoRunRef.current && completedAgent.runPurpose !== 'chat') {
+              if (completedAgent.runPurpose === 'terminal-read') {
+                const terminalCheckpoint = workflowRuntimeRef.current.checkpoints.find((checkpoint) =>
+                  samePath(checkpoint.projectPath, completedAgent.projectPath) &&
+                  checkpoint.targetAgentIds.includes(completedAgent.id) &&
+                  Boolean(parseTerminalStopCheckpointReason(checkpoint.reason)),
+                )
+                if (!terminalCheckpoint) {
+                  if (autoRunRef.current) {
+                    await forwardNextQueuedSource(completedAgent.id)
+                  }
+                  return
+                }
+
+                const remainingTargetIds = terminalCheckpoint.targetAgentIds.filter((targetId) => targetId !== completedAgent.id)
+                const remainingTargetNames = terminalCheckpoint.targetAgentNames.filter((_, index) =>
+                  terminalCheckpoint.targetAgentIds[index] !== completedAgent.id,
+                )
+                if (remainingTargetIds.length > 0) {
+                  updateWorkflowRuntime((current) => saveWorkflowCheckpoint(current, {
+                    ...terminalCheckpoint,
+                    targetAgentIds: remainingTargetIds,
+                    targetAgentNames: remainingTargetNames,
+                    updatedAt: new Date().toISOString(),
+                  }))
+                  addEvent(
+                    'Stopp wartet auf Leseabschluss',
+                    `${completedAgent.name}: Noch offen: ${remainingTargetNames.join(', ')}.`,
+                  )
+                  if (autoRunRef.current) {
+                    await forwardNextQueuedSource(completedAgent.id)
+                  }
+                  return
+                }
+
+                const terminalStop = parseTerminalStopCheckpointReason(terminalCheckpoint.reason)
+                const runBeforeStop = activeWorkflowRun(workflowRuntimeRef.current, completedAgent.projectPath)
+                const progress = workflowRunCycleProgress(workflowRuntimeRef.current, completedAgent.projectPath)
+                const stopNames = terminalStop?.stopNames.length ? terminalStop.stopNames : ['Stopp']
+                sharedStateDirty.current = true
+                autoRunRef.current = false
+                setAutoRun(false)
+                setTransmittingAgentIds([])
+                updateDeliveryQueue(() => ({}))
+                activeDeliveryTargetIds.current.clear()
+                releaseAutomationLease()
+                resetInactiveAgentStatuses()
+                updateWorkflowRuntime((current) => appendWorkflowRunEntry(
+                  removeWorkflowProjectCheckpoints(
+                    removeWorkflowCheckpoint(current, terminalCheckpoint.id),
+                    completedAgent.projectPath,
+                  ),
+                  completedAgent.projectPath,
+                  workflowRunEntry('completed', {
+                    agentId: completedAgent.id,
+                    agentName: completedAgent.name,
+                    detail: `${completedAgent.name}: Terminaler Leseabschluss vor ${stopNames.join(', ')}.`,
+                  }),
+                ))
+                addEvent(
+                  'Automatik am Stopp beendet',
+                  `${completedAgent.name} hat den terminalen Leseauftrag abgeschlossen. Es werden keine weiteren Uebergaben gestartet.`,
+                )
+                setWorkflowStopNotice({
+                  projectName: codexProjects.find((project) => samePath(project.path, completedAgent.projectPath))?.label ?? completedAgent.projectPath,
+                  sourceAgentName: completedAgent.name,
+                  stopNames,
+                  cycle: progress.cycle,
+                  targetCycles: progress.targetCycles,
+                  durationMs: runBeforeStop
+                    ? Math.max(0, Date.now() - Date.parse(runBeforeStop.startedAt))
+                    : completedAgent.lastDurationMs,
+                })
+                return
+              }
+              if (!autoRunRef.current && isWorkflowTriggeredRunPurpose(completedAgent.runPurpose)) {
                 const continuationSaved = capturePendingContinuation(completedAgent)
                 if (continuationSaved) {
                   addEvent(
@@ -7683,7 +7769,7 @@ function App() {
                 )
                 return
               }
-              if (completedAgent.runPurpose === 'chat') {
+              if (!isWorkflowTriggeredRunPurpose(completedAgent.runPurpose)) {
                 if (autoRunRef.current) {
                   await forwardNextQueuedSource(completedAgent.id)
                 }
@@ -7720,7 +7806,7 @@ function App() {
                 )
                 return
               }
-              if (autoRunRef.current && agent.autoForward) {
+              if (autoRunRef.current && isWorkflowTriggeredRunPurpose(completedAgent.runPurpose) && agent.autoForward) {
                 await handoff(completedAgent)
               }
               if (autoRunRef.current) {
@@ -7755,7 +7841,7 @@ function App() {
     void poll()
     const timer = window.setInterval(() => void poll(), 2500)
     return () => window.clearInterval(timer)
-  }, [addEvent, agents, autoRun, capturePendingContinuation, handoff, persistWorkflowCheckpoint, releaseAutomationLease, resetInactiveAgentStatuses, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowStatuses])
+  }, [addEvent, agents, autoRun, capturePendingContinuation, codexProjects, handoff, persistWorkflowCheckpoint, releaseAutomationLease, resetInactiveAgentStatuses, updateAgent, updateDeliveryQueue, updateWorkflowRuntime, workflowStatuses])
 
   useEffect(() => {
     if (!autoRun || !automationLeader) return
@@ -9297,9 +9383,23 @@ function App() {
         <aside className="agentRail">
           <div className="railHeader">
             <div className="railHeaderTitle">
-              <strong className="railProjectName">
-                {selectedProject?.label ?? tx('Kein Projekt', 'No project')}
-              </strong>
+              <label className="railProjectPicker">
+                <span>{tx('Projekt', 'Project')}</span>
+                <select
+                  aria-label={tx('Projekt auswählen', 'Select project')}
+                  value={selectedProject?.id ?? projectFilter}
+                  onChange={(event) => setProjectFilter(event.target.value)}
+                >
+                  {codexProjects.length === 0 && (
+                    <option value="">{tx('Kein Projekt', 'No project')}</option>
+                  )}
+                  {codexProjects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <div className="railHeaderMeta">
                 <small>{projectAgents.length} {tx('Agenten', 'agents')}</small>
                 <button
@@ -9782,8 +9882,8 @@ function App() {
               <strong>Codex Adapter</strong>
               <p>
                 {tx(
-                  'Der lokale Connector synchronisiert Projekte und Tasks, erstellt neue Codex-Chats, übernimmt Umbenennungen, sendet Rollen-Anweisungen und archiviert gelöschte Agenten. Ergebnisse werden bis zum Abschluss überwacht und gemäß der Verdrahtung automatisch an den nächsten Agenten übergeben.',
-                  'The local connector synchronizes projects and tasks, creates Codex chats, applies renames, sends role instructions, and archives deleted agents. Results are monitored until completion and forwarded automatically according to the workflow wiring.',
+                  'Der lokale Connector synchronisiert Projekte und Tasks, erstellt neue Codex-Chats, übernimmt Umbenennungen, sendet Rollen-Anweisungen und archiviert gelöschte Agenten. Antworten werden bis zum Abschluss überwacht; der nächste Agent erhält gemäß Verdrahtung einen Leseauftrag zur Quelle.',
+                  'The local connector synchronizes projects and tasks, creates Codex chats, applies renames, sends role instructions, and archives deleted agents. Answers are monitored until completion; the next agent receives a read request for the wired source.',
                 )}
               </p>
             </div>
@@ -10553,17 +10653,6 @@ function App() {
                 onChange={(event) => updateWorkflowPrompt(selectedPrompt.id, { name: event.target.value })}
               />
             </label>
-            <details className="forwardingNodeSection">
-              <summary>{tx('Weiterleiten-Text', 'Forwarding text')}</summary>
-              <label>
-                {tx('Zusatzprompt für den nächsten Agenten', 'Additional prompt for the next agent')}
-                <textarea
-                  rows={6}
-                  value={selectedPrompt.prompt}
-                  onChange={(event) => updateWorkflowPrompt(selectedPrompt.id, { prompt: event.target.value, condition: '' })}
-                />
-              </label>
-            </details>
             <details className="forwardingNodeSection intervalBlock">
               <summary>{tx('Intervall-Ausgang', 'Interval output')}</summary>
               <label>
@@ -10595,17 +10684,6 @@ function App() {
                       value={selectedPrompt.intervalSource === 'project'
                         ? `${selectedLoopCount} ${tx('Projekt-Läufe', 'project runs')}`
                         : selectedPrompt.interval}
-                    />
-                  </label>
-                  <label>
-                    {tx('Intervalltext', 'Interval text')}
-                    <textarea
-                      rows={4}
-                      value={selectedPrompt.intervalPrompt}
-                      onChange={(event) =>
-                        updateWorkflowPromptIntervalPrompt(selectedPrompt.id, event.target.value)
-                      }
-                      placeholder={tx('Optional: eigener Text für den Intervall-Ausgang.', 'Optional: separate text for the interval output.')}
                     />
                   </label>
                   <label>
@@ -10881,7 +10959,7 @@ function App() {
                       <span className="toolSymbol">+</span>
                       <span>
                         <strong>{tx('Weiterleiten', 'Forward')}</strong>
-                        <small>{tx('Antwort mit optionalem Zusatzprompt weitergeben', 'Forward response with an optional prompt')}</small>
+                        <small>{tx('Antwort des Quellagenten lesen lassen', 'Let the target read the source answer')}</small>
                       </span>
                     </button>
                     <button
@@ -11817,7 +11895,7 @@ function App() {
               </details>
             </section>
             <p className="modalHint statusFilterInfo">
-              {tx('Dieser Baustein gibt die letzte Antwort des vorherigen Agenten direkt an den nächsten verbundenen Agenten weiter. Der Zusatztext wird an diese Übergabe angehängt.', 'This node forwards the previous agent answer directly to the next connected agent. The additional text is appended to that handoff.')}
+              {tx('Dieser Baustein laesst den naechsten verbundenen Agenten die letzte abgeschlossene Antwort der Quelle lesen. Der Orchestrator kopiert keinen Ergebnistext.', 'This node lets the next connected agent read the latest completed answer from the source. The orchestrator does not copy result text.')}
             </p>
             <div className="modalActions">
               <button

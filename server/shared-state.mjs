@@ -80,6 +80,21 @@ function sanitizeManualState(nextState) {
     return nextState
   }
   const sanitized = { ...nextState }
+  const pruneDanglingRoutes = () => {
+    if (!Array.isArray(sanitized.routes)) return
+    const validNodeIds = new Set()
+    ;['agents', 'workflowPrompts', 'workflowInitials', 'workflowStops', 'workflowLoops', 'workflowTimers'].forEach((key) => {
+      const collection = Array.isArray(sanitized[key]) ? sanitized[key] : []
+      collection.forEach((item) => {
+        if (item?.id) validNodeIds.add(item.id)
+      })
+    })
+    sanitized.routes = sanitized.routes.filter((route) => {
+      if (!route || typeof route !== 'object') return false
+      if (!('sourceId' in route) && !('targetId' in route)) return true
+      return validNodeIds.has(route.sourceId) && validNodeIds.has(route.targetId)
+    })
+  }
   if (Array.isArray(sanitized.agents)) {
     sanitized.agents = sanitized.agents.map((agent) => {
       if (!agent || typeof agent !== 'object' || Array.isArray(agent)) return agent
@@ -122,6 +137,7 @@ function sanitizeManualState(nextState) {
   )
   delete sanitized.workflowStatusFilters
   if (legacyProjectPaths.size === 0) {
+    pruneDanglingRoutes()
     return sanitized
   }
 
@@ -168,6 +184,7 @@ function sanitizeManualState(nextState) {
       .map((agent) => agent.id)
       .filter(Boolean)
   })
+  pruneDanglingRoutes()
   return sanitized
 }
 

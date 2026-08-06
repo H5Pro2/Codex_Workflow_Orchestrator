@@ -45,19 +45,6 @@ export type ResolvedWorkflowDelivery = {
   promptNextCount?: number
 }
 
-export function resolveUnconditionalForwarding(_input?: unknown): {
-  enabled: boolean
-  delivery: ResolvedWorkflowDelivery | null
-  deliveries: ResolvedWorkflowDelivery[]
-  issue: string
-} {
-  return { enabled: false, delivery: null, deliveries: [], issue: '' }
-}
-
-export function wouldCreateUnsupportedUnconditionalForwardCycle(_input?: unknown) {
-  return false
-}
-
 export function routeConditionMatches(_condition: string, _result: string) {
   return true
 }
